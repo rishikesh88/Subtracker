@@ -25,29 +25,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/google/callback", async (req, res) => {
+  app.get("/api/auth/google/callback", async (req, res) => {
     try {
-      const { code, userId } = req.body;
+      const { code, state } = req.query;
       
-      if (!code || !userId) {
-        return res.status(400).json({ message: "Missing code or userId" });
+      if (!code) {
+        return res.status(400).json({ message: "Missing authorization code" });
       }
 
-      const tokens = await gmailService.getTokens(code);
+      const gmailService = new GmailService();
+      const tokens = await gmailService.getTokens(code as string);
       
-      // Update user with Gmail tokens
-      const updatedUser = await storage.updateUser(userId, {
-        gmailAccessToken: tokens.access_token || null,
-        gmailRefreshToken: tokens.refresh_token || null,
-        gmailConnected: true,
-        lastSync: new Date()
-      });
-
-      if (!updatedUser) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      res.json({ success: true, user: updatedUser });
+      // For now, redirect back to dashboard with tokens in URL (frontend will handle storage)
+      // In production, you'd want to use a more secure method
+      const redirectUrl = `/?gmailConnected=true&accessToken=${encodeURIComponent(tokens.access_token || '')}&refreshToken=${encodeURIComponent(tokens.refresh_token || '')}`;
+      res.redirect(redirectUrl);
     } catch (error) {
       console.error("OAuth callback error:", error);
       res.status(500).json({ message: "Failed to complete OAuth flow" });

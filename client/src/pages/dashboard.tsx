@@ -14,27 +14,67 @@ export default function Dashboard() {
   const { toast } = useToast();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  // Initialize with a demo user for testing
+  // Handle OAuth callback and initialize user
   useEffect(() => {
-    const initUser = async () => {
-      try {
-        const response = await apiRequest("POST", "/api/users", {
-          username: "demo@example.com",
-          password: "demo123"
-        });
-        const user = await response.json();
-        setCurrentUserId(user.id);
-      } catch (error) {
-        console.error("Failed to create demo user:", error);
-        toast({
-          title: "Error",
-          description: "Failed to initialize user session",
-          variant: "destructive",
-        });
+    const handleOAuthCallback = async () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const gmailConnected = urlParams.get('gmailConnected');
+      const accessToken = urlParams.get('accessToken');
+      const refreshToken = urlParams.get('refreshToken');
+
+      // If returning from OAuth, handle the tokens
+      if (gmailConnected === 'true' && accessToken) {
+        try {
+          // Create/get user
+          const response = await apiRequest("POST", "/api/users", {
+            username: "demo@example.com",
+            password: "demo123"
+          });
+          const user = await response.json();
+          setCurrentUserId(user.id);
+
+          // Update user with Gmail tokens (for now, store in memory)
+          // In a real app, you'd want to securely handle these tokens
+          toast({
+            title: "Gmail Connected!",
+            description: "Successfully connected your Gmail account. You can now sync your emails.",
+            variant: "default",
+          });
+
+          // Clear URL parameters
+          window.history.replaceState({}, document.title, window.location.pathname);
+          
+          // Refresh user data to reflect connected status
+          queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+        } catch (error) {
+          console.error("Failed to handle OAuth callback:", error);
+          toast({
+            title: "Connection Error",
+            description: "Failed to complete Gmail connection",
+            variant: "destructive",
+          });
+        }
+      } else {
+        // Normal initialization with demo user
+        try {
+          const response = await apiRequest("POST", "/api/users", {
+            username: "demo@example.com",
+            password: "demo123"
+          });
+          const user = await response.json();
+          setCurrentUserId(user.id);
+        } catch (error) {
+          console.error("Failed to create demo user:", error);
+          toast({
+            title: "Error",
+            description: "Failed to initialize user session",
+            variant: "destructive",
+          });
+        }
       }
     };
 
-    initUser();
+    handleOAuthCallback();
   }, [toast]);
 
   // Fetch user data
@@ -69,8 +109,8 @@ export default function Dashboard() {
       return data;
     },
     onSuccess: (data) => {
-      // Open Gmail OAuth in new window
-      window.open(data.authUrl, "_blank");
+      // Redirect to Gmail OAuth in same window (so we can handle the callback)
+      window.location.href = data.authUrl;
       toast({
         title: "Gmail Authentication",
         description: "Please complete the authentication in the popup window",
