@@ -5,6 +5,23 @@ import { GmailService } from "./services/gmail";
 import { emailParser } from "./services/emailParser";
 import { subscriptionDetector } from "./services/subscriptionDetector";
 import { insertUserSchema, insertEmailSchema } from "@shared/schema";
+import { randomBytes } from "crypto";
+
+// Simple in-memory store for OAuth states (in production, use Redis or database)
+const oauthStates = new Map<string, { timestamp: number }>();
+
+// Clean up old states (older than 10 minutes)
+const cleanupOldStates = () => {
+  const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
+  for (const [state, data] of oauthStates.entries()) {
+    if (data.timestamp < tenMinutesAgo) {
+      oauthStates.delete(state);
+    }
+  }
+};
+
+// Cleanup every 5 minutes
+setInterval(cleanupOldStates, 5 * 60 * 1000);
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth routes
@@ -15,9 +32,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Repl Slug:", process.env.REPL_SLUG);
       console.log("Repl Owner:", process.env.REPL_OWNER);
       
+      // Generate cryptographically random state for CSRF protection
+      const state = randomBytes(32).toString('hex');
+      oauthStates.set(state, { timestamp: Date.now() });
+      
       const gmailService = new GmailService();
-      const authUrl = gmailService.getAuthUrl();
-      console.log("Generated auth URL:", authUrl);
+      const authUrl = gmailService.getAuthUrl(state);
+      console.log("Generated auth URL with state:", authUrl);
       res.json({ authUrl });
     } catch (error) {
       console.error("Auth URL generation error:", error);
@@ -30,8 +51,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { code, state } = req.query;
       
       if (!code) {
-        return res.status(400).json({ message: "Missing authorization code" });
+        const redirectUrl = `/?gmailConnected=false&error=${encodeURIComponent('Missing authorization code')}`;
+        return res.redirect(redirectUrl);
       }
+
+      // Verify OAuth state for CSRF protection
+      if (!state || typeof state !== 'string' || !oauthStates.has(state)) {
+        console.error('Invalid or missing OAuth state parameter');
+        const redirectUrl = `/?gmailConnected=false&error=${encodeURIComponent('Invalid or expired authentication request')}`;
+        return res.redirect(redirectUrl);
+      }
+
+      // Remove used state
+      oauthStates.delete(state);
 
       const gmailService = new GmailService();
       const tokens = await gmailService.getTokens(code as string);
@@ -49,13 +81,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error("Failed to create or get user");
       }
 
-      // Update user with Gmail tokens
-      const updatedUser = await storage.updateUser(user.id, {
+      // Update user with Gmail tokens (preserve existing refresh token if new one not provided)
+      const updateData: any = {
         gmailAccessToken: tokens.access_token || null,
-        gmailRefreshToken: tokens.refresh_token || null,
         gmailConnected: true,
         lastSync: new Date()
-      });
+      };
+      
+      // Only update refresh token if Google provides a new one
+      if (tokens.refresh_token) {
+        updateData.gmailRefreshToken = tokens.refresh_token;
+      }
+      
+      const updatedUser = await storage.updateUser(user.id, updateData);
 
       if (!updatedUser) {
         throw new Error("Failed to update user with Gmail tokens");
@@ -89,11 +127,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const gmailService = new GmailService();
       
+      // Create token refresh callback to update storage
+      const onTokenRefresh = async (newAccessToken: string) => {
+        try {
+          await storage.updateUser(user.id, {
+            gmailAccessToken: newAccessToken
+          });
+          console.log('Updated access token in storage for user:', user.id);
+        } catch (error) {
+          console.error('Failed to update access token in storage:', error);
+        }
+      };
+      
       // Fetch emails from Gmail
       const gmailMessages = await gmailService.getEmails(
         user.gmailAccessToken,
         user.gmailRefreshToken || '',
-        200 // Fetch up to 200 emails
+        200, // Fetch up to 200 emails
+        onTokenRefresh
       );
 
       let newEmails = 0;

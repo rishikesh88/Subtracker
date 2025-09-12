@@ -26,7 +26,7 @@ export class GmailService {
     );
   }
 
-  getAuthUrl(): string {
+  getAuthUrl(state?: string): string {
     const scopes = [
       'https://www.googleapis.com/auth/gmail.readonly',
       'https://www.googleapis.com/auth/userinfo.email'
@@ -35,7 +35,8 @@ export class GmailService {
     return this.oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: scopes,
-      prompt: 'consent'
+      prompt: 'consent',
+      state: state
     });
   }
 
@@ -53,11 +54,21 @@ export class GmailService {
     return credentials;
   }
 
-  async getEmails(accessToken: string, refreshToken: string, maxResults: number = 100) {
+  async getEmails(accessToken: string, refreshToken: string, maxResults: number = 100, onTokenRefresh?: (newAccessToken: string) => Promise<void>) {
     this.oauth2Client.setCredentials({
       access_token: accessToken,
       refresh_token: refreshToken
     });
+
+    // Set up token refresh callback
+    if (onTokenRefresh) {
+      this.oauth2Client.on('tokens', (tokens) => {
+        if (tokens.access_token && tokens.access_token !== accessToken) {
+          console.log('Token refreshed, updating storage...');
+          onTokenRefresh(tokens.access_token);
+        }
+      });
+    }
 
     const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
     

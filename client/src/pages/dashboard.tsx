@@ -91,25 +91,25 @@ export default function Dashboard() {
 
   // Fetch user data
   const { data: user } = useQuery({
-    queryKey: ["/api/users", currentUserId],
+    queryKey: [`/api/users/${currentUserId}`],
     enabled: !!currentUserId,
   });
 
   // Fetch subscription stats
   const { data: stats, isLoading: statsLoading } = useQuery({
-    queryKey: ["/api/stats", currentUserId],
+    queryKey: [`/api/stats?userId=${currentUserId}`],
     enabled: !!currentUserId,
   });
 
   // Fetch subscriptions
   const { data: subscriptions = [], isLoading: subscriptionsLoading } = useQuery<Subscription[]>({
-    queryKey: ["/api/subscriptions", currentUserId],
+    queryKey: [`/api/subscriptions?userId=${currentUserId}`],
     enabled: !!currentUserId,
   });
 
   // Fetch recent emails
   const { data: emails = [], isLoading: emailsLoading } = useQuery<Email[]>({
-    queryKey: ["/api/emails", currentUserId],
+    queryKey: [`/api/emails?userId=${currentUserId}`],
     enabled: !!currentUserId,
   });
 
@@ -148,10 +148,10 @@ export default function Dashboard() {
         description: `Processed ${data.processedEmails || 0} emails and found ${data.detectedSubscriptions || 0} subscriptions`,
       });
       
-      // Refresh all data after sync
-      queryClient.invalidateQueries({ queryKey: ["/api/subscriptions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/emails"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      // Refresh all data after sync  
+      queryClient.invalidateQueries({ queryKey: [`/api/subscriptions?userId=${userId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${userId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${userId}`] });
     } catch (error) {
       console.error("Email sync error:", error);
       toast({
@@ -179,10 +179,10 @@ export default function Dashboard() {
       });
       
       // Invalidate and refetch all data
-      queryClient.invalidateQueries({ queryKey: ["/api/subscriptions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/emails"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/subscriptions?userId=${currentUserId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${currentUserId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/users/${currentUserId}`] });
     },
     onError: (error: any) => {
       toast({
