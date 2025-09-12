@@ -4,10 +4,15 @@ export class GmailService {
   private oauth2Client;
 
   constructor() {
+    // Get the current Replit domain for redirect URI
+    const replitDomain = process.env.REPL_SLUG 
+      ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`
+      : 'http://localhost:5000';
+    
     this.oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
-      process.env.GOOGLE_REDIRECT_URI || 'http://localhost:5000/api/auth/google/callback'
+      process.env.GOOGLE_REDIRECT_URI || `${replitDomain}/api/auth/google/callback`
     );
   }
 

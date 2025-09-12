@@ -10,9 +10,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth routes
   app.get("/api/auth/google", async (req, res) => {
     try {
+      console.log("Google Client ID available:", !!process.env.GOOGLE_CLIENT_ID);
+      console.log("Google Client Secret available:", !!process.env.GOOGLE_CLIENT_SECRET);
+      console.log("Repl Slug:", process.env.REPL_SLUG);
+      console.log("Repl Owner:", process.env.REPL_OWNER);
+      
       const authUrl = gmailService.getAuthUrl();
+      console.log("Generated auth URL:", authUrl);
       res.json({ authUrl });
     } catch (error) {
+      console.error("Auth URL generation error:", error);
       res.status(500).json({ message: "Failed to generate auth URL" });
     }
   });
