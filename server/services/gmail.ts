@@ -41,7 +41,7 @@ export class GmailService {
   }
 
   async getTokens(code: string) {
-    const { tokens } = await this.oauth2Client.getTokens(code);
+    const { tokens } = await this.oauth2Client.getToken(code);
     return tokens;
   }
 
