@@ -174,11 +174,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a test user for demo purposes
   app.post("/api/users", async (req, res) => {
     try {
+      console.log("POST /api/users - Request body:", req.body);
       const userData = insertUserSchema.parse(req.body);
       const user = await storage.createUser(userData);
       res.json(user);
     } catch (error) {
       console.error("Create user error:", error);
+      console.error("Request body received:", req.body);
+      if (error instanceof Error && error.name === 'ZodError') {
+        console.error("Validation error details:", (error as any).issues);
+      }
       res.status(500).json({ message: "Failed to create user" });
     }
   });
