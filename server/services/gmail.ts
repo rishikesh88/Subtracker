@@ -5,9 +5,17 @@ export class GmailService {
 
   constructor() {
     // Get the current Replit domain for redirect URI
-    const replitDomain = process.env.REPL_SLUG 
-      ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`
-      : 'http://localhost:5000';
+    let replitDomain = 'http://localhost:5000';
+    
+    // Use REPLIT_DOMAINS if available (modern Replit)
+    if (process.env.REPLIT_DOMAINS) {
+      const domains = process.env.REPLIT_DOMAINS.split(',');
+      replitDomain = `https://${domains[0]}`;
+    }
+    // Fallback to legacy format
+    else if (process.env.REPL_SLUG && process.env.REPL_OWNER) {
+      replitDomain = `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.replit.dev`;
+    }
     
     this.oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
