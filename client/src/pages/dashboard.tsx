@@ -17,15 +17,17 @@ export default function Dashboard() {
   // Handle OAuth callback and initialize user
   useEffect(() => {
     const handleOAuthCallback = async () => {
-      const urlParams = new URLSearchParams(window.location.search);
-      const gmailConnected = urlParams.get('gmailConnected');
-      const accessToken = urlParams.get('accessToken');
-      const refreshToken = urlParams.get('refreshToken');
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const gmailConnected = urlParams.get('gmailConnected');
 
-      // If returning from OAuth, handle the connection result
-      if (gmailConnected === 'true') {
-        const userId = urlParams.get('userId');
-        try {
+        console.log("Initializing dashboard, gmailConnected:", gmailConnected);
+
+        // If returning from OAuth, handle the connection result
+        if (gmailConnected === 'true') {
+          const userId = urlParams.get('userId');
+          console.log("OAuth success, userId:", userId);
+          
           if (userId) {
             setCurrentUserId(userId);
             
@@ -39,55 +41,77 @@ export default function Dashboard() {
             window.history.replaceState({}, document.title, window.location.pathname);
             
             // Refresh user data to reflect connected status
-            queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+            queryClient.invalidateQueries({ queryKey: [`/api/users/${userId}`] });
             
-            // Automatically trigger email sync
-            setTimeout(() => {
-              triggerEmailSync(userId);
-            }, 1000);
+            // Automatically trigger email sync after a delay
+            setTimeout(async () => {
+              try {
+                const response = await apiRequest("POST", "/api/sync-emails", { userId });
+                const data = await response.json();
+                
+                toast({
+                  title: "Email Sync Complete",
+                  description: `Processed ${data.processedEmails || 0} emails and found ${data.detectedSubscriptions || 0} subscriptions`,
+                });
+                
+                // Refresh all data after sync  
+                queryClient.invalidateQueries({ queryKey: [`/api/subscriptions?userId=${userId}`] });
+                queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${userId}`] });
+                queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${userId}`] });
+              } catch (error) {
+                console.error("Auto email sync error:", error);
+                toast({
+                  title: "Sync Failed",
+                  description: "Failed to sync emails automatically. You can try again manually.",
+                  variant: "destructive",
+                });
+              }
+            }, 1500);
           } else {
             throw new Error("No user ID received from OAuth");
           }
-        } catch (error) {
-          console.error("Failed to handle OAuth callback:", error);
+        } else if (gmailConnected === 'false') {
+          const error = urlParams.get('error');
           toast({
-            title: "Connection Error", 
-            description: "Failed to complete Gmail connection",
+            title: "Gmail Connection Failed",
+            description: error || "Failed to connect Gmail account",
             variant: "destructive",
           });
-        }
-      } else if (gmailConnected === 'false') {
-        const error = urlParams.get('error');
-        toast({
-          title: "Gmail Connection Failed",
-          description: error || "Failed to connect Gmail account",
-          variant: "destructive",
-        });
-        
-        // Clear URL parameters
-        window.history.replaceState({}, document.title, window.location.pathname);
-      } else {
-        // Normal initialization with demo user
-        try {
+          
+          // Clear URL parameters and initialize normally
+          window.history.replaceState({}, document.title, window.location.pathname);
+          
+          // Fall through to normal initialization
           const response = await apiRequest("POST", "/api/users", {
             username: "demo@example.com",
             password: "demo123"
           });
           const user = await response.json();
+          console.log("Created demo user after OAuth failure:", user.id);
           setCurrentUserId(user.id);
-        } catch (error) {
-          console.error("Failed to create demo user:", error);
-          toast({
-            title: "Error",
-            description: "Failed to initialize user session",
-            variant: "destructive",
+        } else {
+          // Normal initialization with demo user
+          console.log("Normal initialization, creating demo user");
+          const response = await apiRequest("POST", "/api/users", {
+            username: "demo@example.com",
+            password: "demo123"
           });
+          const user = await response.json();
+          console.log("Created demo user:", user.id);
+          setCurrentUserId(user.id);
         }
+      } catch (error) {
+        console.error("Initialization error:", error);
+        toast({
+          title: "Initialization Error",
+          description: "Failed to initialize application. Please refresh the page.",
+          variant: "destructive",
+        });
       }
     };
 
     handleOAuthCallback();
-  }, [toast]);
+  }, []);
 
   // Fetch user data
   const { data: user } = useQuery({
