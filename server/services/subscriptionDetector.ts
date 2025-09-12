@@ -58,18 +58,64 @@ export class SubscriptionDetector {
     const groups = new Map<string, Email[]>();
 
     for (const email of emails) {
-      // Create a key based on merchant name and amount to group similar transactions
-      const amount = email.extractedAmount?.toString() || '0';
-      const merchantName = email.merchantName || email.fromEmail;
-      const key = `${merchantName.toLowerCase()}_${amount}`;
-
-      if (!groups.has(key)) {
-        groups.set(key, []);
+      const merchantName = this.normalizeMerchantName(email.merchantName || email.fromEmail);
+      const amount = typeof email.extractedAmount === 'string' 
+        ? parseFloat(email.extractedAmount) 
+        : (email.extractedAmount || 0);
+      
+      // Find existing group with similar merchant, currency, and amount (±10% tolerance)
+      let foundGroup = false;
+      const currentCurrency = email.extractedCurrency || 'USD';
+      
+      for (const [existingKey, existingEmails] of groups.entries()) {
+        const keyParts = existingKey.split('_amount_');
+        if (keyParts.length !== 2) continue;
+        
+        const merchantCurrencyPart = keyParts[0];
+        const existingAmount = parseFloat(keyParts[1]);
+        
+        // Extract merchant and currency from the first part
+        const merchantCurrencyMatch = merchantCurrencyPart.match(/^(.+)_([A-Z]{3})$/);
+        if (!merchantCurrencyMatch) continue;
+        
+        const existingMerchant = merchantCurrencyMatch[1];
+        const existingCurrency = merchantCurrencyMatch[2];
+        
+        // Check if merchant, currency match and amount is within 10% tolerance
+        if (existingMerchant === merchantName && 
+            existingCurrency === currentCurrency && 
+            this.amountsAreSimilar(amount, existingAmount)) {
+          existingEmails.push(email);
+          foundGroup = true;
+          break;
+        }
       }
-      groups.get(key)!.push(email);
+      
+      // If no similar group found, create new one
+      if (!foundGroup) {
+        const currency = email.extractedCurrency || 'USD';
+        const key = `${merchantName}_${currency}_amount_${amount.toFixed(2)}`;
+        groups.set(key, [email]);
+      }
     }
 
     return groups;
+  }
+
+  private normalizeMerchantName(merchantName: string): string {
+    return merchantName.toLowerCase()
+      .replace(/\b(pvt\.?|ltd\.?|inc\.?|llc|corp\.?|limited|private)\b/gi, '')
+      .replace(/\b(india|indian)\b/gi, '')
+      .replace(/[^a-z0-9]/g, '')
+      .trim();
+  }
+
+  private amountsAreSimilar(amount1: number, amount2: number): boolean {
+    if (amount1 === 0 || amount2 === 0) return amount1 === amount2;
+    const tolerance = 0.1; // 10% tolerance
+    const diff = Math.abs(amount1 - amount2);
+    const maxAmount = Math.max(amount1, amount2);
+    return (diff / maxAmount) <= tolerance;
   }
 
   private analyzeEmailGroup(emails: Email[]): SubscriptionCandidate {
@@ -133,19 +179,33 @@ export class SubscriptionDetector {
   }
 
   private isRecurringSubscription(candidate: SubscriptionCandidate): boolean {
-    // Must have at least 2 transactions for recurring pattern
+    // Must have at least 2 transactions for recurring pattern  
     if (candidate.emails.length < 2) return false;
 
-    // Amount should be reasonable for subscription (between $1 and $500)
-    if (candidate.amount < 1 || candidate.amount > 500) return false;
+    // Set reasonable subscription amount limits based on currency
+    let minAmount = 1;
+    let maxAmount = 500;
+    
+    if (candidate.currency === 'INR') {
+      minAmount = 50;    // ₹50 minimum
+      maxAmount = 50000; // ₹50,000 maximum (about $600)
+    }
+    
+    if (candidate.amount < minAmount || candidate.amount > maxAmount) return false;
 
     // Check for subscription keywords in emails
     const hasSubscriptionKeywords = candidate.emails.some(email => {
       const text = (email.subject + ' ' + (email.content || '')).toLowerCase();
-      return /subscription|recurring|monthly|yearly|renewal|auto.?pay/i.test(text);
+      return /subscription|recurring|monthly|yearly|renewal|auto.?pay|bill|invoice|payment|charged/i.test(text);
     });
 
-    return hasSubscriptionKeywords || candidate.emails.length >= 3;
+    // More relaxed detection for Indian services
+    const hasIndianServicePatterns = candidate.emails.some(email => {
+      const text = (email.subject + ' ' + (email.content || '') + ' ' + email.fromEmail).toLowerCase();
+      return /airtel|replit|bolt|jio|vodafone|idea|paytm|phonepe|zomato|swiggy|hotstar/i.test(text);
+    });
+
+    return hasSubscriptionKeywords || hasIndianServicePatterns || candidate.emails.length >= 3;
   }
 
   private async createSubscriptionFromCandidate(userId: string, candidate: SubscriptionCandidate): Promise<Subscription | null> {

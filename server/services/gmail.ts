@@ -54,7 +54,7 @@ export class GmailService {
     return credentials;
   }
 
-  async getEmails(accessToken: string, refreshToken: string, maxResults: number = 100, onTokenRefresh?: (newAccessToken: string) => Promise<void>) {
+  async getEmails(accessToken: string, refreshToken: string, maxResults: number = 2000, onTokenRefresh?: (newAccessToken: string) => Promise<void>) {
     this.oauth2Client.setCredentials({
       access_token: accessToken,
       refresh_token: refreshToken
@@ -78,34 +78,101 @@ export class GmailService {
     const query = `after:${Math.floor(sixMonthsAgo.getTime() / 1000)}`;
 
     try {
-      // Get message list
-      const listResponse = await gmail.users.messages.list({
-        userId: 'me',
-        q: query,
-        maxResults
-      });
+      // Get all message IDs with pagination
+      const allMessageIds = await this.getAllMessageIds(gmail, query, maxResults);
+      console.log(`Found ${allMessageIds.length} emails in the past 6 months`);
 
-      if (!listResponse.data.messages) {
+      if (allMessageIds.length === 0) {
         return [];
       }
 
-      // Get full message details
-      const messages = await Promise.all(
-        listResponse.data.messages.map(async (message: any) => {
-          const messageResponse = await gmail.users.messages.get({
-            userId: 'me',
-            id: message.id!,
-            format: 'full'
-          });
-          return messageResponse.data;
-        })
-      );
-
+      // Get full message details with controlled concurrency
+      const messages = await this.fetchMessagesInBatches(gmail, allMessageIds);
+      
+      console.log(`Successfully processed ${messages.length} emails`);
       return messages;
     } catch (error) {
       console.error('Error fetching emails:', error);
       throw new Error('Failed to fetch emails from Gmail');
     }
+  }
+
+  private async getAllMessageIds(gmail: any, query: string, maxResults: number): Promise<string[]> {
+    const allIds: string[] = [];
+    let nextPageToken: string | undefined;
+    let totalFetched = 0;
+
+    do {
+      const listResponse = await gmail.users.messages.list({
+        userId: 'me',
+        q: query,
+        maxResults: Math.min(500, maxResults - totalFetched),
+        pageToken: nextPageToken
+      });
+
+      if (listResponse.data.messages) {
+        const ids = listResponse.data.messages.map((msg: any) => msg.id);
+        allIds.push(...ids);
+        totalFetched += ids.length;
+      }
+
+      nextPageToken = listResponse.data.nextPageToken;
+      
+      // Stop if we've reached our limit
+      if (totalFetched >= maxResults) {
+        break;
+      }
+    } while (nextPageToken);
+
+    return allIds;
+  }
+
+  private async fetchMessagesInBatches(gmail: any, messageIds: string[]): Promise<any[]> {
+    const messages: any[] = [];
+    const batchSize = 20; // Controlled concurrency to avoid rate limits
+    
+    console.log(`Fetching ${messageIds.length} messages in batches of ${batchSize}`);
+
+    for (let i = 0; i < messageIds.length; i += batchSize) {
+      const batch = messageIds.slice(i, i + batchSize);
+      
+      try {
+        const batchMessages = await Promise.all(
+          batch.map(async (messageId: string) => {
+            try {
+              const messageResponse = await gmail.users.messages.get({
+                userId: 'me',
+                id: messageId,
+                format: 'full'
+              });
+              return messageResponse.data;
+            } catch (error) {
+              console.error(`Error fetching message ${messageId}:`, error);
+              return null;
+            }
+          })
+        );
+
+        // Filter out failed requests
+        const validMessages = batchMessages.filter(msg => msg !== null);
+        messages.push(...validMessages);
+
+        // Progress logging
+        if ((i + batchSize) % 100 === 0 || i + batchSize >= messageIds.length) {
+          console.log(`Processed ${Math.min(i + batchSize, messageIds.length)}/${messageIds.length} messages`);
+        }
+
+        // Small delay to be respectful to Gmail API
+        if (i + batchSize < messageIds.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      } catch (error) {
+        console.error(`Error fetching batch starting at ${i}:`, error);
+        // Continue with next batch even if this one fails
+      }
+    }
+
+    return messages;
   }
 
   async getUserInfo(accessToken: string) {

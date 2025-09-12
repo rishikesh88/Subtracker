@@ -36,19 +36,18 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
             const isActive = location === item.href;
             return (
               <li key={item.name}>
-                <Link href={item.href}>
-                  <a
-                    className={cn(
-                      "flex items-center space-x-3 px-3 py-2 text-sm font-medium rounded-md transition-colors",
-                      isActive
-                        ? "bg-accent text-accent-foreground"
-                        : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                    )}
-                    data-testid={`nav-${item.name.toLowerCase()}`}
-                  >
-                    <item.icon className="w-4 h-4" />
-                    <span>{item.name}</span>
-                  </a>
+                <Link 
+                  href={item.href}
+                  className={cn(
+                    "flex items-center space-x-3 px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                    isActive
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                  )}
+                  data-testid={`nav-${item.name.toLowerCase()}`}
+                >
+                  <item.icon className="w-4 h-4" />
+                  <span>{item.name}</span>
                 </Link>
               </li>
             );

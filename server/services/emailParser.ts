@@ -21,7 +21,13 @@ export class EmailParser {
     'netflix.com', 'spotify.com', 'amazon.com', 'apple.com', 'google.com',
     'microsoft.com', 'adobe.com', 'dropbox.com', 'slack.com', 'github.com',
     'youtube.com', 'hulu.com', 'disney.com', 'paypal.com', 'stripe.com',
-    'verizon.com', 'att.com', 'tmobile.com', 'comcast.com', 'xfinity.com'
+    'verizon.com', 'att.com', 'tmobile.com', 'comcast.com', 'xfinity.com',
+    // Indian and specific vendors
+    'airtel.com', 'airtel.in', 'myairtel.in', 'replit.com', 'replit.dev',
+    'bolt.new', 'bolt.eu', 'jio.com', 'vi.in', 'idea.in', 'vodafone.in',
+    'paytm.com', 'phonepe.com', 'googlepay.com', 'razorpay.com', 'instamojo.com',
+    'zomato.com', 'swiggy.in', 'hotstar.com', 'zee5.com', 'sonyliv.com',
+    'makemytrip.com', 'goibibo.com', 'olacabs.com', 'uber.com', 'flipkart.com'
   ];
 
   parseEmail(gmailMessage: any): ParsedEmail {
@@ -77,21 +83,78 @@ export class EmailParser {
   private extractContent(payload: any): string {
     if (!payload) return '';
 
+    // Single part message
     if (payload.body?.data) {
-      return Buffer.from(payload.body.data, 'base64').toString('utf-8');
+      // Gmail uses URL-safe base64 encoding - convert to standard base64
+      const standardBase64 = payload.body.data.replace(/-/g, '+').replace(/_/g, '/');
+      const content = Buffer.from(standardBase64, 'base64').toString('utf-8');
+      return this.cleanContent(content, payload.mimeType);
     }
 
+    // Multi-part message - extract all parts recursively
     if (payload.parts) {
-      let content = '';
-      for (const part of payload.parts) {
-        if (part.mimeType === 'text/plain' && part.body?.data) {
-          content += Buffer.from(part.body.data, 'base64').toString('utf-8');
-        }
-      }
-      return content;
+      return this.extractFromParts(payload.parts);
     }
 
     return '';
+  }
+
+  private extractFromParts(parts: any[]): string {
+    let textContent = '';
+    let htmlContent = '';
+
+    const traverseParts = (partsList: any[]) => {
+      for (const part of partsList) {
+        // Recursive traversal for nested parts
+        if (part.parts) {
+          traverseParts(part.parts);
+          continue;
+        }
+
+        if (part.body?.data) {
+          // Gmail uses URL-safe base64 encoding - convert to standard base64
+          const standardBase64 = part.body.data.replace(/-/g, '+').replace(/_/g, '/');
+          const content = Buffer.from(standardBase64, 'base64').toString('utf-8');
+          
+          if (part.mimeType === 'text/plain') {
+            textContent += content + '\n';
+          } else if (part.mimeType === 'text/html') {
+            htmlContent += content + '\n';
+          }
+        }
+      }
+    };
+
+    traverseParts(parts);
+
+    // Prefer text/plain, but use HTML if no plain text available
+    if (textContent.trim()) {
+      return textContent.trim();
+    } else if (htmlContent.trim()) {
+      return this.cleanContent(htmlContent, 'text/html');
+    }
+
+    return '';
+  }
+
+  private cleanContent(content: string, mimeType?: string): string {
+    if (mimeType === 'text/html' || content.includes('<html') || content.includes('<div')) {
+      // Strip HTML tags and decode entities
+      return content
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '') // Remove scripts
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '') // Remove styles  
+        .replace(/<[^>]*>/g, ' ') // Remove HTML tags
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#(\d+);/g, (match, dec) => String.fromCharCode(dec))
+        .replace(/\s+/g, ' ') // Normalize whitespace
+        .trim();
+    }
+    
+    return content.trim();
   }
 
   private isTransactionEmail(subject: string, content: string, fromEmail: string): boolean {
@@ -108,32 +171,66 @@ export class EmailParser {
       domain?.includes(merchantDomain)
     );
 
-    // Check for amount patterns
-    const hasAmountPattern = /\$\d+|\d+\.\d{2}|USD|EUR|GBP/.test(text);
+    // Check for amount patterns (including INR)
+    const hasAmountPattern = /\$\d+|\d+\.\d{2}|USD|EUR|GBP|₹\d+|\d+\s*INR|Rs\.?\s*\d+/.test(text);
 
     return hasTransactionKeywords || (isFromMerchant && hasAmountPattern);
   }
 
   private extractAmount(text: string): { amount: number; currency: string } | undefined {
-    // Match currency symbols and amounts
+    // Match currency symbols and amounts (including Indian formats)
     const patterns = [
+      // USD patterns
       /\$(\d+(?:,\d{3})*(?:\.\d{2})?)/g, // $123.45 or $1,234.56
       /(\d+(?:,\d{3})*(?:\.\d{2})?)\s*USD/gi, // 123.45 USD
+      
+      // EUR patterns
       /(\d+(?:,\d{3})*(?:\.\d{2})?)\s*EUR/gi, // 123.45 EUR
       /€(\d+(?:,\d{3})*(?:\.\d{2})?)/g, // €123.45
+      
+      // GBP patterns  
       /£(\d+(?:,\d{3})*(?:\.\d{2})?)/g, // £123.45
+      
+      // INR patterns - comprehensive coverage
+      /₹\s*(\d+(?:,\d{2,3})*(?:\.\d{2})?)/g, // ₹123.45 or ₹12,34,567.89
+      /Rs\.?\s*(\d+(?:,\d{2,3})*(?:\.\d{2})?)/gi, // Rs. 123.45 or Rs 12,34,567
+      /INR\s*(\d+(?:,\d{2,3})*(?:\.\d{2})?)/gi, // INR 123.45
+      /(\d+(?:,\d{2,3})*(?:\.\d{2})?)\s*INR/gi, // 123.45 INR
+      /(\d+(?:,\d{2,3})*(?:\.\d{2})?)\s*rupees?/gi, // 123.45 rupees
+      // Indian lakh/crore notation
+      /₹\s*(\d+(?:\.\d+)?\s*(?:lakh|crore))/gi, // ₹2.5 lakh
+      /Rs\.?\s*(\d+(?:\.\d+)?\s*(?:lakh|crore))/gi, // Rs. 2.5 lakh
     ];
 
     for (const pattern of patterns) {
       const match = pattern.exec(text);
       if (match) {
-        const amountStr = match[1].replace(/,/g, '');
-        const amount = parseFloat(amountStr);
+        let amountStr = match[1].replace(/,/g, '').trim();
+        let amount: number;
         
-        if (amount > 0 && amount < 10000) { // reasonable subscription range
-          let currency = 'USD';
-          if (text.includes('EUR') || text.includes('€')) currency = 'EUR';
-          else if (text.includes('GBP') || text.includes('£')) currency = 'GBP';
+        // Handle lakh/crore conversions
+        if (amountStr.includes('lakh')) {
+          const num = parseFloat(amountStr.replace(/lakh/gi, '').trim());
+          amount = num * 100000; // 1 lakh = 100,000
+        } else if (amountStr.includes('crore')) {
+          const num = parseFloat(amountStr.replace(/crore/gi, '').trim());
+          amount = num * 10000000; // 1 crore = 10,000,000
+        } else {
+          amount = parseFloat(amountStr);
+        }
+        
+        if (amount > 0 && amount < 100000) { // reasonable subscription range (up to ₹1L/year)
+          let currency = 'USD'; // default
+          
+          // Detect currency from patterns
+          if (text.includes('₹') || /Rs\.?/i.test(text) || /INR/i.test(text) || 
+              /rupees?/i.test(text) || /lakh|crore/i.test(text)) {
+            currency = 'INR';
+          } else if (text.includes('EUR') || text.includes('€')) {
+            currency = 'EUR';
+          } else if (text.includes('GBP') || text.includes('£')) {
+            currency = 'GBP';
+          }
           
           return { amount, currency };
         }
