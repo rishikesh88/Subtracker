@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { gmailService } from "./services/gmail";
+import { GmailService } from "./services/gmail";
 import { emailParser } from "./services/emailParser";
 import { subscriptionDetector } from "./services/subscriptionDetector";
 import { insertUserSchema, insertEmailSchema } from "@shared/schema";
@@ -15,6 +15,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Repl Slug:", process.env.REPL_SLUG);
       console.log("Repl Owner:", process.env.REPL_OWNER);
       
+      const gmailService = new GmailService();
       const authUrl = gmailService.getAuthUrl();
       console.log("Generated auth URL:", authUrl);
       res.json({ authUrl });
