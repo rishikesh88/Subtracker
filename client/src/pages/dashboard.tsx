@@ -22,38 +22,50 @@ export default function Dashboard() {
       const accessToken = urlParams.get('accessToken');
       const refreshToken = urlParams.get('refreshToken');
 
-      // If returning from OAuth, handle the tokens
-      if (gmailConnected === 'true' && accessToken) {
+      // If returning from OAuth, handle the connection result
+      if (gmailConnected === 'true') {
+        const userId = urlParams.get('userId');
         try {
-          // Create/get user
-          const response = await apiRequest("POST", "/api/users", {
-            username: "demo@example.com",
-            password: "demo123"
-          });
-          const user = await response.json();
-          setCurrentUserId(user.id);
+          if (userId) {
+            setCurrentUserId(userId);
+            
+            toast({
+              title: "Gmail Connected!",
+              description: "Successfully connected your Gmail account. Starting email sync...",
+              variant: "default",
+            });
 
-          // Update user with Gmail tokens (for now, store in memory)
-          // In a real app, you'd want to securely handle these tokens
-          toast({
-            title: "Gmail Connected!",
-            description: "Successfully connected your Gmail account. You can now sync your emails.",
-            variant: "default",
-          });
-
-          // Clear URL parameters
-          window.history.replaceState({}, document.title, window.location.pathname);
-          
-          // Refresh user data to reflect connected status
-          queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+            // Clear URL parameters
+            window.history.replaceState({}, document.title, window.location.pathname);
+            
+            // Refresh user data to reflect connected status
+            queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+            
+            // Automatically trigger email sync
+            setTimeout(() => {
+              triggerEmailSync(userId);
+            }, 1000);
+          } else {
+            throw new Error("No user ID received from OAuth");
+          }
         } catch (error) {
           console.error("Failed to handle OAuth callback:", error);
           toast({
-            title: "Connection Error",
+            title: "Connection Error", 
             description: "Failed to complete Gmail connection",
             variant: "destructive",
           });
         }
+      } else if (gmailConnected === 'false') {
+        const error = urlParams.get('error');
+        toast({
+          title: "Gmail Connection Failed",
+          description: error || "Failed to connect Gmail account",
+          variant: "destructive",
+        });
+        
+        // Clear URL parameters
+        window.history.replaceState({}, document.title, window.location.pathname);
       } else {
         // Normal initialization with demo user
         try {
@@ -124,6 +136,31 @@ export default function Dashboard() {
       });
     },
   });
+
+  // Function to trigger email sync
+  const triggerEmailSync = async (userId: string) => {
+    try {
+      const response = await apiRequest("POST", "/api/sync-emails", { userId });
+      const data = await response.json();
+      
+      toast({
+        title: "Email Sync Complete",
+        description: `Processed ${data.processedEmails || 0} emails and found ${data.detectedSubscriptions || 0} subscriptions`,
+      });
+      
+      // Refresh all data after sync
+      queryClient.invalidateQueries({ queryKey: ["/api/subscriptions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/emails"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+    } catch (error) {
+      console.error("Email sync error:", error);
+      toast({
+        title: "Sync Failed",
+        description: "Failed to sync emails. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   // Sync emails mutation
   const syncEmailsMutation = useMutation({

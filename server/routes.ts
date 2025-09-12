@@ -36,13 +36,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const gmailService = new GmailService();
       const tokens = await gmailService.getTokens(code as string);
       
-      // For now, redirect back to dashboard with tokens in URL (frontend will handle storage)
-      // In production, you'd want to use a more secure method
-      const redirectUrl = `/?gmailConnected=true&accessToken=${encodeURIComponent(tokens.access_token || '')}&refreshToken=${encodeURIComponent(tokens.refresh_token || '')}`;
+      // Create or get the demo user
+      let user = await storage.getUserByUsername("demo@example.com");
+      if (!user) {
+        user = await storage.createUser({
+          username: "demo@example.com",
+          password: "demo123"
+        });
+      }
+
+      if (!user) {
+        throw new Error("Failed to create or get user");
+      }
+
+      // Update user with Gmail tokens
+      const updatedUser = await storage.updateUser(user.id, {
+        gmailAccessToken: tokens.access_token || null,
+        gmailRefreshToken: tokens.refresh_token || null,
+        gmailConnected: true,
+        lastSync: new Date()
+      });
+
+      if (!updatedUser) {
+        throw new Error("Failed to update user with Gmail tokens");
+      }
+
+      console.log("Gmail connected successfully for user:", user.id);
+
+      // Redirect back to dashboard with success flag
+      const redirectUrl = `/?gmailConnected=true&userId=${encodeURIComponent(user.id)}`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error("OAuth callback error:", error);
-      res.status(500).json({ message: "Failed to complete OAuth flow" });
+      const redirectUrl = `/?gmailConnected=false&error=${encodeURIComponent(error instanceof Error ? error.message : 'Unknown error')}`;
+      res.redirect(redirectUrl);
     }
   });
 
@@ -60,6 +87,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Gmail not connected" });
       }
 
+      const gmailService = new GmailService();
+      
       // Fetch emails from Gmail
       const gmailMessages = await gmailService.getEmails(
         user.gmailAccessToken,
@@ -198,7 +227,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
 
-      res.json(user);
+      // Return sanitized user data without sensitive tokens
+      const safeUser = {
+        id: user.id,
+        username: user.username,
+        gmailConnected: user.gmailConnected,
+        lastSync: user.lastSync,
+      };
+
+      res.json(safeUser);
     } catch (error) {
       console.error("Get user error:", error);
       res.status(500).json({ message: "Failed to fetch user" });
