@@ -37,6 +37,7 @@ export const emails = pgTable("emails", {
   fromName: text("from_name"),
   receivedAt: timestamp("received_at").notNull(),
   content: text("content"),
+  attachmentData: text("attachment_data"), // JSON array of attachment info
   isTransaction: boolean("is_transaction").default(false),
   extractedAmount: decimal("extracted_amount", { precision: 10, scale: 2 }),
   extractedCurrency: text("extracted_currency"),

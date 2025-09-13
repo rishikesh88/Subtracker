@@ -72,15 +72,15 @@ export class GmailService {
 
     const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
     
-    // Calculate date 6 months ago
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-    const query = `after:${Math.floor(sixMonthsAgo.getTime() / 1000)}`;
+    // Calculate date 90 days ago (changed from 6 months for LLM processing efficiency)
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+    const query = `after:${Math.floor(ninetyDaysAgo.getTime() / 1000)}`;
 
     try {
       // Get all message IDs with pagination
       const allMessageIds = await this.getAllMessageIds(gmail, query, maxResults);
-      console.log(`Found ${allMessageIds.length} emails in the past 6 months`);
+      console.log(`Found ${allMessageIds.length} emails in the past 90 days`);
 
       if (allMessageIds.length === 0) {
         return [];
