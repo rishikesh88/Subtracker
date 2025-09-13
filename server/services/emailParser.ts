@@ -17,7 +17,7 @@ export class EmailParser {
     'renewal', 'billing', 'autopay', 'recurring', 'monthly', 'yearly'
   ];
 
-  private merchantDomains = [
+  public merchantDomains = [
     'netflix.com', 'spotify.com', 'amazon.com', 'apple.com', 'google.com',
     'microsoft.com', 'adobe.com', 'dropbox.com', 'slack.com', 'github.com',
     'youtube.com', 'hulu.com', 'disney.com', 'paypal.com', 'stripe.com',
@@ -65,7 +65,7 @@ export class EmailParser {
     };
   }
 
-  private getHeader(headers: any[], name: string): string | undefined {
+  public getHeader(headers: any[], name: string): string | undefined {
     const header = headers.find((h) => h.name.toLowerCase() === name.toLowerCase());
     return header?.value;
   }

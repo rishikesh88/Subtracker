@@ -3,9 +3,12 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { GmailService } from "./services/gmail";
 import { emailParser } from "./services/emailParser";
+import { EnhancedEmailParser } from "./services/enhancedEmailParser";
 import { subscriptionDetector } from "./services/subscriptionDetector";
+import { GeminiSubscriptionDetector } from "./services/geminiSubscriptionDetector";
 import { insertUserSchema, insertEmailSchema } from "@shared/schema";
 import { randomBytes } from "crypto";
+import { registerGeminiRoutes } from "./routes/geminiSync";
 
 // Simple in-memory store for OAuth states (in production, use Redis or database)
 const oauthStates = new Map<string, { timestamp: number }>();
@@ -13,7 +16,7 @@ const oauthStates = new Map<string, { timestamp: number }>();
 // Clean up old states (older than 10 minutes)
 const cleanupOldStates = () => {
   const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
-  for (const [state, data] of oauthStates.entries()) {
+  for (const [state, data] of Array.from(oauthStates.entries())) {
     if (data.timestamp < tenMinutesAgo) {
       oauthStates.delete(state);
     }
@@ -292,6 +295,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to fetch user" });
     }
   });
+
+  // Register Gemini LLM routes
+  registerGeminiRoutes(app);
 
   const httpServer = createServer(app);
   return httpServer;
