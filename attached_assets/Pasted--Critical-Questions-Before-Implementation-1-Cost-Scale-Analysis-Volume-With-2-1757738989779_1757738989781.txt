@@ -1,0 +1,46 @@
+🤔 **Critical Questions Before Implementation:**
+
+**1. Cost & Scale Analysis**
+
+- **Volume**: With 2000+ emails per user, what's the API cost per sync? This can be figured out, but realistically lets focus on syncing emails from past 90 days.
+- **Frequency**: How often do users sync? Monthly? Real-time? Could be monthly and sometimes on demand
+- **Model choice**: GPT-4o vs Claude vs cheaper alternatives like GPT-3.5? we could start with 4o for MVP, suggest available alternatives
+
+**2. Privacy & Security**
+
+- **Data sensitivity**: Are users comfortable sending emails to external LLM providers? yes since its going to be only for accounting emails.
+- **Compliance**: GDPR, data residency requirements? we can figure out later.
+- **Alternatives**: Would users accept local LLM processing (slower but private)? no lets not go there.
+
+**3. Performance & UX**
+
+- **Processing time**: 2000 emails through LLM APIs - how long? Can we show progress? considering emails from past 90 days, this is okay.  lets try first.
+- **Rate limits**: How do we handle API throttling? not sure. find best approach
+- **Failure handling**: What if LLM service is down mid-sync? sync is failed and we try again maybe from the last point of failure.
+
+**4. Attachment Processing**
+
+- **File types**: PDFs, images, zip files - how do we extract text first? consider only PDFs, images and html email content for now. I think GPT 4o has this capability.
+- **Size limits**: Large attachments impact cost and processing time that is okay.
+- **OCR**: Do we need image-to-text for scanned receipts? lets try it without first and later we can think of this.
+
+**5. Prompt Engineering**
+
+- **Output format**: JSON schema for structured extraction? yes.
+- **Categories**: Predefined list or let LLM suggest? Let LLM suggest
+- **Context**: How much email context to include (headers, thread history)? decide best approach.
+
+**Implement Option A (Hybrid)** because: also cast a wider net to fetch more emails by rules. 
+
+- **Cost-effective**: 90% cost reduction vs. pure LLM
+- **Fast**: Pre-filtering dramatically reduces processing time
+- **Accurate**: LLM handles nuanced cases current system misses
+- **Scalable**: Can adjust filtering threshold based on cost/accuracy needs
+
+⚡ **Implementation Questions:**
+
+1. **Which LLM provider** do you prefer? (OpenAI, Anthropic, local deployment) OpenAI
+2. **Budget constraints** for API costs per user sync? not at the moment
+3. **Privacy requirements** - any restrictions on external API usage? no
+4. **Attachment priority** - focus on email content first, then attachments? consider emails, emails+attachments 
+5. **User control** - let users choose LLM vs. rule-based processing? no it should be by default LLM
