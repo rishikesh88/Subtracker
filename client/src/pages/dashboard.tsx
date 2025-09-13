@@ -248,7 +248,7 @@ export default function Dashboard() {
   };
 
   const handleSyncEmails = () => {
-    if (!user?.gmailConnected) {
+    if (!user || !user.gmailConnected) {
       toast({
         title: "Gmail Not Connected",
         description: "Please connect your Gmail account first",
@@ -280,7 +280,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen flex bg-background">
-      <Sidebar user={user} isGmailConnected={user?.gmailConnected} />
+      <Sidebar user={user} isGmailConnected={user?.gmailConnected || false} />
       
       <div className="flex-1 flex flex-col">
         {/* Header */}
@@ -293,7 +293,7 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex items-center space-x-4">
-              {!user?.gmailConnected ? (
+              {!user || !user.gmailConnected ? (
                 <Button
                   onClick={handleConnectGmail}
                   disabled={gmailAuthMutation.isPending}

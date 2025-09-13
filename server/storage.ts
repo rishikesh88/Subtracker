@@ -21,6 +21,7 @@ export interface IStorage {
   getEmailByGmailId(gmailId: string): Promise<Email | undefined>;
   createEmail(email: InsertEmail): Promise<Email>;
   updateEmail(id: string, updates: Partial<Email>): Promise<Email | undefined>;
+  deleteEmail(id: string): Promise<boolean>;
   getUnprocessedEmails(userId: string): Promise<Email[]>;
   
   // Analytics methods
@@ -151,6 +152,10 @@ export class MemStorage implements IStorage {
     const updatedEmail = { ...email, ...updates };
     this.emails.set(id, updatedEmail);
     return updatedEmail;
+  }
+
+  async deleteEmail(id: string): Promise<boolean> {
+    return this.emails.delete(id);
   }
 
   async getUnprocessedEmails(userId: string): Promise<Email[]> {
