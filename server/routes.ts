@@ -219,6 +219,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Clear all data for fresh start
+  app.delete("/api/clear-data/:userId", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      
+      if (!userId) {
+        return res.status(400).json({ message: "Missing userId" });
+      }
+
+      console.log(`🧹 Clearing all data for user: ${userId}`);
+      
+      // Clear all emails
+      const emails = await storage.getEmails(userId);
+      for (const email of emails) {
+        await storage.deleteEmail(email.id);
+      }
+      
+      // Clear all subscriptions
+      const subscriptions = await storage.getSubscriptions(userId);
+      for (const subscription of subscriptions) {
+        await storage.deleteSubscription(subscription.id);
+      }
+      
+      // Reset user's last sync
+      await storage.updateUser(userId, { lastSync: null });
+      
+      console.log(`✅ Cleared ${emails.length} emails and ${subscriptions.length} subscriptions`);
+      
+      res.json({
+        success: true,
+        message: "All data cleared successfully",
+        clearedEmails: emails.length,
+        clearedSubscriptions: subscriptions.length
+      });
+    } catch (error) {
+      console.error("Clear data error:", error);
+      res.status(500).json({ message: "Failed to clear data" });
+    }
+  });
+
   // Get subscription stats
   app.get("/api/stats", async (req, res) => {
     try {
@@ -245,7 +285,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Missing or invalid userId" });
       }
 
-      const limitNum = limit ? parseInt(limit as string) : 50;
+      // No limit by default - return ALL emails for proper pagination
+      const limitNum = limit ? parseInt(limit as string) : undefined;
       const emails = await storage.getEmails(userId, limitNum);
       res.json(emails);
     } catch (error) {

@@ -186,6 +186,32 @@ export default function Dashboard() {
     }
   };
 
+  // Clear all data mutation
+  const clearDataMutation = useMutation({
+    mutationFn: async () => {
+      if (!currentUserId) throw new Error("No user ID");
+      const response = await apiRequest("DELETE", `/api/clear-data/${currentUserId}`);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Data Cleared Successfully",
+        description: `Cleared ${data.clearedEmails} emails and ${data.clearedSubscriptions} subscriptions`,
+      });
+      // Refresh all data
+      queryClient.invalidateQueries({ queryKey: [`/api/subscriptions?userId=${currentUserId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${currentUserId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
+    },
+    onError: () => {
+      toast({
+        title: "Clear Failed",
+        description: "Failed to clear data. Please try again.",
+        variant: "destructive",
+      });
+    }
+  });
+
   // Sync emails mutation
   const syncEmailsMutation = useMutation({
     mutationFn: async () => {
@@ -281,18 +307,33 @@ export default function Dashboard() {
                   Connect Gmail
                 </Button>
               ) : (
-                <Button
-                  onClick={handleSyncEmails}
-                  disabled={syncEmailsMutation.isPending}
-                  data-testid="sync-emails"
-                >
-                  {syncEmailsMutation.isPending ? (
-                    <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-                  ) : (
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                  )}
-                  Sync Emails
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={handleSyncEmails}
+                    disabled={syncEmailsMutation.isPending}
+                    data-testid="sync-emails"
+                  >
+                    {syncEmailsMutation.isPending ? (
+                      <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                    )}
+                    Sync Emails
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => clearDataMutation.mutate()}
+                    disabled={clearDataMutation.isPending}
+                    data-testid="clear-data"
+                  >
+                    {clearDataMutation.isPending ? (
+                      <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                      "🗑️"
+                    )}
+                    Clear Data
+                  </Button>
+                </div>
               )}
               
               <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
