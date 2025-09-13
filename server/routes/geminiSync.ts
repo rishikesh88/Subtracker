@@ -45,7 +45,8 @@ export function registerGeminiRoutes(app: Express) {
         }
       );
 
-      console.log(`Fetched ${gmailMessages.length} emails from Gmail (past 90 days)`);
+      console.log(`📬 Gmail Fetch Complete: ${gmailMessages.length} emails (past 90 days)`);
+      console.log(`🕰️ Estimated processing time: ${Math.ceil(gmailMessages.length / 50)} minutes for full analysis`);
 
       // HYBRID APPROACH: First filter with rules, then LLM analysis
       
@@ -68,19 +69,43 @@ export function registerGeminiRoutes(app: Express) {
         }
       }
 
-      // Step 2: Cast wider net with rule-based filtering
+      // Step 2: ENHANCED wide-net rule-based filtering (based on user examples)
       const candidateEmails = parsedEmails.filter(email => {
+        const content = (email.content + ' ' + email.subject + ' ' + email.fromEmail).toLowerCase();
+        
+        // Original transaction detection
         const hasTransactionKeywords = email.isTransaction;
-        const hasAmountMentions = /\$|\₹|Rs|USD|INR|payment|bill|amount|price|cost|subscription|recurring/i.test(email.content + ' ' + email.subject);
+        
+        // Enhanced subscription patterns (much wider net)
+        const subscriptionPatterns = /\$|\₹|rs\b|usd|inr|payment|bill|amount|price|cost|subscription|recurring|membership|trial|premium|upgrade|renewal|auto.?renew|billed|charged|invoice|receipt|statement|plan|order|purchase|transaction|confirmation|welcome|verify|verification|account|profile|thank.?you|feedback|update|notification|alert|reminder|expired|due|service|product|digest|summary|report/i;
+        const hasSubscriptionKeywords = subscriptionPatterns.test(content);
+        
+        // Service/platform patterns (Indian + Global)
+        const servicePatterns = /airtel|jio|vodafone|bsnl|replit|bolt|netflix|hotstar|primevideo|spotify|apple|google|microsoft|openai|github|aws|azure|stripe|razorpay|paytm|phonepe|gpay|upwork|freelancer|linkedin|zoom|slack|notion|figma|canva|dropbox|youtube|uber|ola|swiggy|zomato|flipkart|amazon|myntra|nykaa|bigbasket|grofers|dunzo/i;
+        const hasServiceKeywords = servicePatterns.test(content);
+        
+        // Job/Application patterns (from user's screenshot)
+        const jobPatterns = /application|job|position|career|interview|recruitment|hiring|vacancy|opportunity|apply|submit|submitted|candidate|cv|resume|profile|linkedin|tata|insurance|lead|manager|product/i;
+        const hasJobKeywords = jobPatterns.test(content);
+        
+        // Communication/Verification patterns
+        const communicationPatterns = /verify|verification|confirm|confirmation|activate|activation|welcome|getting.?started|onboard|setup|signin|login|password|security|otp|code|email.?address|phone.?number|profile/i;
+        const hasCommunicationKeywords = communicationPatterns.test(content);
+        
+        // Merchant domains check
         const hasMerchantDomains = enhancedParser.merchantDomains.some(domain => 
           email.fromEmail.includes(domain) || email.content.includes(domain)
         );
         
-        // Cast wider net - include any email with potential subscription indicators
-        return hasTransactionKeywords || hasAmountMentions || hasMerchantDomains;
+        // MUCH WIDER NET: Include if ANY pattern matches
+        return hasTransactionKeywords || hasSubscriptionKeywords || hasServiceKeywords || hasJobKeywords || hasCommunicationKeywords || hasMerchantDomains;
       });
       
-      console.log(`Rule-based filtering: ${candidateEmails.length} candidate emails from ${parsedEmails.length} total`);
+      console.log(`🎯 Rule-based filtering results:`);
+      console.log(`   • Total emails parsed: ${parsedEmails.length}`);
+      console.log(`   • Candidate emails selected: ${candidateEmails.length}`);
+      console.log(`   • Filter efficiency: ${Math.round((candidateEmails.length / parsedEmails.length) * 100)}% pass rate`);
+      console.log(`   • This is a ${candidateEmails.length > parsedEmails.length * 0.5 ? 'WIDE' : candidateEmails.length > parsedEmails.length * 0.2 ? 'MODERATE' : 'NARROW'} filter strategy`);
 
       // Step 3: Save candidate emails to database
       const savedEmails = [];
@@ -130,9 +155,18 @@ export function registerGeminiRoutes(app: Express) {
       // Step 4: LLM Analysis with Gemini
       let geminiResults;
       try {
-        console.log('Starting Gemini LLM analysis...');
+        console.log(`🤖 Starting Gemini LLM analysis on ${savedEmails.length} emails...`);
+        const analysisStartTime = Date.now();
+        
         geminiResults = await geminiDetector.analyzeEmailsForSubscriptions(savedEmails);
-        console.log(`Gemini analysis complete: ${geminiResults.subscriptions.length} suggestions, ${geminiResults.totalConfidentSubscriptions} confident`);
+        
+        const analysisTime = ((Date.now() - analysisStartTime) / 1000).toFixed(1);
+        console.log(`✅ Gemini analysis complete in ${analysisTime}s:`);
+        console.log(`   • Total suggestions: ${geminiResults.subscriptions.length}`);
+        console.log(`   • High confidence: ${geminiResults.subscriptions.filter(s => s.confidence === 'high').length}`);
+        console.log(`   • Medium confidence: ${geminiResults.subscriptions.filter(s => s.confidence === 'medium').length}`);
+        console.log(`   • Low confidence: ${geminiResults.subscriptions.filter(s => s.confidence === 'low').length}`);
+        console.log(`   • Processing rate: ${(savedEmails.length / parseFloat(analysisTime)).toFixed(1)} emails/second`);
       } catch (error) {
         console.error('Gemini analysis failed:', error);
         return res.status(500).json({ 
@@ -142,7 +176,18 @@ export function registerGeminiRoutes(app: Express) {
         });
       }
 
-      // Step 5: Store suggestions for user review
+      // Step 5: Mark ALL analyzed emails as processed (CRITICAL BUG FIX)
+      console.log(`📧 Marking ${savedEmails.length} analyzed emails as processed...`);
+      for (const email of savedEmails) {
+        try {
+          await storage.updateEmail(email.id, { processed: true });
+        } catch (error) {
+          console.error(`Failed to mark email ${email.id} as processed:`, error);
+        }
+      }
+      console.log(`✅ All ${savedEmails.length} emails marked as processed`);
+      
+      // Step 6: Store suggestions for user review
       const sessionId = `session_${userId}_${Date.now()}`;
       suggestionSessions.set(sessionId, {
         userId,

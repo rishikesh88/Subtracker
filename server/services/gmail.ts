@@ -72,18 +72,30 @@ export class GmailService {
 
     const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
     
-    // Calculate date 90 days ago (changed from 6 months for LLM processing efficiency)
-    const ninetyDaysAgo = new Date();
-    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-    const query = `after:${Math.floor(ninetyDaysAgo.getTime() / 1000)}`;
+    // Use Gmail's preferred newer_than format (much more reliable than epoch timestamps)
+    const baseQuery = 'newer_than:90d';
     
-    console.log(`Gmail API: Fetching ALL emails (read + unread) from past 90 days`);
-    console.log(`Query: ${query} (from ${ninetyDaysAgo.toDateString()} onwards)`);
+    // Subscription-targeted query to catch more subscription emails
+    const subscriptionQuery = 'newer_than:90d (receipt OR invoice OR subscription OR renewal OR billed OR payment OR statement OR plan OR membership OR trial)';
+    
+    console.log(`🔍 Gmail API: Enhanced email fetching with subscription detection`);
+    console.log(`📧 Base Query: ${baseQuery}`);
+    console.log(`🎯 Subscription Query: ${subscriptionQuery}`);
 
     try {
-      // Get all message IDs with pagination
-      const allMessageIds = await this.getAllMessageIds(gmail, query, maxResults);
-      console.log(`✅ Gmail API: Found ${allMessageIds.length} total emails in the past 90 days (includes ALL emails - read and unread)`);
+      // First: Get general emails (casting wider net)
+      console.log(`📬 Fetching general emails...`);
+      const generalIds = await this.getAllMessageIds(gmail, baseQuery, Math.floor(maxResults * 0.7));
+      console.log(`✅ General emails found: ${generalIds.length}`);
+      
+      // Second: Get subscription-targeted emails
+      console.log(`🎯 Fetching subscription-targeted emails...`);
+      const subscriptionIds = await this.getAllMessageIds(gmail, subscriptionQuery, Math.floor(maxResults * 0.3));
+      console.log(`✅ Subscription-targeted emails found: ${subscriptionIds.length}`);
+      
+      // Combine and deduplicate
+      const allMessageIds = [...new Set([...generalIds, ...subscriptionIds])];
+      console.log(`📊 Total unique emails after deduplication: ${allMessageIds.length}`);
 
       if (allMessageIds.length === 0) {
         return [];
@@ -111,7 +123,8 @@ export class GmailService {
         userId: 'me',
         q: query,
         maxResults: Math.min(500, maxResults - totalFetched),
-        pageToken: nextPageToken
+        pageToken: nextPageToken,
+        includeSpamTrash: false  // Exclude spam and trash for cleaner results
       });
 
       if (listResponse.data.messages) {
