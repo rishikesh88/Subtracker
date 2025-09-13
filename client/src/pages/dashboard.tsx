@@ -46,7 +46,7 @@ export default function Dashboard() {
             // Automatically trigger email sync after a delay
             setTimeout(async () => {
               try {
-                const response = await apiRequest("POST", "/api/sync-emails", { userId });
+                const response = await apiRequest("POST", "/api/sync-emails-llm", { userId });
                 const data = await response.json();
                 
                 toast({
@@ -164,7 +164,7 @@ export default function Dashboard() {
   // Function to trigger email sync
   const triggerEmailSync = async (userId: string) => {
     try {
-      const response = await apiRequest("POST", "/api/sync-emails", { userId });
+      const response = await apiRequest("POST", "/api/sync-emails-llm", { userId });
       const data = await response.json();
       
       toast({
