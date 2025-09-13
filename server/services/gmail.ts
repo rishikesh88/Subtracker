@@ -76,11 +76,14 @@ export class GmailService {
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
     const query = `after:${Math.floor(ninetyDaysAgo.getTime() / 1000)}`;
+    
+    console.log(`Gmail API: Fetching ALL emails (read + unread) from past 90 days`);
+    console.log(`Query: ${query} (from ${ninetyDaysAgo.toDateString()} onwards)`);
 
     try {
       // Get all message IDs with pagination
       const allMessageIds = await this.getAllMessageIds(gmail, query, maxResults);
-      console.log(`Found ${allMessageIds.length} emails in the past 90 days`);
+      console.log(`✅ Gmail API: Found ${allMessageIds.length} total emails in the past 90 days (includes ALL emails - read and unread)`);
 
       if (allMessageIds.length === 0) {
         return [];
@@ -89,7 +92,8 @@ export class GmailService {
       // Get full message details with controlled concurrency
       const messages = await this.fetchMessagesInBatches(gmail, allMessageIds);
       
-      console.log(`Successfully processed ${messages.length} emails`);
+      console.log(`✅ Gmail API: Successfully processed ${messages.length} emails with full content`);
+      console.log(`📧 Email Types: ALL emails fetched (no read/unread filtering applied)`);
       return messages;
     } catch (error) {
       console.error('Error fetching emails:', error);
@@ -131,7 +135,7 @@ export class GmailService {
     const messages: any[] = [];
     const batchSize = 20; // Controlled concurrency to avoid rate limits
     
-    console.log(`Fetching ${messageIds.length} messages in batches of ${batchSize}`);
+    console.log(`📥 Fetching ${messageIds.length} email details in batches of ${batchSize} (rate-limited)`);
 
     for (let i = 0; i < messageIds.length; i += batchSize) {
       const batch = messageIds.slice(i, i + batchSize);
