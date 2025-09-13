@@ -296,7 +296,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Register Gemini LLM routes
+  // Register Gemini LLM routes BEFORE the HTTP server creation
   registerGeminiRoutes(app);
 
   const httpServer = createServer(app);
