@@ -133,13 +133,13 @@ export default function Dashboard() {
   }, []);
 
   // Fetch user data
-  const { data: user } = useQuery({
+  const { data: user } = useQuery<{id: string, username: string, gmailConnected: boolean}>({
     queryKey: [`/api/users/${currentUserId}`],
     enabled: !!currentUserId,
   });
 
   // Fetch subscription stats
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  const { data: stats, isLoading: statsLoading } = useQuery<{totalMonthly: number, activeCount: number, emailsAnalyzed: number, avgPerService: number}>({
     queryKey: [`/api/stats?userId=${currentUserId}`],
     enabled: !!currentUserId,
   });
@@ -261,9 +261,8 @@ export default function Dashboard() {
       // Invalidate and refetch all data
       queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${currentUserId}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/emails`] }); // Invalidate all email queries
+      queryClient.invalidateQueries({ queryKey: [`/api/emails`] });
       queryClient.invalidateQueries({ queryKey: [`/api/users/${currentUserId}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/suggestions`] }); // Also invalidate suggestions
     },
     onError: (error: any) => {
       // Handle 410 response from disabled legacy endpoint
@@ -361,6 +360,14 @@ export default function Dashboard() {
                     )}
                     Sync Emails
                   </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => window.location.href = '/suggestions'}
+                    data-testid="view-suggestions"
+                  >
+                    📋 View Suggestions
+                  </Button>
+                  
                   <Button
                     variant="destructive"
                     onClick={() => clearDataMutation.mutate()}
