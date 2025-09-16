@@ -34,7 +34,7 @@ export interface IStorage {
   createSuggestion(suggestion: InsertSubscriptionSuggestion): Promise<SubscriptionSuggestion>;
   createSuggestionsBulk(suggestions: InsertSubscriptionSuggestion[]): Promise<SubscriptionSuggestion[]>;
   approveSuggestions(suggestionIds: string[], userId: string): Promise<{ subscriptions: Subscription[]; approved: number }>;
-  rejectSuggestions(suggestionIds: string[]): Promise<{ rejected: number }>;
+  rejectSuggestions(suggestionIds: string[], userId: string): Promise<{ rejected: number }>;
   clearSuggestions(userId: string): Promise<{ cleared: number }>;
   
   // Email methods with pagination
@@ -505,20 +505,31 @@ export class DatabaseStorage implements IStorage {
         const [createdSubscription] = await this.db.insert(subscriptions).values(subscriptionData).returning();
         createdSubscriptions.push(createdSubscription);
         
-        // Link evidence emails to subscription
+        // Link evidence emails to subscription (SECURITY: Defense-in-depth with userId constraint)
         if (suggestion.evidenceEmailIds && suggestion.evidenceEmailIds.length > 0) {
           await this.db
             .update(emails)
             .set({ subscriptionId: createdSubscription.id, processed: true })
-            .where(sql`${emails.id} = ANY(${suggestion.evidenceEmailIds})`);
+            .where(
+              and(
+                inArray(emails.id, suggestion.evidenceEmailIds),
+                eq(emails.userId, userId) // SECURITY: Ensure tenant isolation
+              )
+            );
         }
       }
       
-      // Mark suggestions as approved
+      // Mark suggestions as approved (SECURITY: Only update user's own suggestions!)
       await this.db
         .update(subscriptionSuggestions)
         .set({ status: 'approved' })
-        .where(sql`${subscriptionSuggestions.id} = ANY(${suggestionIds})`);
+        .where(
+          and(
+            inArray(subscriptionSuggestions.id, suggestionIds),
+            eq(subscriptionSuggestions.userId, userId), // SECURITY: User constraint
+            eq(subscriptionSuggestions.status, 'pending') // Only pending suggestions
+          )
+        );
       
       return { subscriptions: createdSubscriptions, approved: suggestions.length };
     } catch (error) {
@@ -527,14 +538,15 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async rejectSuggestions(suggestionIds: string[]): Promise<{ rejected: number }> {
+  async rejectSuggestions(suggestionIds: string[], userId: string): Promise<{ rejected: number }> {
     try {
       const result = await this.db
         .update(subscriptionSuggestions)
         .set({ status: 'rejected' })
         .where(
           and(
-            sql`${subscriptionSuggestions.id} = ANY(${suggestionIds})`,
+            inArray(subscriptionSuggestions.id, suggestionIds),
+            eq(subscriptionSuggestions.userId, userId), // SECURITY: User constraint missing!
             eq(subscriptionSuggestions.status, 'pending')
           )
         );
@@ -575,13 +587,25 @@ export class DatabaseStorage implements IStorage {
       const activeSubscriptions = userSubscriptions.filter(sub => sub.status === 'active');
       
       const totalMonthly = activeSubscriptions.reduce((sum, sub) => {
-        const amount = parseFloat(sub.amount);
-        if (sub.frequency === 'yearly') {
-          return sum + (amount / 12);
-        } else if (sub.frequency === 'weekly') {
-          return sum + (amount * 4.33); // average weeks per month
+        const amountNum = Number(sub.amount);
+        
+        // DATA SAFETY: Skip invalid/negative amounts (could be refunds/errors)
+        if (!Number.isFinite(amountNum) || amountNum <= 0) {
+          console.warn(`Skipping invalid subscription amount: ${sub.amount} for subscription ${sub.id}`);
+          return sum;
         }
-        return sum + amount; // monthly
+        
+        switch (sub.frequency) {
+          case 'yearly':
+            return sum + (amountNum / 12); // Convert yearly to monthly
+          case 'quarterly':
+            return sum + (amountNum / 3); // Convert quarterly to monthly
+          case 'weekly':
+            return sum + (amountNum * 4.33); // Convert weekly to monthly: 4.33 weeks per month
+          case 'monthly':
+          default:
+            return sum + amountNum; // Already monthly
+        }
       }, 0);
 
       const activeCount = activeSubscriptions.length;

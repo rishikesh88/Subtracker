@@ -8,9 +8,19 @@ import { subscriptionDetector } from "./services/subscriptionDetector";
 import { GeminiSubscriptionDetector } from "./services/geminiSubscriptionDetector";
 import { insertEmailSchema, insertUserSchema, type SafeUser } from "@shared/schema";
 import { randomBytes } from "crypto";
+import { z } from "zod";
 import { registerGeminiRoutes } from "./routes/geminiSync";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { generateServiceKey } from "./utils/serviceKey";
+
+// Request validation schemas
+const approveSuggestionsSchema = z.object({
+  suggestionIds: z.array(z.string().uuid()).nonempty()
+});
+
+const rejectSuggestionsSchema = z.object({
+  suggestionIds: z.array(z.string().uuid()).nonempty()
+});
 
 // Simple in-memory store for OAuth states (in production, use Redis or database)
 const oauthStates = new Map<string, { timestamp: number }>();
@@ -365,15 +375,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/suggestions/approve", isAuthenticated, async (req: any, res) => {
     try {
-      const { suggestionIds } = req.body;
+      // Validate request body with Zod
+      const validation = approveSuggestionsSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          message: "Invalid request format",
+          errors: validation.error.issues 
+        });
+      }
+      
+      const { suggestionIds } = validation.data;
       const userId = req.user.claims.sub;
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
-      }
-      
-      if (!Array.isArray(suggestionIds) || suggestionIds.length === 0) {
-        return res.status(400).json({ message: "Invalid suggestion IDs" });
       }
       
       const result = await storage.approveSuggestions(suggestionIds, userId);
@@ -391,13 +406,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/suggestions/reject", isAuthenticated, async (req: any, res) => {
     try {
-      const { suggestionIds } = req.body;
-      
-      if (!Array.isArray(suggestionIds) || suggestionIds.length === 0) {
-        return res.status(400).json({ message: "Invalid suggestion IDs" });
+      // Validate request body with Zod
+      const validation = rejectSuggestionsSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ 
+          message: "Invalid request format",
+          errors: validation.error.issues 
+        });
       }
       
-      const result = await storage.rejectSuggestions(suggestionIds);
+      const { suggestionIds } = validation.data;
+      const userId = req.user.claims.sub;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+      
+      const result = await storage.rejectSuggestions(suggestionIds, userId);
       res.json({
         success: true,
         message: `Rejected ${result.rejected} suggestions`,
