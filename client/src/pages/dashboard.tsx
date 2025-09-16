@@ -98,7 +98,7 @@ export default function Dashboard() {
 
   // Fetch approved subscriptions for dashboard display
   const { data: subscriptions = [], isLoading: subscriptionsLoading } = useQuery<Subscription[]>({
-    queryKey: ['/api/subscriptions', currentUserId],
+    queryKey: [`/api/subscriptions/${currentUserId}`],
     enabled: !!currentUserId,
   });
 
