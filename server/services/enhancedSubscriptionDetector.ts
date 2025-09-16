@@ -1,6 +1,11 @@
 /**
  * Enhanced Subscription Detection Service
  * Combines recurrence analysis with LLM-powered suggestion generation
+ * 
+ * Hybrid Two-Stage Pipeline:
+ * - Stage 1: Batch classification (50 emails per API call)
+ * - Stage 2: Detailed batch analysis (8 emails per API call)
+ * - Reduces API calls from 23 to 3-5 total
  */
 
 import { GoogleGenAI } from "@google/genai";
@@ -8,24 +13,33 @@ import { type Email, type InsertSubscriptionSuggestion } from "@shared/schema";
 import { IStorage } from "../storage";
 import { recurrenceAnalyzer, type EmailCluster } from "./recurrenceAnalyzer";
 
-interface LLMSuggestionResult {
-  serviceName: string;
-  merchantName: string;
-  amount: number;
-  currency: string;
-  frequency: 'monthly' | 'quarterly' | 'yearly' | 'weekly';
-  category: string;
-  confidence: 'high' | 'medium' | 'low';
-  confidenceScore: number;
-  reasoning: string;
-}
-
 interface SuggestionGenerationResult {
   suggestions: InsertSubscriptionSuggestion[];
   totalAnalyzed: number;
   highConfidenceCount: number;
   recurrenceClusters: number;
   processingTime: number;
+}
+
+interface BatchClassificationResult {
+  id: number;
+  isSubscription: boolean;
+  confidence: "high" | "medium" | "low";
+  reason: string;
+}
+
+interface BatchAnalysisResult {
+  id: number;
+  isSubscription: boolean;
+  serviceName: string;
+  amount: number;
+  currency: string;
+  frequency: "weekly" | "monthly" | "quarterly" | "yearly";
+  category: string;
+  confidence: "high" | "medium" | "low";
+  nextBillingDate?: string;
+  merchantName: string;
+  merchantEmail: string;
 }
 
 export class EnhancedSubscriptionDetector {
@@ -38,7 +52,7 @@ export class EnhancedSubscriptionDetector {
   }
 
   /**
-   * Main detection workflow: analyze ALL emails individually with AI first, then use recurrence as confidence booster
+   * Main detection workflow: Hybrid two-stage pipeline for efficient API usage
    */
   async detectSubscriptionSuggestions(emails: Email[], userId: string): Promise<SuggestionGenerationResult> {
     const startTime = Date.now();
@@ -50,47 +64,25 @@ export class EnhancedSubscriptionDetector {
       const potentialSubscriptionEmails = this.filterPotentialSubscriptions(emails);
       console.log(`✅ Found ${potentialSubscriptionEmails.length} potentially subscription-related emails`);
 
-      // Step 2: Analyze emails in small batches with robust error handling
-      console.log(`🧠 Step 2: Analyzing emails in batches with error resilience...`);
-      const individualSuggestions: InsertSubscriptionSuggestion[] = [];
-      const batchSize = 3; // Process 3 emails at a time to avoid rate limits
-      const emailBatches = this.chunkArray(potentialSubscriptionEmails, batchSize);
+      // Step 2: Hybrid Two-Stage Pipeline for Efficient API Usage
+      console.log(`🧠 Step 2: Starting hybrid two-stage pipeline...`);
       
-      for (let batchIndex = 0; batchIndex < emailBatches.length; batchIndex++) {
-        const batch = emailBatches[batchIndex];
-        console.log(`📦 Processing batch ${batchIndex + 1}/${emailBatches.length} (${batch.length} emails)`);
-        
-        // Process each email in batch with individual error handling
-        for (let i = 0; i < batch.length; i++) {
-          const email = batch[i];
-          const emailNumber = batchIndex * batchSize + i + 1;
-          console.log(`🔬 Analyzing email ${emailNumber}/${potentialSubscriptionEmails.length}: ${email.subject}`);
-          
-          try {
-            const suggestion = await this.analyzeIndividualEmailWithRetry(email, userId);
-            if (suggestion) {
-              individualSuggestions.push(suggestion);
-              console.log(`✅ Generated suggestion for: ${suggestion.serviceName}`);
-            }
-          } catch (error) {
-            console.error(`❌ Failed to analyze email "${email.subject}":`, error);
-            // Continue with next email instead of failing entire process
-          }
-          
-          // Aggressive rate limiting: 2 second delay between emails
-          await this.delay(2000);
-        }
-        
-        // Continue collecting suggestions without saving yet (we'll save after boosting confidence)
-        
-        // Longer delay between batches
-        if (batchIndex < emailBatches.length - 1) {
-          console.log(`⏳ Waiting 3 seconds between batches...`);
-          await this.delay(3000);
-        }
+      // STAGE 1: Batch Classification (1-2 API calls total)
+      console.log(`📊 Stage 1: Batch classification of ${potentialSubscriptionEmails.length} emails...`);
+      const subscriptionCandidates = await this.batchClassifyEmails(potentialSubscriptionEmails);
+      console.log(`✅ Stage 1 complete: ${subscriptionCandidates.length} high-confidence subscription candidates identified`);
+      
+      // STAGE 2: Detailed Batch Analysis (2-3 API calls total)
+      console.log(`🎯 Stage 2: Detailed batch analysis of ${subscriptionCandidates.length} candidates...`);
+      const individualSuggestions: InsertSubscriptionSuggestion[] = [];
+      
+      if (subscriptionCandidates.length > 0) {
+        const detailedSuggestions = await this.batchAnalyzeSubscriptionCandidates(subscriptionCandidates, userId);
+        individualSuggestions.push(...detailedSuggestions);
       }
 
-      console.log(`✅ Individual analysis complete: ${individualSuggestions.length} suggestions generated`);
+      const totalApiCalls = Math.ceil(potentialSubscriptionEmails.length / 50) + Math.ceil(subscriptionCandidates.length / 8);
+      console.log(`✅ Hybrid pipeline complete: ${individualSuggestions.length} suggestions generated with only ${totalApiCalls} API calls (${Math.round((1 - totalApiCalls / potentialSubscriptionEmails.length) * 100)}% reduction)`);
 
       // Step 3: Analyze recurrence patterns to boost confidence
       console.log(`📊 Step 3: Analyzing recurrence patterns to boost confidence...`);
@@ -126,130 +118,6 @@ export class EnhancedSubscriptionDetector {
       console.error('🚨 Enhanced detection failed:', error);
       throw new Error(`Subscription detection failed: ${error}`);
     }
-  }
-
-  /**
-   * Analyze email clusters using Gemini LLM
-   */
-  private async analyzeClusters(clusters: Array<EmailCluster & { recurrence: any }>, userId: string): Promise<InsertSubscriptionSuggestion[]> {
-    if (clusters.length === 0) return [];
-
-    const suggestions: InsertSubscriptionSuggestion[] = [];
-
-    for (const cluster of clusters) {
-      try {
-        // Prepare email context for LLM analysis
-        const emailContext = cluster.emails.slice(0, 5).map(email => ({
-          subject: email.subject,
-          from: email.fromEmail,
-          fromName: email.fromName,
-          date: email.receivedAt,
-          amount: email.extractedAmount,
-          currency: email.extractedCurrency,
-          content: email.content?.substring(0, 1500) || ''
-        }));
-
-        const systemPrompt = `You are an expert at identifying recurring subscription billing patterns. Analyze this cluster of related emails to determine if they represent a genuine subscription service.
-
-FOCUS ON BILLING INDICATORS:
-- Payment due notices, bills, invoices
-- Subscription renewal notifications  
-- Regular payment confirmations
-- Utility bills with recurring cycles
-- Membership fee notices
-
-STRICT CRITERIA FOR SUBSCRIPTIONS:
-✅ ACCEPT: Bills/invoices with due dates, subscription renewals, payment reminders, utility bills
-❌ REJECT: Marketing emails, order confirmations, account updates, one-time purchases
-
-Given this email cluster has:
-- ${cluster.emails.length} emails from ${cluster.merchantName}
-- Average amount: ₹${cluster.avgAmount.toFixed(2)}
-- Detected frequency: ${cluster.recurrence.frequency || 'unknown'}
-- Recurrence confidence: ${cluster.recurrence.confidence}%
-
-Analyze if this represents a genuine recurring subscription and provide:
-1. Service identification and categorization
-2. Billing details and frequency
-3. Confidence assessment with reasoning
-
-Respond with valid JSON only:`;
-
-        const response = await this.ai.models.generateContent({
-          model: "gemini-2.5-pro",
-          config: {
-            systemInstruction: systemPrompt,
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: "object",
-              properties: {
-                isSubscription: { type: "boolean" },
-                serviceName: { type: "string" },
-                merchantName: { type: "string" },
-                amount: { type: "number" },
-                currency: { type: "string" },
-                frequency: { type: "string", enum: ["weekly", "monthly", "quarterly", "yearly"] },
-                category: { type: "string" },
-                confidence: { type: "string", enum: ["high", "medium", "low"] },
-                confidenceScore: { type: "number", minimum: 0, maximum: 1 },
-                reasoning: { type: "string" }
-              },
-              required: ["isSubscription", "serviceName", "merchantName", "amount", "currency", "frequency", "category", "confidence", "confidenceScore", "reasoning"]
-            }
-          },
-          contents: `Email cluster analysis:\n\nMerchant: ${cluster.merchantName}\nEmails: ${cluster.emails.length}\nAverage Amount: ${cluster.avgAmount}\nRecurrence Pattern: ${cluster.recurrence.frequency} (${cluster.recurrence.confidence}% confidence)\n\nEmails:\n${JSON.stringify(emailContext, null, 2)}`
-        });
-
-        const result = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
-        
-        if (result.isSubscription && result.confidenceScore >= 0.3) {
-          // Calculate unified confidence score (0-100) combining LLM and recurrence
-          const llmScore = result.confidenceScore * 100; // Convert 0-1 to 0-100
-          const recurrenceScore = cluster.recurrence.confidence;
-          const amountConsistencyScore = cluster.amountVariance < 5 ? 10 : cluster.amountVariance < 10 ? 5 : 0;
-          const occurrenceScore = cluster.emails.length >= 5 ? 10 : cluster.emails.length >= 3 ? 5 : 0;
-          
-          // Weighted combination: LLM (60%) + Recurrence (30%) + Consistency (5%) + Occurrences (5%)
-          const finalScore = Math.min(100, Math.round(
-            (llmScore * 0.6) + (recurrenceScore * 0.3) + (amountConsistencyScore * 0.05) + (occurrenceScore * 0.05)
-          ));
-          
-          // Map unified score to confidence level
-          let confidenceLevel: 'high' | 'medium' | 'low';
-          if (finalScore >= 80) confidenceLevel = 'high';
-          else if (finalScore >= 60) confidenceLevel = 'medium';
-          else confidenceLevel = 'low';
-
-          const suggestion: InsertSubscriptionSuggestion = {
-            userId,
-            serviceName: result.serviceName,
-            merchantName: result.merchantName,
-            amount: result.amount.toString(),
-            currency: result.currency || 'INR',
-            frequency: result.frequency,
-            category: result.category,
-            confidence: confidenceLevel,
-            confidenceScore: finalScore.toString(), // Unified 0-100 score
-            reasoning: `${result.reasoning} | Recurrence: ${cluster.recurrence.confidence}% confidence in ${cluster.recurrence.frequency} pattern | ${cluster.emails.length} supporting emails`,
-            evidenceEmailIds: cluster.emails.map(e => e.id),
-            occurrences: cluster.emails.length,
-            recurrenceType: cluster.recurrence.frequency,
-            recurrenceScore: cluster.recurrence.confidence,
-            nextBillingDate: cluster.recurrence.nextPredictedDate,
-            lastSeen: new Date(Math.max(...cluster.emails.map(e => new Date(e.receivedAt).getTime()))),
-            status: 'pending'
-          };
-
-          suggestions.push(suggestion);
-        }
-
-      } catch (error) {
-        console.error(`❌ Failed to analyze cluster for ${cluster.merchantName}:`, error);
-        // Continue with other clusters even if one fails
-      }
-    }
-
-    return suggestions;
   }
 
   /**
@@ -295,7 +163,259 @@ Respond with valid JSON only:`;
   }
 
   /**
-   * Analyze individual email with AI to determine if it's a subscription
+   * STAGE 1: Batch classify all emails to identify subscription candidates
+   * Reduces many emails to 1-2 API calls
+   */
+  private async batchClassifyEmails(emails: Email[]): Promise<Email[]> {
+    if (emails.length === 0) return [];
+
+    const batchSize = 50; // Can handle more emails in classification
+    const candidates: Email[] = [];
+    
+    for (let i = 0; i < emails.length; i += batchSize) {
+      const batch = emails.slice(i, i + batchSize);
+      
+      // Prepare lightweight email data for classification
+      const emailData = batch.map((email, idx) => ({
+        id: idx,
+        subject: email.subject,
+        from: email.fromEmail,
+        fromName: email.fromName || '',
+        extractedAmount: email.extractedAmount || '',
+        extractedCurrency: email.extractedCurrency || '',
+        merchantName: email.merchantName || '',
+        contentSnippet: email.content?.substring(0, 200) || ''
+      }));
+
+      const systemPrompt = `You are an expert at identifying subscription-related emails. 
+
+Analyze these ${batch.length} emails and classify each one with a confidence score for being subscription-related.
+
+SUBSCRIPTION INDICATORS:
+- Bills, invoices, receipts for recurring services
+- Payment confirmations for subscriptions  
+- Renewal notices, billing statements
+- Service providers like telecom, streaming, software, utilities
+- Words like: bill, invoice, subscription, payment, renewal, monthly, plan
+
+RETURN: JSON array with exact format:
+[
+  {"id": 0, "isSubscription": true, "confidence": "high", "reason": "Airtel bill - telecom subscription"},
+  {"id": 1, "isSubscription": false, "confidence": "low", "reason": "One-time purchase notification"},
+  ...
+]
+
+EMAILS TO ANALYZE:
+${JSON.stringify(emailData, null, 2)}`;
+
+      try {
+        const response = await this.ai.models.generateContent({
+          model: "gemini-2.5-pro",
+          config: {
+            systemInstruction: systemPrompt,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "number" },
+                  isSubscription: { type: "boolean" },
+                  confidence: { type: "string", enum: ["high", "medium", "low"] },
+                  reason: { type: "string" }
+                },
+                required: ["id", "isSubscription", "confidence", "reason"]
+              }
+            }
+          },
+          contents: systemPrompt
+        });
+        
+        const results: BatchClassificationResult[] = JSON.parse(response.text || '[]');
+          
+        // Add high-confidence subscription candidates
+        for (const result of results) {
+          if (result.isSubscription && (result.confidence === 'high' || result.confidence === 'medium')) {
+            candidates.push(batch[result.id]);
+          }
+        }
+        
+        console.log(`📊 Batch ${Math.floor(i/batchSize) + 1}: ${results.filter((r: any) => r.isSubscription).length}/${batch.length} identified as subscriptions`);
+      } catch (error) {
+        console.error(`❌ Classification failed for batch ${Math.floor(i/batchSize) + 1}:`, error);
+        // Fallback: include all emails if classification fails
+        candidates.push(...batch);
+      }
+      
+      // Rate limiting between classification batches
+      if (i + batchSize < emails.length) {
+        await this.delay(1000);
+      }
+    }
+    
+    return candidates;
+  }
+
+  /**
+   * STAGE 2: Detailed batch analysis of subscription candidates
+   * Processes 8 emails per API call for detailed extraction
+   */
+  private async batchAnalyzeSubscriptionCandidates(candidates: Email[], userId: string): Promise<InsertSubscriptionSuggestion[]> {
+    if (candidates.length === 0) return [];
+
+    const suggestions: InsertSubscriptionSuggestion[] = [];
+    const batchSize = 8; // Optimal size for detailed analysis
+    
+    for (let i = 0; i < candidates.length; i += batchSize) {
+      const batch = candidates.slice(i, i + batchSize);
+      
+      try {
+        const batchSuggestions = await this.analyzeBatchDetailed(batch, userId);
+        suggestions.push(...batchSuggestions);
+        
+        console.log(`🎯 Analyzed batch ${Math.floor(i/batchSize) + 1}: ${batchSuggestions.length} suggestions generated`);
+      } catch (error) {
+        console.error(`❌ Detailed analysis failed for batch ${Math.floor(i/batchSize) + 1}:`, error);
+        // Fallback: try individual analysis for this batch
+        for (const email of batch) {
+          try {
+            const suggestion = await this.analyzeIndividualEmail(email, userId);
+            if (suggestion) suggestions.push(suggestion);
+          } catch (individualError) {
+            console.error(`❌ Individual fallback failed for ${email.subject}:`, individualError);
+          }
+        }
+      }
+      
+      // Rate limiting between analysis batches
+      if (i + batchSize < candidates.length) {
+        await this.delay(2000);
+      }
+    }
+    
+    return suggestions;
+  }
+
+  /**
+   * Analyze a batch of emails for detailed subscription extraction
+   */
+  private async analyzeBatchDetailed(emails: Email[], userId: string): Promise<InsertSubscriptionSuggestion[]> {
+    const emailData = emails.map((email, idx) => ({
+      id: idx,
+      subject: email.subject,
+      from: email.fromEmail,
+      fromName: email.fromName || '',
+      receivedAt: email.receivedAt,
+      extractedAmount: email.extractedAmount || '',
+      extractedCurrency: email.extractedCurrency || '',
+      merchantName: email.merchantName || '',
+      content: email.content?.substring(0, 800) || ''
+    }));
+
+    const systemPrompt = `You are an expert at extracting subscription details from billing emails.
+
+Analyze these ${emails.length} subscription-related emails and extract detailed subscription information for each.
+
+EXTRACT for each email:
+- serviceName: Clear service name (e.g., "Netflix Premium", "Airtel Postpaid")
+- amount: Exact billing amount as number
+- currency: Currency code (INR, USD, etc.)
+- frequency: monthly/quarterly/yearly/weekly
+- category: telecom/streaming/software/utilities/other
+- confidence: high/medium/low based on subscription evidence
+- nextBillingDate: If mentioned in email
+
+RETURN: JSON array with exact format:
+[
+  {
+    "id": 0,
+    "isSubscription": true,
+    "serviceName": "Airtel Black Plan",
+    "amount": 399,
+    "currency": "INR", 
+    "frequency": "monthly",
+    "category": "telecom",
+    "confidence": "high",
+    "nextBillingDate": null,
+    "merchantName": "Bharti Airtel",
+    "merchantEmail": "noreply@airtel.com"
+  },
+  ...
+]
+
+EMAILS TO ANALYZE:
+${JSON.stringify(emailData, null, 2)}`;
+
+    const response = await this.ai.models.generateContent({
+      model: "gemini-2.5-pro",
+      config: {
+        systemInstruction: systemPrompt,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "number" },
+              isSubscription: { type: "boolean" },
+              serviceName: { type: "string" },
+              amount: { type: "number" },
+              currency: { type: "string" },
+              frequency: { type: "string", enum: ["monthly", "quarterly", "yearly", "weekly"] },
+              category: { type: "string", enum: ["telecom", "streaming", "software", "utilities", "other"] },
+              confidence: { type: "string", enum: ["high", "medium", "low"] },
+              nextBillingDate: { type: ["string", "null"] },
+              merchantName: { type: "string" },
+              merchantEmail: { type: "string" }
+            },
+            required: ["id", "isSubscription", "serviceName", "amount", "currency", "frequency", "category", "confidence"]
+          }
+        }
+      },
+      contents: systemPrompt
+    });
+    
+    const results: BatchAnalysisResult[] = JSON.parse(response.text || '[]');
+    const suggestions: InsertSubscriptionSuggestion[] = [];
+    
+    for (const result of results) {
+      if (result.isSubscription && result.serviceName && result.amount) {
+        const email = emails[result.id];
+        
+        // Calculate confidence score (0.00-1.00 as required by schema)
+        const confidenceScoreMap = {
+          'high': 0.85,
+          'medium': 0.65,
+          'low': 0.45
+        };
+        
+        suggestions.push({
+          userId,
+          serviceName: result.serviceName,
+          merchantName: result.merchantName || email.fromName || email.fromEmail,
+          amount: result.amount.toString(),
+          currency: result.currency || 'INR',
+          frequency: result.frequency,
+          category: result.category || 'other',
+          confidence: result.confidence,
+          confidenceScore: confidenceScoreMap[result.confidence].toString(),
+          reasoning: `Detailed batch analysis: ${result.confidence} confidence subscription detection`,
+          evidenceEmailIds: [email.id],
+          occurrences: 1,
+          recurrenceType: null,
+          recurrenceScore: 0,
+          nextBillingDate: result.nextBillingDate ? new Date(result.nextBillingDate) : null,
+          lastSeen: new Date(email.receivedAt),
+          status: 'pending'
+        });
+      }
+    }
+    
+    return suggestions;
+  }
+
+  /**
+   * Analyze individual email with AI to determine if it's a subscription (fallback)
    */
   private async analyzeIndividualEmail(email: Email, userId: string): Promise<InsertSubscriptionSuggestion | null> {
     try {
@@ -330,7 +450,7 @@ Focus on:
 Respond with valid JSON only:`;
 
       const response = await this.ai.models.generateContent({
-        model: "gemini-2.0-flash-exp",
+        model: "gemini-2.5-pro",
         config: {
           systemInstruction: systemPrompt,
           responseMimeType: "application/json",
@@ -354,23 +474,9 @@ Respond with valid JSON only:`;
         contents: `Individual email analysis:\n\nSubject: ${email.subject}\nFrom: ${email.fromEmail} (${email.fromName || 'N/A'})\nDate: ${email.receivedAt}\nExtracted Amount: ${email.extractedAmount || 'N/A'}\nExtracted Currency: ${email.extractedCurrency || 'N/A'}\n\nContent:\n${emailContext.content}`
       });
 
-      const result = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
+      const result = JSON.parse(response.text || '{}');
       
-      if (result.isSubscription && result.confidenceScore >= 0.2) { // Lower threshold for individual emails
-        // Calculate initial confidence score (0-100)
-        const llmScore = result.confidenceScore * 100;
-        const amountConsistencyScore = email.extractedAmount ? 10 : 0;
-        const businessDomainScore = !email.fromEmail.includes('@gmail.com') ? 5 : 0;
-        
-        // Base score from LLM + small bonuses
-        const initialScore = Math.min(100, Math.round(llmScore + amountConsistencyScore + businessDomainScore));
-        
-        // Map score to confidence level
-        let confidenceLevel: 'high' | 'medium' | 'low';
-        if (initialScore >= 80) confidenceLevel = 'high';
-        else if (initialScore >= 50) confidenceLevel = 'medium';
-        else confidenceLevel = 'low';
-
+      if (result.isSubscription && result.confidenceScore >= 0.2) {
         const suggestion: InsertSubscriptionSuggestion = {
           userId,
           serviceName: result.serviceName,
@@ -379,8 +485,8 @@ Respond with valid JSON only:`;
           currency: result.currency || 'INR',
           frequency: result.frequency,
           category: result.category,
-          confidence: confidenceLevel,
-          confidenceScore: initialScore.toString(),
+          confidence: result.confidence,
+          confidenceScore: result.confidenceScore.toString(),
           reasoning: `Individual email analysis: ${result.reasoning}`,
           evidenceEmailIds: [email.id],
           occurrences: 1,
@@ -416,11 +522,11 @@ Respond with valid JSON only:`;
 
       if (matchingCluster && matchingCluster.recurrence?.confidence > 30) {
         // Boost confidence score based on recurrence pattern
-        const currentScore = parseInt(suggestion.confidenceScore);
-        const recurrenceBonus = Math.round(matchingCluster.recurrence.confidence * 0.2);
-        const boostedScore = Math.min(100, currentScore + recurrenceBonus);
+        const currentScore = parseFloat(suggestion.confidenceScore);
+        const recurrenceBonus = (matchingCluster.recurrence.confidence / 100) * 0.2; // Max 20% boost
+        const boostedScore = Math.min(1.0, currentScore + recurrenceBonus);
         
-        suggestion.confidenceScore = boostedScore.toString();
+        suggestion.confidenceScore = boostedScore.toFixed(2);
         suggestion.recurrenceScore = matchingCluster.recurrence.confidence;
         suggestion.recurrenceType = matchingCluster.recurrence.frequency;
         suggestion.occurrences = matchingCluster.emails?.length || 1;
@@ -428,135 +534,71 @@ Respond with valid JSON only:`;
         suggestion.nextBillingDate = matchingCluster.recurrence.nextPredictedDate;
         
         // Update confidence level based on boosted score
-        if (boostedScore >= 80) suggestion.confidence = 'high';
-        else if (boostedScore >= 60) suggestion.confidence = 'medium';
+        if (boostedScore >= 0.80) suggestion.confidence = 'high';
+        else if (boostedScore >= 0.60) suggestion.confidence = 'medium';
         else suggestion.confidence = 'low';
         
         suggestion.reasoning += ` | Recurrence boost: ${matchingCluster.recurrence.confidence}% confidence in ${matchingCluster.recurrence.frequency} pattern with ${matchingCluster.emails?.length || 1} occurrences`;
         
-        console.log(`🚀 Boosted confidence for ${suggestion.serviceName}: ${currentScore} → ${boostedScore} (recurrence: ${matchingCluster.recurrence.confidence}%)`);
+        console.log(`🚀 Boosted confidence for ${suggestion.serviceName}: ${currentScore.toFixed(2)} → ${boostedScore.toFixed(2)} (recurrence: ${matchingCluster.recurrence.confidence}%)`);
       }
     }
   }
 
   /**
-   * Split array into chunks of specified size
+   * Save suggestions with deduplication
    */
-  private chunkArray<T>(array: T[], chunkSize: number): T[][] {
-    const chunks: T[][] = [];
-    for (let i = 0; i < array.length; i += chunkSize) {
-      chunks.push(array.slice(i, i + chunkSize));
-    }
-    return chunks;
-  }
-
-  /**
-   * Analyze individual email with retry logic and exponential backoff
-   */
-  private async analyzeIndividualEmailWithRetry(email: Email, userId: string, maxRetries: number = 3): Promise<InsertSubscriptionSuggestion | null> {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        return await this.analyzeIndividualEmail(email, userId);
-      } catch (error: any) {
-        const isRateLimit = error?.message?.includes('429') || error?.message?.includes('quota') || error?.message?.includes('rate');
-        
-        if (isRateLimit && attempt < maxRetries) {
-          const backoffDelay = Math.pow(2, attempt) * 2000; // Exponential backoff: 4s, 8s, 16s
-          console.log(`⏰ Rate limit hit for "${email.subject}". Retrying in ${backoffDelay/1000}s (attempt ${attempt}/${maxRetries})`);
-          await this.delay(backoffDelay);
-          continue;
-        }
-        
-        if (attempt === maxRetries) {
-          console.error(`❌ Failed to analyze "${email.subject}" after ${maxRetries} attempts:`, error?.message || error);
-          return null; // Give up after max retries
-        }
-        
-        throw error; // Re-throw non-rate-limit errors immediately
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Save suggestions with deduplication to prevent duplicates
-   */
-  private async saveWithDeduplication(suggestions: InsertSubscriptionSuggestion[], userId: string): Promise<any[]> {
+  private async saveWithDeduplication(suggestions: InsertSubscriptionSuggestion[], userId: string): Promise<InsertSubscriptionSuggestion[]> {
     if (suggestions.length === 0) return [];
 
+    // Deduplicate suggestions by service name and merchant
+    const deduplicatedSuggestions = this.deduplicateSuggestions(suggestions);
+    
     try {
-      // Get existing suggestions to check for duplicates
-      const existingResult = await this.storage.getSuggestions(userId);
-      const existingSuggestions = existingResult.suggestions;
+      // Use bulk insert for efficiency
+      const savedSuggestions = await this.storage.createSuggestionsBulk(deduplicatedSuggestions);
+      return savedSuggestions;
+    } catch (error) {
+      console.error('❌ Failed to save suggestions in bulk, trying individual saves:', error);
       
-      // Create deduplication key for each suggestion using available fields
-      const createDedupeKey = (s: any) => 
-        `${s.userId || ''}|${(s.serviceName || '').toLowerCase().trim()}|${s.amount || 0}|${(s.currency || 'USD').toLowerCase()}|${(s.frequency || '').toLowerCase()}|${(s.merchantName || '').toLowerCase().trim()}`;
-      
-      // Build deduplication set starting with existing suggestions
-      const dedupeKeys = new Set(existingSuggestions.map(createDedupeKey));
-      
-      // Filter out duplicates (both existing and within current run)
-      const uniqueSuggestions: InsertSubscriptionSuggestion[] = [];
-      for (const suggestion of suggestions) {
-        const key = createDedupeKey(suggestion);
-        if (!dedupeKeys.has(key)) {
-          dedupeKeys.add(key); // Prevent within-run duplicates too
-          uniqueSuggestions.push(suggestion);
+      // Fallback: save individually
+      const savedSuggestions: InsertSubscriptionSuggestion[] = [];
+      for (const suggestion of deduplicatedSuggestions) {
+        try {
+          const saved = await this.storage.createSuggestion(suggestion);
+          savedSuggestions.push(saved);
+        } catch (individualError) {
+          console.error(`❌ Failed to save suggestion for ${suggestion.serviceName}:`, individualError);
         }
       }
-      
-      if (uniqueSuggestions.length === 0) {
-        console.log(`📋 All ${suggestions.length} suggestions are duplicates, skipping save`);
-        return [];
-      }
-      
-      console.log(`📋 Saving ${uniqueSuggestions.length} unique suggestions (${suggestions.length - uniqueSuggestions.length} duplicates filtered)`);
-      
-      // Try bulk save first
-      try {
-        return await this.storage.createSuggestionsBulk(uniqueSuggestions);
-      } catch (bulkError) {
-        console.error(`❌ Bulk save failed, trying individual saves:`, bulkError);
-        return await this.saveIndividualSuggestions(uniqueSuggestions);
-      }
-      
-    } catch (error) {
-      console.error(`❌ Deduplication failed, attempting direct save:`, error);
-      // Fallback to direct save without deduplication
-      try {
-        return await this.storage.createSuggestionsBulk(suggestions);
-      } catch (directError) {
-        console.error(`❌ Direct bulk save failed, trying individual saves:`, directError);
-        return await this.saveIndividualSuggestions(suggestions);
-      }
+      return savedSuggestions;
     }
   }
 
   /**
-   * Fallback method to save suggestions individually if bulk save fails
+   * Deduplicate suggestions based on service name and merchant
    */
-  private async saveIndividualSuggestions(suggestions: InsertSubscriptionSuggestion[]): Promise<any[]> {
-    console.log(`🔄 Attempting individual save for ${suggestions.length} suggestions...`);
-    const savedSuggestions: any[] = [];
+  private deduplicateSuggestions(suggestions: InsertSubscriptionSuggestion[]): InsertSubscriptionSuggestion[] {
+    const seen = new Map<string, InsertSubscriptionSuggestion>();
     
     for (const suggestion of suggestions) {
-      try {
-        const saved = await this.storage.createSuggestion(suggestion);
-        savedSuggestions.push(saved);
-      } catch (error) {
-        console.error(`❌ Failed to save individual suggestion for ${suggestion.serviceName}:`, error);
+      const key = `${suggestion.serviceName.toLowerCase()}_${suggestion.merchantName?.toLowerCase() || 'unknown'}_${suggestion.currency}_${Math.round(parseFloat(suggestion.amount))}`;
+      
+      const existing = seen.get(key);
+      if (!existing || parseFloat(suggestion.confidenceScore) > parseFloat(existing.confidenceScore)) {
+        seen.set(key, suggestion);
       }
     }
     
-    console.log(`💾 Individual save complete: ${savedSuggestions.length}/${suggestions.length} suggestions saved`);
-    return savedSuggestions;
+    return Array.from(seen.values()).sort((a, b) => 
+      parseFloat(b.confidenceScore) - parseFloat(a.confidenceScore)
+    );
   }
 
+  /**
+   * Utility method for rate limiting
+   */
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
-
-import { storage } from '../storage';
-export const enhancedSubscriptionDetector = new EnhancedSubscriptionDetector(storage);
