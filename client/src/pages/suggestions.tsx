@@ -139,8 +139,7 @@ export function SuggestionsPage({ userId }: SuggestionsPageProps) {
   };
 
   const getConfidenceBadge = (confidence: string, score: string) => {
-    const scoreNum = parseFloat(score);
-    const percentScore = Math.round(scoreNum * 100);
+    const percentScore = Math.round(parseFloat(score)); // Already 0-100 unified score
     
     switch (confidence) {
       case 'high':

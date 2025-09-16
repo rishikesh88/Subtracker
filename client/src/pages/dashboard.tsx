@@ -46,7 +46,7 @@ export default function Dashboard() {
             // Automatically trigger email sync after a delay
             setTimeout(async () => {
               try {
-                const response = await apiRequest("POST", "/api/sync-emails-llm", { userId });
+                const response = await apiRequest("POST", "/api/sync-enhanced", { userId });
                 const data = await response.json();
                 
                 toast({
@@ -161,16 +161,21 @@ export default function Dashboard() {
     },
   });
 
-  // Function to trigger email sync
+  // Function to trigger enhanced email sync with suggestions
   const triggerEmailSync = async (userId: string) => {
     try {
-      const response = await apiRequest("POST", "/api/sync-emails-llm", { userId });
+      const response = await apiRequest("POST", "/api/sync-enhanced", { userId });
       const data = await response.json();
       
       toast({
-        title: "Email Sync Complete",
-        description: `Processed ${data.processedEmails || 0} emails and found ${data.detectedSubscriptions || 0} subscriptions`,
+        title: "Email Analysis Complete",
+        description: `Generated ${data.suggestionsGenerated || 0} subscription suggestions for your review`,
       });
+      
+      // Redirect to suggestions page if suggestions were generated
+      if (data.redirectToSuggestions && data.suggestionsGenerated > 0) {
+        window.location.href = '/suggestions';
+      }
       
       // Refresh all data after sync  
       queryClient.invalidateQueries({ queryKey: [`/api/subscriptions?userId=${userId}`] });
@@ -212,29 +217,45 @@ export default function Dashboard() {
     }
   });
 
-  // Sync emails mutation
+  // Enhanced sync emails mutation with suggestions
   const syncEmailsMutation = useMutation({
     mutationFn: async () => {
       if (!currentUserId) throw new Error("No user ID");
       
-      const response = await apiRequest("POST", "/api/sync-emails", {
+      const response = await apiRequest("POST", "/api/sync-enhanced", {
         userId: currentUserId,
       });
       return response.json();
     },
     onSuccess: (data) => {
       toast({
-        title: "Sync Complete",
-        description: `Processed ${data.newEmails} new emails and detected ${data.detectedSubscriptions} subscriptions`,
+        title: "Email Analysis Complete",
+        description: `Generated ${data.suggestionsGenerated || 0} subscription suggestions for your review`,
       });
+      
+      // Redirect to suggestions page if suggestions were generated
+      if (data.redirectToSuggestions && data.suggestionsGenerated > 0) {
+        window.location.href = '/suggestions';
+      }
       
       // Invalidate and refetch all data
       queryClient.invalidateQueries({ queryKey: [`/api/subscriptions?userId=${currentUserId}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${currentUserId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/emails`] }); // Invalidate all email queries
       queryClient.invalidateQueries({ queryKey: [`/api/users/${currentUserId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/suggestions`] }); // Also invalidate suggestions
     },
     onError: (error: any) => {
+      // Handle 410 response from disabled legacy endpoint
+      if (error.status === 410) {
+        toast({
+          title: "Please Use Enhanced Sync",
+          description: "Subscription detection has been upgraded. Use the Sync Emails button for the new experience.",
+          variant: "default",
+        });
+        return;
+      }
+      
       toast({
         title: "Sync Failed",
         description: error.message || "Failed to sync emails",

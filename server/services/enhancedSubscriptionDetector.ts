@@ -164,18 +164,21 @@ Respond with valid JSON only:`;
         const result = JSON.parse(response.text);
         
         if (result.isSubscription && result.confidenceScore >= 0.3) {
-          // Calculate final confidence score combining LLM and recurrence
-          const baseScore = result.confidenceScore;
-          const recurrenceBonus = (cluster.recurrence.confidence / 100) * 0.15;
-          const amountConsistencyBonus = cluster.amountVariance < 5 ? 0.1 : 0;
-          const occurrenceBonus = cluster.emails.length >= 5 ? 0.1 : cluster.emails.length >= 3 ? 0.05 : 0;
+          // Calculate unified confidence score (0-100) combining LLM and recurrence
+          const llmScore = result.confidenceScore * 100; // Convert 0-1 to 0-100
+          const recurrenceScore = cluster.recurrence.confidence;
+          const amountConsistencyScore = cluster.amountVariance < 5 ? 10 : cluster.amountVariance < 10 ? 5 : 0;
+          const occurrenceScore = cluster.emails.length >= 5 ? 10 : cluster.emails.length >= 3 ? 5 : 0;
           
-          const finalScore = Math.min(1.0, baseScore + recurrenceBonus + amountConsistencyBonus + occurrenceBonus);
+          // Weighted combination: LLM (60%) + Recurrence (30%) + Consistency (5%) + Occurrences (5%)
+          const finalScore = Math.min(100, Math.round(
+            (llmScore * 0.6) + (recurrenceScore * 0.3) + (amountConsistencyScore * 0.05) + (occurrenceScore * 0.05)
+          ));
           
-          // Map score to confidence level
+          // Map unified score to confidence level
           let confidenceLevel: 'high' | 'medium' | 'low';
-          if (finalScore >= 0.8) confidenceLevel = 'high';
-          else if (finalScore >= 0.6) confidenceLevel = 'medium';
+          if (finalScore >= 80) confidenceLevel = 'high';
+          else if (finalScore >= 60) confidenceLevel = 'medium';
           else confidenceLevel = 'low';
 
           const suggestion: InsertSubscriptionSuggestion = {
@@ -187,7 +190,7 @@ Respond with valid JSON only:`;
             frequency: result.frequency,
             category: result.category,
             confidence: confidenceLevel,
-            confidenceScore: finalScore.toString(),
+            confidenceScore: finalScore.toString(), // Unified 0-100 score
             reasoning: `${result.reasoning} | Recurrence: ${cluster.recurrence.confidence}% confidence in ${cluster.recurrence.frequency} pattern | ${cluster.emails.length} supporting emails`,
             evidenceEmailIds: cluster.emails.map(e => e.id),
             occurrences: cluster.emails.length,

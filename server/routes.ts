@@ -183,12 +183,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         newEmails++;
       }
 
-      // Detect subscriptions from unprocessed emails
-      const detectedSubscriptions = await subscriptionDetector.detectSubscriptions(userId);
-      processedEmails = detectedSubscriptions.length;
-
-      // Update user's last sync time
-      await storage.updateUser(userId, { lastSync: new Date() });
+      // LEGACY AUTO-CREATION DISABLED: Use enhanced detection instead
+      // Redirect users to enhanced sync endpoint for proper suggestion workflow
+      return res.status(410).json({ 
+        message: "Legacy sync disabled. Use enhanced sync endpoint for suggestion-based workflow.",
+        redirectToEnhanced: true 
+      });
 
       res.json({
         success: true,
