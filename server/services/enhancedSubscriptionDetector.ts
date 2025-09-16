@@ -161,7 +161,7 @@ Respond with valid JSON only:`;
           contents: `Email cluster analysis:\n\nMerchant: ${cluster.merchantName}\nEmails: ${cluster.emails.length}\nAverage Amount: ${cluster.avgAmount}\nRecurrence Pattern: ${cluster.recurrence.frequency} (${cluster.recurrence.confidence}% confidence)\n\nEmails:\n${JSON.stringify(emailContext, null, 2)}`
         });
 
-        const result = JSON.parse(response.text);
+        const result = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
         
         if (result.isSubscription && result.confidenceScore >= 0.3) {
           // Calculate unified confidence score (0-100) combining LLM and recurrence
@@ -218,4 +218,5 @@ Respond with valid JSON only:`;
   }
 }
 
-export const enhancedSubscriptionDetector = new EnhancedSubscriptionDetector(require('../storage').storage);
+import { storage } from '../storage';
+export const enhancedSubscriptionDetector = new EnhancedSubscriptionDetector(storage);
