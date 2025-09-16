@@ -12,7 +12,7 @@ import { GoogleGenAI } from "@google/genai";
 import { type Email, type InsertSubscriptionSuggestion } from "@shared/schema";
 import { IStorage } from "../storage";
 import { recurrenceAnalyzer, type EmailCluster } from "./recurrenceAnalyzer";
-import { generateServiceKey } from "../utils/serviceKey";
+import { generateServiceKey, amountsAreSimilar } from "../utils/serviceKey";
 
 interface SuggestionGenerationResult {
   suggestions: InsertSubscriptionSuggestion[];
@@ -579,23 +579,69 @@ Respond with valid JSON only:`;
   }
 
   /**
-   * Deduplicate suggestions based on service name and merchant
+   * Deduplicate suggestions based on serviceKey and amount similarity
    */
   private deduplicateSuggestions(suggestions: InsertSubscriptionSuggestion[]): InsertSubscriptionSuggestion[] {
-    const seen = new Map<string, InsertSubscriptionSuggestion>();
+    const serviceGroups = new Map<string, InsertSubscriptionSuggestion[]>();
     
+    // First group by serviceKey (this handles "Airtel Black" -> "airtel_monthly")
     for (const suggestion of suggestions) {
-      const key = `${suggestion.serviceName.toLowerCase()}_${suggestion.merchantName?.toLowerCase() || 'unknown'}_${suggestion.currency}_${Math.round(parseFloat(suggestion.amount))}`;
+      const serviceKey = suggestion.serviceKey || generateServiceKey(
+        suggestion.serviceName, 
+        suggestion.merchantName || undefined, 
+        suggestion.frequency
+      );
       
-      const existing = seen.get(key);
-      if (!existing || parseFloat(suggestion.confidenceScore) > parseFloat(existing.confidenceScore)) {
-        seen.set(key, suggestion);
+      if (!serviceGroups.has(serviceKey)) {
+        serviceGroups.set(serviceKey, []);
+      }
+      serviceGroups.get(serviceKey)!.push(suggestion);
+    }
+    
+    const deduplicated: InsertSubscriptionSuggestion[] = [];
+    
+    // For each service group, consolidate similar amounts
+    for (const [serviceKey, groupSuggestions] of Array.from(serviceGroups.entries())) {
+      if (groupSuggestions.length === 1) {
+        deduplicated.push(groupSuggestions[0]);
+        continue;
+      }
+      
+      // Group by similar amounts (±5% tolerance)
+      const amountGroups: InsertSubscriptionSuggestion[][] = [];
+      
+      for (const suggestion of groupSuggestions) {
+        let foundGroup = false;
+        
+        for (const amountGroup of amountGroups) {
+          if (amountsAreSimilar(suggestion.amount, amountGroup[0].amount)) {
+            amountGroup.push(suggestion);
+            foundGroup = true;
+            break;
+          }
+        }
+        
+        if (!foundGroup) {
+          amountGroups.push([suggestion]);
+        }
+      }
+      
+      // Keep the highest confidence suggestion from each amount group
+      for (const amountGroup of amountGroups) {
+        const bestSuggestion = amountGroup.reduce((best, current) => {
+          const currentScore = parseFloat(current.confidenceScore || '0');
+          const bestScore = parseFloat(best.confidenceScore || '0');
+          return currentScore > bestScore ? current : best;
+        });
+        deduplicated.push(bestSuggestion);
       }
     }
     
-    return Array.from(seen.values()).sort((a, b) => 
-      parseFloat(b.confidenceScore) - parseFloat(a.confidenceScore)
-    );
+    return deduplicated.sort((a, b) => {
+      const scoreA = parseFloat(a.confidenceScore || '0');
+      const scoreB = parseFloat(b.confidenceScore || '0');
+      return scoreB - scoreA;
+    });
   }
 
   /**

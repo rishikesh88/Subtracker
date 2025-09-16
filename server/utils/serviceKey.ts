@@ -6,12 +6,26 @@ export function generateServiceKey(serviceName: string, merchantName?: string, f
   // Use merchant name if available, otherwise service name
   const name = merchantName || serviceName;
   
-  // Normalize the name by removing special characters, spaces, and converting to lowercase
-  const normalized = name
-    .toLowerCase()
-    .replace(/[^a-zA-Z0-9]/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_|_$/g, '');
+  // Conservative normalization for deduplication
+  // Only normalize for known telecom providers to avoid over-merging
+  const knownTelecomProviders = ['airtel', 'jio', 'vodafone', 'bsnl', 'tata', 'idea'];
+  const baseName = name.toLowerCase().trim();
+  
+  let normalized = baseName;
+  
+  // Only remove plan types for known telecom providers
+  const isTelecom = knownTelecomProviders.some(provider => baseName.includes(provider));
+  if (isTelecom) {
+    normalized = normalized
+      .replace(/\b(black|red|blue|gold|silver|premium|plus|pro|basic|standard|postpaid|prepaid)\b/g, '') // Remove telecom plan types
+      .replace(/\b(telecom|communications?|services?|limited|ltd|inc|corp)\b/g, ''); // Remove business terms
+  }
+  
+  // Safe normalization for all services
+  normalized = normalized
+    .replace(/[^a-zA-Z0-9]/g, '_') // Replace special chars with underscore
+    .replace(/_+/g, '_') // Multiple underscores to single
+    .replace(/^_|_$/g, ''); // Remove leading/trailing underscores
   
   // Normalize frequency
   const normalizedFrequency = frequency.toLowerCase().trim();
