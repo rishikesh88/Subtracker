@@ -38,46 +38,58 @@ export class EnhancedSubscriptionDetector {
   }
 
   /**
-   * Main detection workflow: analyze emails for recurring patterns and generate suggestions
+   * Main detection workflow: analyze ALL emails individually with AI first, then use recurrence as confidence booster
    */
   async detectSubscriptionSuggestions(emails: Email[], userId: string): Promise<SuggestionGenerationResult> {
     const startTime = Date.now();
     console.log(`🤖 Starting enhanced subscription detection for ${emails.length} emails...`);
 
     try {
-      // Step 1: Analyze recurrence patterns
-      console.log(`📊 Step 1: Analyzing recurring patterns...`);
-      const clustersWithRecurrence = recurrenceAnalyzer.analyzeAllClusters(emails);
-      console.log(`✅ Found ${clustersWithRecurrence.length} potential recurring clusters`);
+      // Step 1: Filter emails that are likely subscription-related (broad filter)
+      console.log(`🔍 Step 1: Pre-filtering emails for subscription potential...`);
+      const potentialSubscriptionEmails = this.filterPotentialSubscriptions(emails);
+      console.log(`✅ Found ${potentialSubscriptionEmails.length} potentially subscription-related emails`);
 
-      // Step 2: Use LLM to enrich high-confidence clusters
-      console.log(`🧠 Step 2: Using LLM to analyze promising clusters...`);
-      const suggestions: InsertSubscriptionSuggestion[] = [];
+      // Step 2: Analyze ALL potential emails individually with AI
+      console.log(`🧠 Step 2: Analyzing ALL emails individually with AI...`);
+      const individualSuggestions: InsertSubscriptionSuggestion[] = [];
       
-      for (const cluster of clustersWithRecurrence) {
-        // Only process clusters with decent recurrence confidence
-        if (cluster.recurrence.confidence >= 30) {
-          const llmResult = await this.analyzeClusters([cluster], userId);
-          suggestions.push(...llmResult);
-          
-          // Small delay to respect rate limits
-          await this.delay(500);
+      for (let i = 0; i < potentialSubscriptionEmails.length; i++) {
+        const email = potentialSubscriptionEmails[i];
+        console.log(`🔬 Analyzing email ${i+1}/${potentialSubscriptionEmails.length}: ${email.subject}`);
+        
+        const suggestion = await this.analyzeIndividualEmail(email, userId);
+        if (suggestion) {
+          individualSuggestions.push(suggestion);
         }
+        
+        // Small delay to respect rate limits
+        await this.delay(300);
       }
 
-      // Step 3: Store suggestions in database
-      console.log(`💾 Step 3: Storing ${suggestions.length} suggestions...`);
-      const createdSuggestions = await this.storage.createSuggestionsBulk(suggestions);
+      console.log(`✅ Individual analysis complete: ${individualSuggestions.length} suggestions from individual emails`);
+
+      // Step 3: Analyze recurrence patterns to boost confidence
+      console.log(`📊 Step 3: Analyzing recurrence patterns to boost confidence...`);
+      const clustersWithRecurrence = recurrenceAnalyzer.analyzeAllClusters(emails);
+      console.log(`✅ Found ${clustersWithRecurrence.length} recurring clusters`);
+
+      // Step 4: Boost confidence for suggestions that have recurrence patterns
+      this.boostConfidenceWithRecurrence(individualSuggestions, clustersWithRecurrence);
+
+      // Step 5: Store suggestions in database
+      console.log(`💾 Step 5: Storing ${individualSuggestions.length} suggestions...`);
+      const createdSuggestions = await this.storage.createSuggestionsBulk(individualSuggestions);
       
-      const highConfidenceCount = suggestions.filter(s => s.confidence === 'high').length;
+      const highConfidenceCount = individualSuggestions.filter(s => s.confidence === 'high').length;
       const processingTime = Date.now() - startTime;
 
-      console.log(`✨ Detection complete: ${suggestions.length} suggestions generated in ${processingTime}ms`);
-      console.log(`📈 High confidence: ${highConfidenceCount}, Medium: ${suggestions.filter(s => s.confidence === 'medium').length}, Low: ${suggestions.filter(s => s.confidence === 'low').length}`);
+      console.log(`✨ Detection complete: ${individualSuggestions.length} suggestions generated in ${processingTime}ms`);
+      console.log(`📈 High confidence: ${highConfidenceCount}, Medium: ${individualSuggestions.filter(s => s.confidence === 'medium').length}, Low: ${individualSuggestions.filter(s => s.confidence === 'low').length}`);
 
       return {
         suggestions: createdSuggestions,
-        totalAnalyzed: emails.length,
+        totalAnalyzed: potentialSubscriptionEmails.length,
         highConfidenceCount,
         recurrenceClusters: clustersWithRecurrence.length,
         processingTime
@@ -211,6 +223,193 @@ Respond with valid JSON only:`;
     }
 
     return suggestions;
+  }
+
+  /**
+   * Broad filter for emails that might be subscription-related
+   */
+  private filterPotentialSubscriptions(emails: Email[]): Email[] {
+    return emails.filter(email => {
+      const content = (email.content + ' ' + email.subject + ' ' + email.fromEmail + ' ' + (email.fromName || '')).toLowerCase();
+      
+      // Broad subscription keywords - be inclusive rather than exclusive
+      const subscriptionKeywords = [
+        // Billing & Payment
+        'invoice', 'receipt', 'payment', 'bill', 'charged', 'billing', 'due', 'renewal', 'renew',
+        'subscription', 'plan', 'membership', 'premium', 'pro', 'upgrade',
+        // Indian specific
+        'sip', 'mutual fund', 'insurance', 'policy', 'premium', 'emi', 'loan',
+        // Services
+        'netflix', 'amazon', 'apple', 'google', 'microsoft', 'adobe', 'spotify',
+        'dropbox', 'zoom', 'slack', 'github', 'office', 'cloud',
+        // Financial
+        'bank', 'credit card', 'debit', 'transaction', 'amount', 'rs.', '₹',
+        // General indicators  
+        'monthly', 'annual', 'yearly', 'quarterly', 'auto', 'recurring',
+        'reminder', 'alert', 'notice', 'statement', 'confirmation'
+      ];
+      
+      // Check if email has subscription indicators
+      const hasSubscriptionKeywords = subscriptionKeywords.some(keyword => content.includes(keyword));
+      
+      // Check if email has financial amounts
+      const hasAmount = email.extractedAmount && parseFloat(email.extractedAmount) > 0;
+      
+      // Check if from business/service domains
+      const fromDomain = email.fromEmail.split('@')[1]?.toLowerCase() || '';
+      const isBusinessDomain = !fromDomain.includes('gmail.com') && 
+                               !fromDomain.includes('yahoo.com') && 
+                               !fromDomain.includes('hotmail.com') &&
+                               !fromDomain.includes('outlook.com');
+      
+      // Include email if it has subscription keywords OR financial amount OR from business domain
+      return hasSubscriptionKeywords || hasAmount || isBusinessDomain;
+    });
+  }
+
+  /**
+   * Analyze individual email with AI to determine if it's a subscription
+   */
+  private async analyzeIndividualEmail(email: Email, userId: string): Promise<InsertSubscriptionSuggestion | null> {
+    try {
+      const emailContext = {
+        subject: email.subject,
+        from: email.fromEmail,
+        fromName: email.fromName,
+        date: email.receivedAt,
+        amount: email.extractedAmount,
+        currency: email.extractedCurrency,
+        content: email.content?.substring(0, 2000) || ''
+      };
+
+      const systemPrompt = `You are an expert at identifying subscription services from individual emails. Analyze this email to determine if it represents a subscription service.
+
+Key indicators to look for:
+- Recurring billing patterns (monthly, yearly, etc.)
+- Subscription service names (Netflix, Apple, insurance, SIP, etc.)
+- Payment confirmations or due notices
+- Service renewals or upgrades
+- Membership fees or premiums
+
+Even a SINGLE email can indicate a subscription if it's clearly from a subscription service.
+
+Focus on:
+1. Service identification
+2. Billing amount and currency
+3. Billing frequency (infer from context)
+4. Service category
+5. Confidence assessment
+
+Respond with valid JSON only:`;
+
+      const response = await this.ai.models.generateContent({
+        model: "gemini-2.0-flash-exp",
+        config: {
+          systemInstruction: systemPrompt,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "object",
+            properties: {
+              isSubscription: { type: "boolean" },
+              serviceName: { type: "string" },
+              merchantName: { type: "string" },
+              amount: { type: "number" },
+              currency: { type: "string" },
+              frequency: { type: "string", enum: ["weekly", "monthly", "quarterly", "yearly"] },
+              category: { type: "string" },
+              confidence: { type: "string", enum: ["high", "medium", "low"] },
+              confidenceScore: { type: "number", minimum: 0, maximum: 1 },
+              reasoning: { type: "string" }
+            },
+            required: ["isSubscription", "serviceName", "merchantName", "amount", "currency", "frequency", "category", "confidence", "confidenceScore", "reasoning"]
+          }
+        },
+        contents: `Individual email analysis:\n\nSubject: ${email.subject}\nFrom: ${email.fromEmail} (${email.fromName || 'N/A'})\nDate: ${email.receivedAt}\nExtracted Amount: ${email.extractedAmount || 'N/A'}\nExtracted Currency: ${email.extractedCurrency || 'N/A'}\n\nContent:\n${emailContext.content}`
+      });
+
+      const result = JSON.parse(response.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
+      
+      if (result.isSubscription && result.confidenceScore >= 0.2) { // Lower threshold for individual emails
+        // Calculate initial confidence score (0-100)
+        const llmScore = result.confidenceScore * 100;
+        const amountConsistencyScore = email.extractedAmount ? 10 : 0;
+        const businessDomainScore = !email.fromEmail.includes('@gmail.com') ? 5 : 0;
+        
+        // Base score from LLM + small bonuses
+        const initialScore = Math.min(100, Math.round(llmScore + amountConsistencyScore + businessDomainScore));
+        
+        // Map score to confidence level
+        let confidenceLevel: 'high' | 'medium' | 'low';
+        if (initialScore >= 80) confidenceLevel = 'high';
+        else if (initialScore >= 50) confidenceLevel = 'medium';
+        else confidenceLevel = 'low';
+
+        const suggestion: InsertSubscriptionSuggestion = {
+          userId,
+          serviceName: result.serviceName,
+          merchantName: result.merchantName,
+          amount: result.amount.toString(),
+          currency: result.currency || 'INR',
+          frequency: result.frequency,
+          category: result.category,
+          confidence: confidenceLevel,
+          confidenceScore: initialScore.toString(),
+          reasoning: `Individual email analysis: ${result.reasoning}`,
+          evidenceEmailIds: [email.id],
+          occurrences: 1,
+          recurrenceType: null,
+          recurrenceScore: 0,
+          nextBillingDate: null,
+          lastSeen: new Date(email.receivedAt),
+          status: 'pending'
+        };
+
+        return suggestion;
+      }
+
+      return null;
+    } catch (error) {
+      console.error(`❌ Failed to analyze individual email "${email.subject}":`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Boost confidence scores for suggestions that have recurrence patterns
+   */
+  private boostConfidenceWithRecurrence(suggestions: InsertSubscriptionSuggestion[], clusters: Array<any>): void {
+    for (const suggestion of suggestions) {
+      // Find matching cluster for this suggestion
+      const matchingCluster = clusters.find(cluster => {
+        const clusterEmails = cluster.emails || [];
+        return clusterEmails.some((email: Email) => 
+          suggestion.evidenceEmailIds?.includes(email.id)
+        );
+      });
+
+      if (matchingCluster && matchingCluster.recurrence?.confidence > 30) {
+        // Boost confidence score based on recurrence pattern
+        const currentScore = parseInt(suggestion.confidenceScore);
+        const recurrenceBonus = Math.round(matchingCluster.recurrence.confidence * 0.2);
+        const boostedScore = Math.min(100, currentScore + recurrenceBonus);
+        
+        suggestion.confidenceScore = boostedScore.toString();
+        suggestion.recurrenceScore = matchingCluster.recurrence.confidence;
+        suggestion.recurrenceType = matchingCluster.recurrence.frequency;
+        suggestion.occurrences = matchingCluster.emails?.length || 1;
+        suggestion.evidenceEmailIds = matchingCluster.emails?.map((e: Email) => e.id) || suggestion.evidenceEmailIds;
+        suggestion.nextBillingDate = matchingCluster.recurrence.nextPredictedDate;
+        
+        // Update confidence level based on boosted score
+        if (boostedScore >= 80) suggestion.confidence = 'high';
+        else if (boostedScore >= 60) suggestion.confidence = 'medium';
+        else suggestion.confidence = 'low';
+        
+        suggestion.reasoning += ` | Recurrence boost: ${matchingCluster.recurrence.confidence}% confidence in ${matchingCluster.recurrence.frequency} pattern with ${matchingCluster.emails?.length || 1} occurrences`;
+        
+        console.log(`🚀 Boosted confidence for ${suggestion.serviceName}: ${currentScore} → ${boostedScore} (recurrence: ${matchingCluster.recurrence.confidence}%)`);
+      }
+    }
   }
 
   private delay(ms: number): Promise<void> {
