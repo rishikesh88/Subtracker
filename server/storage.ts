@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser } from "@shared/schema";
+import { type User, type InsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion } from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -24,6 +24,17 @@ export interface IStorage {
   deleteEmail(id: string): Promise<boolean>;
   getUnprocessedEmails(userId: string): Promise<Email[]>;
   
+  // Suggestion methods
+  getSuggestions(userId: string, options?: { page?: number; pageSize?: number; minConfidence?: string }): Promise<{ suggestions: SubscriptionSuggestion[]; total: number }>;
+  createSuggestion(suggestion: InsertSubscriptionSuggestion): Promise<SubscriptionSuggestion>;
+  createSuggestionsBulk(suggestions: InsertSubscriptionSuggestion[]): Promise<SubscriptionSuggestion[]>;
+  approveSuggestions(suggestionIds: string[], userId: string): Promise<{ subscriptions: Subscription[]; approved: number }>;
+  rejectSuggestions(suggestionIds: string[]): Promise<{ rejected: number }>;
+  clearSuggestions(userId: string): Promise<{ cleared: number }>;
+  
+  // Email methods with pagination
+  getEmailsPaginated(userId: string, options?: { page?: number; pageSize?: number }): Promise<{ emails: Email[]; total: number }>;
+  
   // Analytics methods
   getSubscriptionStats(userId: string): Promise<{
     totalMonthly: number;
@@ -37,11 +48,13 @@ export class MemStorage implements IStorage {
   private users: Map<string, User>;
   private subscriptions: Map<string, Subscription>;
   private emails: Map<string, Email>;
+  private suggestions: Map<string, SubscriptionSuggestion>;
 
   constructor() {
     this.users = new Map();
     this.subscriptions = new Map();
     this.emails = new Map();
+    this.suggestions = new Map();
   }
 
   // User methods
@@ -164,6 +177,139 @@ export class MemStorage implements IStorage {
     );
   }
 
+  // Email pagination methods
+  async getEmailsPaginated(userId: string, options?: { page?: number; pageSize?: number }): Promise<{ emails: Email[]; total: number }> {
+    const page = options?.page || 1;
+    const pageSize = options?.pageSize || 50;
+    const offset = (page - 1) * pageSize;
+    
+    const userEmails = Array.from(this.emails.values())
+      .filter((email) => email.userId === userId)
+      .sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
+    
+    const total = userEmails.length;
+    const emails = userEmails.slice(offset, offset + pageSize);
+    
+    return { emails, total };
+  }
+
+  // Suggestion methods
+  async getSuggestions(userId: string, options?: { page?: number; pageSize?: number; minConfidence?: string }): Promise<{ suggestions: SubscriptionSuggestion[]; total: number }> {
+    const page = options?.page || 1;
+    const pageSize = options?.pageSize || 50;
+    const offset = (page - 1) * pageSize;
+    
+    let userSuggestions = Array.from(this.suggestions.values())
+      .filter((suggestion) => suggestion.userId === userId && suggestion.status === 'pending');
+    
+    // Filter by confidence if specified
+    if (options?.minConfidence) {
+      userSuggestions = userSuggestions.filter(s => s.confidence === options.minConfidence);
+    }
+    
+    // Sort by confidence score (highest first) then by detected date
+    userSuggestions.sort((a, b) => {
+      const confidenceOrder = { 'high': 3, 'medium': 2, 'low': 1 };
+      const aConf = confidenceOrder[a.confidence as keyof typeof confidenceOrder] || 0;
+      const bConf = confidenceOrder[b.confidence as keyof typeof confidenceOrder] || 0;
+      if (aConf !== bConf) return bConf - aConf;
+      return new Date(b.detectedAt!).getTime() - new Date(a.detectedAt!).getTime();
+    });
+    
+    const total = userSuggestions.length;
+    const suggestions = userSuggestions.slice(offset, offset + pageSize);
+    
+    return { suggestions, total };
+  }
+
+  async createSuggestion(insertSuggestion: InsertSubscriptionSuggestion): Promise<SubscriptionSuggestion> {
+    const id = randomUUID();
+    const suggestion: SubscriptionSuggestion = {
+      ...insertSuggestion,
+      id,
+      detectedAt: new Date(),
+      status: insertSuggestion.status || 'pending'
+    };
+    this.suggestions.set(id, suggestion);
+    return suggestion;
+  }
+
+  async createSuggestionsBulk(suggestions: InsertSubscriptionSuggestion[]): Promise<SubscriptionSuggestion[]> {
+    const created: SubscriptionSuggestion[] = [];
+    for (const suggestion of suggestions) {
+      const created_suggestion = await this.createSuggestion(suggestion);
+      created.push(created_suggestion);
+    }
+    return created;
+  }
+
+  async approveSuggestions(suggestionIds: string[], userId: string): Promise<{ subscriptions: Subscription[]; approved: number }> {
+    const subscriptions: Subscription[] = [];
+    let approved = 0;
+    
+    for (const suggestionId of suggestionIds) {
+      const suggestion = this.suggestions.get(suggestionId);
+      if (!suggestion || suggestion.userId !== userId || suggestion.status !== 'pending') continue;
+      
+      // Convert suggestion to subscription
+      const subscription = await this.createSubscription({
+        userId: suggestion.userId,
+        serviceName: suggestion.serviceName,
+        merchantName: suggestion.merchantName,
+        amount: suggestion.amount,
+        currency: suggestion.currency,
+        frequency: suggestion.frequency,
+        category: suggestion.category,
+        status: 'active',
+        nextBillingDate: suggestion.nextBillingDate || null,
+        lastEmailDate: suggestion.lastSeen,
+        merchantEmail: null
+      });
+      
+      // Mark suggestion as approved
+      suggestion.status = 'approved';
+      this.suggestions.set(suggestionId, suggestion);
+      
+      // Link evidence emails to subscription
+      if (suggestion.evidenceEmailIds) {
+        for (const emailId of suggestion.evidenceEmailIds) {
+          await this.updateEmail(emailId, { subscriptionId: subscription.id, processed: true });
+        }
+      }
+      
+      subscriptions.push(subscription);
+      approved++;
+    }
+    
+    return { subscriptions, approved };
+  }
+
+  async rejectSuggestions(suggestionIds: string[]): Promise<{ rejected: number }> {
+    let rejected = 0;
+    for (const suggestionId of suggestionIds) {
+      const suggestion = this.suggestions.get(suggestionId);
+      if (suggestion && suggestion.status === 'pending') {
+        suggestion.status = 'rejected';
+        this.suggestions.set(suggestionId, suggestion);
+        rejected++;
+      }
+    }
+    return { rejected };
+  }
+
+  async clearSuggestions(userId: string): Promise<{ cleared: number }> {
+    const userSuggestions = Array.from(this.suggestions.values())
+      .filter(suggestion => suggestion.userId === userId);
+    
+    let cleared = 0;
+    for (const suggestion of userSuggestions) {
+      this.suggestions.delete(suggestion.id);
+      cleared++;
+    }
+    
+    return { cleared };
+  }
+
   // Analytics methods
   async getSubscriptionStats(userId: string): Promise<{
     totalMonthly: number;
@@ -172,7 +318,7 @@ export class MemStorage implements IStorage {
     avgPerService: number;
   }> {
     const userSubscriptions = await this.getSubscriptions(userId);
-    const userEmails = await this.getEmails(userId);
+    const { total: emailsAnalyzed } = await this.getEmailsPaginated(userId, { page: 1, pageSize: 999999 }); // Get total count
     
     const activeSubscriptions = userSubscriptions.filter(sub => sub.status === 'active');
     
@@ -187,7 +333,6 @@ export class MemStorage implements IStorage {
     }, 0);
 
     const activeCount = activeSubscriptions.length;
-    const emailsAnalyzed = userEmails.length;
     const avgPerService = activeCount > 0 ? totalMonthly / activeCount : 0;
 
     return {
