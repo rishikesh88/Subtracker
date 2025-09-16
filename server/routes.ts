@@ -242,16 +242,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.deleteSubscription(subscription.id);
       }
       
+      // Clear all suggestions
+      const suggestionResult = await storage.clearSuggestions(userId);
+      
       // Reset user's last sync
       await storage.updateUser(userId, { lastSync: null });
       
-      console.log(`✅ Cleared ${emails.length} emails and ${subscriptions.length} subscriptions`);
+      console.log(`✅ Cleared ${emails.length} emails, ${subscriptions.length} subscriptions, and ${suggestionResult.cleared} suggestions`);
       
       res.json({
         success: true,
         message: "All data cleared successfully",
         clearedEmails: emails.length,
-        clearedSubscriptions: subscriptions.length
+        clearedSubscriptions: subscriptions.length,
+        clearedSuggestions: suggestionResult.cleared
       });
     } catch (error) {
       console.error("Clear data error:", error);
@@ -276,22 +280,119 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get recent emails
+  // Get recent emails with pagination
   app.get("/api/emails", async (req, res) => {
     try {
-      const { userId, limit } = req.query;
+      const { userId, page, pageSize, limit } = req.query;
       
       if (!userId || typeof userId !== 'string') {
         return res.status(400).json({ message: "Missing or invalid userId" });
       }
 
-      // No limit by default - return ALL emails for proper pagination
-      const limitNum = limit ? parseInt(limit as string) : undefined;
-      const emails = await storage.getEmails(userId, limitNum);
-      res.json(emails);
+      // Support new pagination or legacy limit
+      if (page && pageSize) {
+        const pageNum = parseInt(page as string) || 1;
+        const pageSizeNum = parseInt(pageSize as string) || 50;
+        const result = await storage.getEmailsPaginated(userId, { page: pageNum, pageSize: pageSizeNum });
+        res.json(result);
+      } else {
+        // Legacy support - return ALL emails for proper pagination
+        const limitNum = limit ? parseInt(limit as string) : undefined;
+        const emails = await storage.getEmails(userId, limitNum);
+        res.json(emails);
+      }
     } catch (error) {
       console.error("Get emails error:", error);
       res.status(500).json({ message: "Failed to fetch emails" });
+    }
+  });
+
+  // Subscription Suggestions API
+  app.get("/api/suggestions", async (req, res) => {
+    try {
+      const { userId, page, pageSize, minConfidence } = req.query;
+      
+      if (!userId || typeof userId !== 'string') {
+        return res.status(400).json({ message: "Missing or invalid userId" });
+      }
+      
+      const pageNum = parseInt(page as string) || 1;
+      const pageSizeNum = parseInt(pageSize as string) || 20;
+      
+      const result = await storage.getSuggestions(userId, { 
+        page: pageNum, 
+        pageSize: pageSizeNum, 
+        minConfidence: minConfidence as string 
+      });
+      res.json(result);
+    } catch (error) {
+      console.error("Error fetching suggestions:", error);
+      res.status(500).json({ message: "Failed to fetch suggestions" });
+    }
+  });
+
+  app.post("/api/suggestions/approve", async (req, res) => {
+    try {
+      const { userId, suggestionIds } = req.body;
+      
+      if (!userId || typeof userId !== 'string') {
+        return res.status(400).json({ message: "Missing or invalid userId" });
+      }
+      
+      if (!Array.isArray(suggestionIds) || suggestionIds.length === 0) {
+        return res.status(400).json({ message: "Invalid suggestion IDs" });
+      }
+      
+      const result = await storage.approveSuggestions(suggestionIds, userId);
+      res.json({
+        success: true,
+        message: `Approved ${result.approved} suggestions`,
+        subscriptions: result.subscriptions,
+        approved: result.approved
+      });
+    } catch (error) {
+      console.error("Error approving suggestions:", error);
+      res.status(500).json({ message: "Failed to approve suggestions" });
+    }
+  });
+
+  app.post("/api/suggestions/reject", async (req, res) => {
+    try {
+      const { suggestionIds } = req.body;
+      
+      if (!Array.isArray(suggestionIds) || suggestionIds.length === 0) {
+        return res.status(400).json({ message: "Invalid suggestion IDs" });
+      }
+      
+      const result = await storage.rejectSuggestions(suggestionIds);
+      res.json({
+        success: true,
+        message: `Rejected ${result.rejected} suggestions`,
+        rejected: result.rejected
+      });
+    } catch (error) {
+      console.error("Error rejecting suggestions:", error);
+      res.status(500).json({ message: "Failed to reject suggestions" });
+    }
+  });
+
+  app.delete("/api/suggestions/clear/:userId", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      
+      if (!userId) {
+        return res.status(400).json({ message: "Missing userId" });
+      }
+      
+      const result = await storage.clearSuggestions(userId);
+      res.json({
+        success: true,
+        message: `Cleared ${result.cleared} suggestions`,
+        cleared: result.cleared
+      });
+    } catch (error) {
+      console.error("Error clearing suggestions:", error);
+      res.status(500).json({ message: "Failed to clear suggestions" });
     }
   });
 
