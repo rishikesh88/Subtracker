@@ -108,6 +108,7 @@ export class MemStorage implements IStorage {
       ...insertSubscription,
       id,
       status: insertSubscription.status || 'active',
+      currency: insertSubscription.currency || 'USD',
       detectedAt: new Date()
     };
     this.subscriptions.set(id, subscription);
@@ -152,6 +153,7 @@ export class MemStorage implements IStorage {
       ...insertEmail,
       id,
       content: insertEmail.content || null,
+      fromName: insertEmail.fromName || null,
       analyzedAt: new Date()
     };
     this.emails.set(id, email);
@@ -227,6 +229,7 @@ export class MemStorage implements IStorage {
     const suggestion: SubscriptionSuggestion = {
       ...insertSuggestion,
       id,
+      currency: insertSuggestion.currency || 'INR',
       detectedAt: new Date(),
       status: insertSuggestion.status || 'pending'
     };
@@ -255,7 +258,6 @@ export class MemStorage implements IStorage {
       const subscription = await this.createSubscription({
         userId: suggestion.userId,
         serviceName: suggestion.serviceName,
-        merchantName: suggestion.merchantName,
         amount: suggestion.amount,
         currency: suggestion.currency,
         frequency: suggestion.frequency,
