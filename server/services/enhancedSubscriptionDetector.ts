@@ -603,5 +603,6 @@ Respond with valid JSON only:`;
   }
 }
 
-// Export a singleton instance
-export const enhancedSubscriptionDetector = new EnhancedSubscriptionDetector();
+// Import storage and export a singleton instance
+import { storage } from "../storage";
+export const enhancedSubscriptionDetector = new EnhancedSubscriptionDetector(storage);
