@@ -40,10 +40,24 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
 
   const formatCurrency = (amount: string, currency: string = "USD") => {
     const num = parseFloat(amount);
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency,
-    }).format(num);
+    
+    // Validate currency code and fallback to INR for invalid ones
+    const validCurrency = currency && currency.length === 3 && currency !== "unknown" 
+      ? currency.toUpperCase() 
+      : "INR";
+    
+    try {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: validCurrency,
+      }).format(num);
+    } catch (error) {
+      // If currency is still invalid, fallback to INR
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "INR",
+      }).format(num);
+    }
   };
 
   const formatDate = (date: Date | null) => {
