@@ -81,19 +81,7 @@ export class EnhancedSubscriptionDetector {
           await this.delay(2000);
         }
         
-        // Save suggestions after each batch to avoid losing progress
-        if (individualSuggestions.length > 0) {
-          try {
-            await this.storage.createSuggestionsBulk(individualSuggestions);
-            console.log(`💾 Saved batch: ${individualSuggestions.length} suggestions stored successfully`);
-            // Clear array to start fresh for next batch
-            individualSuggestions.length = 0;
-          } catch (storageError) {
-            console.error(`❌ Failed to save batch suggestions:`, storageError);
-            // Try saving individually as fallback
-            await this.saveIndividualSuggestions(individualSuggestions);
-          }
-        }
+        // Continue collecting suggestions without saving yet (we'll save after boosting confidence)
         
         // Longer delay between batches
         if (batchIndex < emailBatches.length - 1) {
@@ -102,9 +90,7 @@ export class EnhancedSubscriptionDetector {
         }
       }
 
-      // Get all saved suggestions for final count
-      const savedSuggestionsResult = await this.storage.getSuggestions(userId);
-      console.log(`✅ Individual analysis complete: ${savedSuggestionsResult.suggestions.length} suggestions saved to database`);
+      console.log(`✅ Individual analysis complete: ${individualSuggestions.length} suggestions generated`);
 
       // Step 3: Analyze recurrence patterns to boost confidence
       console.log(`📊 Step 3: Analyzing recurrence patterns to boost confidence...`);
@@ -114,7 +100,12 @@ export class EnhancedSubscriptionDetector {
       // Step 4: Boost confidence for suggestions that have recurrence patterns
       this.boostConfidenceWithRecurrence(individualSuggestions, clustersWithRecurrence);
 
-      // Step 5: Final summary and results
+      // Step 5: Save all boosted suggestions to storage with deduplication
+      console.log(`💾 Step 5: Saving ${individualSuggestions.length} suggestions with boosted confidence...`);
+      const savedSuggestions = await this.saveWithDeduplication(individualSuggestions, userId);
+      console.log(`✅ Successfully saved ${savedSuggestions.length} unique suggestions`);
+
+      // Step 6: Final summary and results
       const finalSuggestionsResult = await this.storage.getSuggestions(userId);
       const finalSuggestions = finalSuggestionsResult.suggestions;
       const highConfidenceCount = finalSuggestions.filter((s: any) => s.confidence === 'high').length;
@@ -488,22 +479,78 @@ Respond with valid JSON only:`;
   }
 
   /**
+   * Save suggestions with deduplication to prevent duplicates
+   */
+  private async saveWithDeduplication(suggestions: InsertSubscriptionSuggestion[], userId: string): Promise<any[]> {
+    if (suggestions.length === 0) return [];
+
+    try {
+      // Get existing suggestions to check for duplicates
+      const existingResult = await this.storage.getSuggestions(userId);
+      const existingSuggestions = existingResult.suggestions;
+      
+      // Create deduplication key for each suggestion using available fields
+      const createDedupeKey = (s: any) => 
+        `${s.userId || ''}|${(s.serviceName || '').toLowerCase().trim()}|${s.amount || 0}|${(s.currency || 'USD').toLowerCase()}|${(s.frequency || '').toLowerCase()}|${(s.merchantName || '').toLowerCase().trim()}`;
+      
+      // Build deduplication set starting with existing suggestions
+      const dedupeKeys = new Set(existingSuggestions.map(createDedupeKey));
+      
+      // Filter out duplicates (both existing and within current run)
+      const uniqueSuggestions: InsertSubscriptionSuggestion[] = [];
+      for (const suggestion of suggestions) {
+        const key = createDedupeKey(suggestion);
+        if (!dedupeKeys.has(key)) {
+          dedupeKeys.add(key); // Prevent within-run duplicates too
+          uniqueSuggestions.push(suggestion);
+        }
+      }
+      
+      if (uniqueSuggestions.length === 0) {
+        console.log(`📋 All ${suggestions.length} suggestions are duplicates, skipping save`);
+        return [];
+      }
+      
+      console.log(`📋 Saving ${uniqueSuggestions.length} unique suggestions (${suggestions.length - uniqueSuggestions.length} duplicates filtered)`);
+      
+      // Try bulk save first
+      try {
+        return await this.storage.createSuggestionsBulk(uniqueSuggestions);
+      } catch (bulkError) {
+        console.error(`❌ Bulk save failed, trying individual saves:`, bulkError);
+        return await this.saveIndividualSuggestions(uniqueSuggestions);
+      }
+      
+    } catch (error) {
+      console.error(`❌ Deduplication failed, attempting direct save:`, error);
+      // Fallback to direct save without deduplication
+      try {
+        return await this.storage.createSuggestionsBulk(suggestions);
+      } catch (directError) {
+        console.error(`❌ Direct bulk save failed, trying individual saves:`, directError);
+        return await this.saveIndividualSuggestions(suggestions);
+      }
+    }
+  }
+
+  /**
    * Fallback method to save suggestions individually if bulk save fails
    */
-  private async saveIndividualSuggestions(suggestions: InsertSubscriptionSuggestion[]): Promise<void> {
+  private async saveIndividualSuggestions(suggestions: InsertSubscriptionSuggestion[]): Promise<any[]> {
     console.log(`🔄 Attempting individual save for ${suggestions.length} suggestions...`);
-    let successCount = 0;
+    const savedSuggestions: any[] = [];
     
     for (const suggestion of suggestions) {
       try {
-        await this.storage.createSuggestion(suggestion);
-        successCount++;
+        const saved = await this.storage.createSuggestion(suggestion);
+        savedSuggestions.push(saved);
       } catch (error) {
         console.error(`❌ Failed to save individual suggestion for ${suggestion.serviceName}:`, error);
       }
     }
     
-    console.log(`💾 Individual save complete: ${successCount}/${suggestions.length} suggestions saved`);
+    console.log(`💾 Individual save complete: ${savedSuggestions.length}/${suggestions.length} suggestions saved`);
+    return savedSuggestions;
   }
 
   private delay(ms: number): Promise<void> {
