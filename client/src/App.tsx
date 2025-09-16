@@ -8,6 +8,7 @@ import Subscriptions from "@/pages/subscriptions";
 import Emails from "@/pages/emails";
 import Settings from "@/pages/settings";
 import AuthCallback from "@/pages/auth";
+import { SuggestionsPage } from "@/pages/suggestions";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -18,6 +19,13 @@ function Router() {
       <Route path="/emails" component={Emails} />
       <Route path="/settings" component={Settings} />
       <Route path="/auth/callback" component={AuthCallback} />
+      <Route path="/suggestions">
+        {() => {
+          // Get userId from localStorage or use demo user
+          const userId = localStorage.getItem('currentUserId') || 'demo-user';
+          return <SuggestionsPage userId={userId} />;
+        }}
+      </Route>
       <Route component={NotFound} />
     </Switch>
   );

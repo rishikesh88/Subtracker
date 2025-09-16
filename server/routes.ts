@@ -438,6 +438,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Enhanced subscription detection endpoint 
+  app.post("/api/sync-enhanced", async (req, res) => {
+    try {
+      const { userId } = req.body;
+      if (!userId) {
+        return res.status(400).json({ message: "Missing userId" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user || !user.gmailConnected) {
+        return res.status(400).json({ message: "Gmail not connected for this user" });
+      }
+
+      console.log(`🚀 Starting enhanced subscription detection for user: ${userId}`);
+
+      // Get all user emails for analysis
+      const { emails: allEmails, total } = await storage.getEmailsPaginated(userId, { page: 1, pageSize: 999999 });
+      
+      if (allEmails.length === 0) {
+        return res.json({
+          success: true,
+          message: "No emails found for analysis",
+          suggestionsGenerated: 0,
+          redirectToSuggestions: false
+        });
+      }
+
+      // Import and use enhanced subscription detector
+      const { enhancedSubscriptionDetector } = await import("./services/enhancedSubscriptionDetector");
+      const detectionResult = await enhancedSubscriptionDetector.detectSubscriptionSuggestions(allEmails, userId);
+
+      console.log(`✅ Enhanced detection complete: ${detectionResult.suggestions.length} suggestions generated`);
+
+      res.json({
+        success: true,
+        message: `Generated ${detectionResult.suggestions.length} subscription suggestions`,
+        suggestionsGenerated: detectionResult.suggestions.length,
+        highConfidenceSuggestions: detectionResult.highConfidenceCount,
+        processedEmails: detectionResult.totalAnalyzed,
+        redirectToSuggestions: detectionResult.suggestions.length > 0
+      });
+
+    } catch (error) {
+      console.error("Enhanced sync error:", error);
+      res.status(500).json({ 
+        message: "Failed to run enhanced subscription detection",
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
   // Register Gemini LLM routes BEFORE the HTTP server creation
   registerGeminiRoutes(app);
 
