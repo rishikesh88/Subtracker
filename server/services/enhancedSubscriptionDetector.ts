@@ -50,24 +50,61 @@ export class EnhancedSubscriptionDetector {
       const potentialSubscriptionEmails = this.filterPotentialSubscriptions(emails);
       console.log(`✅ Found ${potentialSubscriptionEmails.length} potentially subscription-related emails`);
 
-      // Step 2: Analyze ALL potential emails individually with AI
-      console.log(`🧠 Step 2: Analyzing ALL emails individually with AI...`);
+      // Step 2: Analyze emails in small batches with robust error handling
+      console.log(`🧠 Step 2: Analyzing emails in batches with error resilience...`);
       const individualSuggestions: InsertSubscriptionSuggestion[] = [];
+      const batchSize = 3; // Process 3 emails at a time to avoid rate limits
+      const emailBatches = this.chunkArray(potentialSubscriptionEmails, batchSize);
       
-      for (let i = 0; i < potentialSubscriptionEmails.length; i++) {
-        const email = potentialSubscriptionEmails[i];
-        console.log(`🔬 Analyzing email ${i+1}/${potentialSubscriptionEmails.length}: ${email.subject}`);
+      for (let batchIndex = 0; batchIndex < emailBatches.length; batchIndex++) {
+        const batch = emailBatches[batchIndex];
+        console.log(`📦 Processing batch ${batchIndex + 1}/${emailBatches.length} (${batch.length} emails)`);
         
-        const suggestion = await this.analyzeIndividualEmail(email, userId);
-        if (suggestion) {
-          individualSuggestions.push(suggestion);
+        // Process each email in batch with individual error handling
+        for (let i = 0; i < batch.length; i++) {
+          const email = batch[i];
+          const emailNumber = batchIndex * batchSize + i + 1;
+          console.log(`🔬 Analyzing email ${emailNumber}/${potentialSubscriptionEmails.length}: ${email.subject}`);
+          
+          try {
+            const suggestion = await this.analyzeIndividualEmailWithRetry(email, userId);
+            if (suggestion) {
+              individualSuggestions.push(suggestion);
+              console.log(`✅ Generated suggestion for: ${suggestion.serviceName}`);
+            }
+          } catch (error) {
+            console.error(`❌ Failed to analyze email "${email.subject}":`, error);
+            // Continue with next email instead of failing entire process
+          }
+          
+          // Aggressive rate limiting: 2 second delay between emails
+          await this.delay(2000);
         }
         
-        // Small delay to respect rate limits
-        await this.delay(300);
+        // Save suggestions after each batch to avoid losing progress
+        if (individualSuggestions.length > 0) {
+          try {
+            await this.storage.createSuggestionsBulk(individualSuggestions);
+            console.log(`💾 Saved batch: ${individualSuggestions.length} suggestions stored successfully`);
+            // Clear array to start fresh for next batch
+            individualSuggestions.length = 0;
+          } catch (storageError) {
+            console.error(`❌ Failed to save batch suggestions:`, storageError);
+            // Try saving individually as fallback
+            await this.saveIndividualSuggestions(individualSuggestions);
+          }
+        }
+        
+        // Longer delay between batches
+        if (batchIndex < emailBatches.length - 1) {
+          console.log(`⏳ Waiting 3 seconds between batches...`);
+          await this.delay(3000);
+        }
       }
 
-      console.log(`✅ Individual analysis complete: ${individualSuggestions.length} suggestions from individual emails`);
+      // Get all saved suggestions for final count
+      const savedSuggestionsResult = await this.storage.getSuggestions(userId);
+      console.log(`✅ Individual analysis complete: ${savedSuggestionsResult.suggestions.length} suggestions saved to database`);
 
       // Step 3: Analyze recurrence patterns to boost confidence
       console.log(`📊 Step 3: Analyzing recurrence patterns to boost confidence...`);
@@ -77,18 +114,17 @@ export class EnhancedSubscriptionDetector {
       // Step 4: Boost confidence for suggestions that have recurrence patterns
       this.boostConfidenceWithRecurrence(individualSuggestions, clustersWithRecurrence);
 
-      // Step 5: Store suggestions in database
-      console.log(`💾 Step 5: Storing ${individualSuggestions.length} suggestions...`);
-      const createdSuggestions = await this.storage.createSuggestionsBulk(individualSuggestions);
-      
-      const highConfidenceCount = individualSuggestions.filter(s => s.confidence === 'high').length;
+      // Step 5: Final summary and results
+      const finalSuggestionsResult = await this.storage.getSuggestions(userId);
+      const finalSuggestions = finalSuggestionsResult.suggestions;
+      const highConfidenceCount = finalSuggestions.filter((s: any) => s.confidence === 'high').length;
       const processingTime = Date.now() - startTime;
 
-      console.log(`✨ Detection complete: ${individualSuggestions.length} suggestions generated in ${processingTime}ms`);
-      console.log(`📈 High confidence: ${highConfidenceCount}, Medium: ${individualSuggestions.filter(s => s.confidence === 'medium').length}, Low: ${individualSuggestions.filter(s => s.confidence === 'low').length}`);
+      console.log(`✨ Detection complete: ${finalSuggestions.length} suggestions saved in ${processingTime}ms`);
+      console.log(`📈 High confidence: ${highConfidenceCount}, Medium: ${finalSuggestions.filter((s: any) => s.confidence === 'medium').length}, Low: ${finalSuggestions.filter((s: any) => s.confidence === 'low').length}`);
 
       return {
-        suggestions: createdSuggestions,
+        suggestions: finalSuggestions,
         totalAnalyzed: potentialSubscriptionEmails.length,
         highConfidenceCount,
         recurrenceClusters: clustersWithRecurrence.length,
@@ -410,6 +446,64 @@ Respond with valid JSON only:`;
         console.log(`🚀 Boosted confidence for ${suggestion.serviceName}: ${currentScore} → ${boostedScore} (recurrence: ${matchingCluster.recurrence.confidence}%)`);
       }
     }
+  }
+
+  /**
+   * Split array into chunks of specified size
+   */
+  private chunkArray<T>(array: T[], chunkSize: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += chunkSize) {
+      chunks.push(array.slice(i, i + chunkSize));
+    }
+    return chunks;
+  }
+
+  /**
+   * Analyze individual email with retry logic and exponential backoff
+   */
+  private async analyzeIndividualEmailWithRetry(email: Email, userId: string, maxRetries: number = 3): Promise<InsertSubscriptionSuggestion | null> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.analyzeIndividualEmail(email, userId);
+      } catch (error: any) {
+        const isRateLimit = error?.message?.includes('429') || error?.message?.includes('quota') || error?.message?.includes('rate');
+        
+        if (isRateLimit && attempt < maxRetries) {
+          const backoffDelay = Math.pow(2, attempt) * 2000; // Exponential backoff: 4s, 8s, 16s
+          console.log(`⏰ Rate limit hit for "${email.subject}". Retrying in ${backoffDelay/1000}s (attempt ${attempt}/${maxRetries})`);
+          await this.delay(backoffDelay);
+          continue;
+        }
+        
+        if (attempt === maxRetries) {
+          console.error(`❌ Failed to analyze "${email.subject}" after ${maxRetries} attempts:`, error?.message || error);
+          return null; // Give up after max retries
+        }
+        
+        throw error; // Re-throw non-rate-limit errors immediately
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Fallback method to save suggestions individually if bulk save fails
+   */
+  private async saveIndividualSuggestions(suggestions: InsertSubscriptionSuggestion[]): Promise<void> {
+    console.log(`🔄 Attempting individual save for ${suggestions.length} suggestions...`);
+    let successCount = 0;
+    
+    for (const suggestion of suggestions) {
+      try {
+        await this.storage.createSuggestion(suggestion);
+        successCount++;
+      } catch (error) {
+        console.error(`❌ Failed to save individual suggestion for ${suggestion.serviceName}:`, error);
+      }
+    }
+    
+    console.log(`💾 Individual save complete: ${successCount}/${suggestions.length} suggestions saved`);
   }
 
   private delay(ms: number): Promise<void> {
