@@ -310,7 +310,7 @@ ${JSON.stringify(emailData, null, 2)}`;
       extractedAmount: email.extractedAmount || '',
       extractedCurrency: email.extractedCurrency || '',
       merchantName: email.merchantName || '',
-      content: email.content?.substring(0, 800) || ''
+      content: email.content?.substring(0, 400) || '' // Reduced from 800 to 400 chars
     }));
 
     const systemPrompt = `You are an expert at extracting subscription details from billing emails.
@@ -342,39 +342,57 @@ RETURN: JSON array with exact format:
     "merchantEmail": "noreply@airtel.com"
   },
   ...
-]
+]`;
 
-EMAILS TO ANALYZE:
+    const emailsToAnalyze = `EMAILS TO ANALYZE:
 ${JSON.stringify(emailData, null, 2)}`;
 
-    const response = await this.ai.models.generateContent({
-      model: "gemini-2.5-pro",
-      config: {
-        systemInstruction: systemPrompt,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              id: { type: "number" },
-              isSubscription: { type: "boolean" },
-              serviceName: { type: "string" },
-              amount: { type: "number" },
-              currency: { type: "string" },
-              frequency: { type: "string", enum: ["monthly", "quarterly", "yearly", "weekly"] },
-              category: { type: "string", enum: ["telecom", "streaming", "software", "utilities", "other"] },
-              confidence: { type: "string", enum: ["high", "medium", "low"] },
-              nextBillingDate: { type: ["string", "null"] },
-              merchantName: { type: "string" },
-              merchantEmail: { type: "string" }
-            },
-            required: ["id", "isSubscription", "serviceName", "amount", "currency", "frequency", "category", "confidence"]
-          }
+    // Retry logic for transient network issues
+    let response;
+    let lastError;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        response = await this.ai.models.generateContent({
+          model: "gemini-2.5-pro",
+          config: {
+            systemInstruction: systemPrompt,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "number" },
+                  isSubscription: { type: "boolean" },
+                  serviceName: { type: "string" },
+                  amount: { type: "number" },
+                  currency: { type: "string" },
+                  frequency: { type: "string", enum: ["monthly", "quarterly", "yearly", "weekly"] },
+                  category: { type: "string", enum: ["telecom", "streaming", "software", "utilities", "other"] },
+                  confidence: { type: "string", enum: ["high", "medium", "low"] },
+                  nextBillingDate: { type: "string" }, // Simplified from union type
+                  merchantName: { type: "string" },
+                  merchantEmail: { type: "string" }
+                },
+                required: ["id", "isSubscription", "serviceName", "amount", "currency", "frequency", "category", "confidence"]
+              }
+            }
+          },
+          contents: emailsToAnalyze // Only email data, not duplicating systemPrompt
+        });
+        break; // Success, exit retry loop
+      } catch (error: any) {
+        lastError = error;
+        console.log(`🔄 Retry ${attempt}/2 failed for detailed analysis:`, error.message);
+        if (attempt < 2) {
+          await this.delay(1500); // 1.5s backoff before retry
         }
-      },
-      contents: systemPrompt
-    });
+      }
+    }
+    
+    if (!response) {
+      throw lastError;
+    }
     
     const results: BatchAnalysisResult[] = JSON.parse(response.text || '[]');
     const suggestions: InsertSubscriptionSuggestion[] = [];

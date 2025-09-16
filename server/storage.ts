@@ -1,6 +1,6 @@
 import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, users, subscriptions, emails, subscriptionSuggestions } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
-import { eq, and, desc, asc, count, sql } from 'drizzle-orm';
+import { eq, and, desc, asc, count, sql, inArray } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { randomUUID } from "crypto";
 
@@ -472,7 +472,7 @@ export class DatabaseStorage implements IStorage {
         .from(subscriptionSuggestions)
         .where(
           and(
-            sql`${subscriptionSuggestions.id} = ANY(${suggestionIds})`,
+            inArray(subscriptionSuggestions.id, suggestionIds), // Fixed: Use inArray instead of raw SQL
             eq(subscriptionSuggestions.userId, userId),
             eq(subscriptionSuggestions.status, 'pending')
           )
