@@ -81,24 +81,43 @@ export default function Dashboard() {
           // Clear URL parameters and initialize normally
           window.history.replaceState({}, document.title, window.location.pathname);
           
-          // Fall through to normal initialization
-          const response = await apiRequest("POST", "/api/users", {
-            username: "demo@example.com",
-            password: "demo123"
-          });
-          const user = await response.json();
-          console.log("Created demo user after OAuth failure:", user.id);
-          setCurrentUserId(user.id);
+          // Use existing demo user or create new one
+          const existingDemoUserId = localStorage.getItem('demoUserId');
+          
+          if (existingDemoUserId) {
+            console.log("Using existing demo user after OAuth failure:", existingDemoUserId);
+            setCurrentUserId(existingDemoUserId);
+          } else {
+            const response = await apiRequest("POST", "/api/users", {
+              username: "demo@example.com", 
+              password: "demo123"
+            });
+            const user = await response.json();
+            console.log("Created demo user after OAuth failure:", user.id);
+            localStorage.setItem('demoUserId', user.id);
+            setCurrentUserId(user.id);
+          }
         } else {
-          // Normal initialization with demo user
-          console.log("Normal initialization, creating demo user");
-          const response = await apiRequest("POST", "/api/users", {
-            username: "demo@example.com",
-            password: "demo123"
-          });
-          const user = await response.json();
-          console.log("Created demo user:", user.id);
-          setCurrentUserId(user.id);
+          // Check for existing demo user in localStorage
+          const existingDemoUserId = localStorage.getItem('demoUserId');
+          
+          if (existingDemoUserId) {
+            console.log("Using existing demo user:", existingDemoUserId);
+            setCurrentUserId(existingDemoUserId);
+          } else {
+            // Create new demo user only if none exists
+            console.log("Creating new demo user");
+            const response = await apiRequest("POST", "/api/users", {
+              username: "demo@example.com",
+              password: "demo123"
+            });
+            const user = await response.json();
+            console.log("Created demo user:", user.id);
+            
+            // Persist demo user ID in localStorage
+            localStorage.setItem('demoUserId', user.id);
+            setCurrentUserId(user.id);
+          }
         }
       } catch (error) {
         console.error("Initialization error:", error);
