@@ -47,6 +47,29 @@ export const emails = pgTable("emails", {
   analyzedAt: timestamp("analyzed_at").defaultNow(),
 });
 
+// Subscription Suggestions schema - for user verification workflow
+export const subscriptionSuggestions = pgTable("subscription_suggestions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  serviceName: text("service_name").notNull(),
+  merchantName: text("merchant_name"),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  currency: text("currency").default("INR").notNull(),
+  frequency: text("frequency").notNull(), // monthly, yearly, weekly, quarterly
+  category: text("category"),
+  confidence: text("confidence").notNull(), // high, medium, low
+  confidenceScore: decimal("confidence_score", { precision: 3, scale: 2 }).notNull(), // 0.00-1.00
+  reasoning: text("reasoning"), // LLM explanation
+  evidenceEmailIds: text("evidence_email_ids").array(), // Supporting email IDs
+  occurrences: integer("occurrences").notNull().default(1), // Number of supporting emails
+  recurrenceType: text("recurrence_type"), // detected pattern: weekly, monthly, yearly
+  recurrenceScore: integer("recurrence_score").default(0), // 0-100 confidence in recurrence
+  nextBillingDate: timestamp("next_billing_date"),
+  lastSeen: timestamp("last_seen").notNull(),
+  detectedAt: timestamp("detected_at").defaultNow(),
+  status: text("status").default("pending").notNull(), // pending, approved, rejected
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
@@ -69,10 +92,17 @@ export const updateUserSchema = createInsertSchema(users).pick({
   lastSync: true,
 });
 
+export const insertSubscriptionSuggestionSchema = createInsertSchema(subscriptionSuggestions).omit({
+  id: true,
+  detectedAt: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type Subscription = typeof subscriptions.$inferSelect;
 export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
+export type SubscriptionSuggestion = typeof subscriptionSuggestions.$inferSelect;
+export type InsertSubscriptionSuggestion = z.infer<typeof insertSubscriptionSuggestionSchema>;
 export type Email = typeof emails.$inferSelect;
 export type InsertEmail = z.infer<typeof insertEmailSchema>;
 export type UpdateUser = z.infer<typeof updateUserSchema>;
