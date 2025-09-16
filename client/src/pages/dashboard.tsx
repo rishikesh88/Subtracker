@@ -4,6 +4,7 @@ import { RefreshCw, Mail, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/useAuth";
 import { Sidebar } from "@/components/Sidebar";
 import { StatsCards } from "@/components/StatsCards";
 import { SubscriptionList } from "@/components/SubscriptionList";
@@ -12,25 +13,20 @@ import { type Subscription, type Email } from "@shared/schema";
 
 export default function Dashboard() {
   const { toast } = useToast();
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const { user } = useAuth();
+  const currentUserId = user?.id;
 
-  // Handle OAuth callback and initialize user
+  // Handle Gmail OAuth callback
   useEffect(() => {
-    const handleOAuthCallback = async () => {
+    const handleGmailCallback = async () => {
       try {
         const urlParams = new URLSearchParams(window.location.search);
         const gmailConnected = urlParams.get('gmailConnected');
 
-        console.log("Initializing dashboard, gmailConnected:", gmailConnected);
+        console.log("Gmail OAuth callback, gmailConnected:", gmailConnected);
 
-        // If returning from OAuth, handle the connection result
-        if (gmailConnected === 'true') {
-          const userId = urlParams.get('userId');
-          console.log("OAuth success, userId:", userId);
-          
-          if (userId) {
-            setCurrentUserId(userId);
-            
+        // If returning from Gmail OAuth, handle the connection result
+        if (gmailConnected === 'true' && currentUserId) {
             toast({
               title: "Gmail Connected!",
               description: "Successfully connected your Gmail account. Starting email sync...",
@@ -40,13 +36,13 @@ export default function Dashboard() {
             // Clear URL parameters
             window.history.replaceState({}, document.title, window.location.pathname);
             
-            // Refresh user data to reflect connected status
-            queryClient.invalidateQueries({ queryKey: [`/api/users/${userId}`] });
+            // Refresh user data
+            queryClient.invalidateQueries({ queryKey: [`/api/auth/user`] });
             
             // Automatically trigger email sync after a delay
             setTimeout(async () => {
               try {
-                const response = await apiRequest("POST", "/api/sync-enhanced", { userId });
+                const response = await apiRequest("POST", "/api/sync-enhanced", { userId: currentUserId });
                 const data = await response.json();
                 
                 toast({
@@ -55,9 +51,9 @@ export default function Dashboard() {
                 });
                 
                 // Refresh all data after sync  
-                queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${userId}`] });
-                queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${userId}`] });
-                queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${userId}`] });
+                queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${currentUserId}`] });
+                queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${currentUserId}`] });
+                queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
               } catch (error) {
                 console.error("Auto email sync error:", error);
                 toast({
@@ -67,9 +63,6 @@ export default function Dashboard() {
                 });
               }
             }, 1500);
-          } else {
-            throw new Error("No user ID received from OAuth");
-          }
         } else if (gmailConnected === 'false') {
           const error = urlParams.get('error');
           toast({
@@ -78,46 +71,8 @@ export default function Dashboard() {
             variant: "destructive",
           });
           
-          // Clear URL parameters and initialize normally
+          // Clear URL parameters
           window.history.replaceState({}, document.title, window.location.pathname);
-          
-          // Use existing demo user or create new one
-          const existingDemoUserId = localStorage.getItem('demoUserId');
-          
-          if (existingDemoUserId) {
-            console.log("Using existing demo user after OAuth failure:", existingDemoUserId);
-            setCurrentUserId(existingDemoUserId);
-          } else {
-            const response = await apiRequest("POST", "/api/users", {
-              username: "demo@example.com", 
-              password: "demo123"
-            });
-            const user = await response.json();
-            console.log("Created demo user after OAuth failure:", user.id);
-            localStorage.setItem('demoUserId', user.id);
-            setCurrentUserId(user.id);
-          }
-        } else {
-          // Check for existing demo user in localStorage
-          const existingDemoUserId = localStorage.getItem('demoUserId');
-          
-          if (existingDemoUserId) {
-            console.log("Using existing demo user:", existingDemoUserId);
-            setCurrentUserId(existingDemoUserId);
-          } else {
-            // Create new demo user only if none exists
-            console.log("Creating new demo user");
-            const response = await apiRequest("POST", "/api/users", {
-              username: "demo@example.com",
-              password: "demo123"
-            });
-            const user = await response.json();
-            console.log("Created demo user:", user.id);
-            
-            // Persist demo user ID in localStorage
-            localStorage.setItem('demoUserId', user.id);
-            setCurrentUserId(user.id);
-          }
         }
       } catch (error) {
         console.error("Initialization error:", error);
@@ -129,14 +84,10 @@ export default function Dashboard() {
       }
     };
 
-    handleOAuthCallback();
-  }, []);
+    handleGmailCallback();
+  }, [currentUserId, toast]);
 
-  // Fetch user data
-  const { data: user } = useQuery<{id: string, username: string, gmailConnected: boolean}>({
-    queryKey: [`/api/users/${currentUserId}`],
-    enabled: !!currentUserId,
-  });
+  // User data is available from useAuth hook
 
   // Fetch subscription stats
   const { data: stats, isLoading: statsLoading } = useQuery<{totalMonthly: number, activeCount: number, emailsAnalyzed: number, avgPerService: number}>({

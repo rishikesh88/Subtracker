@@ -12,6 +12,7 @@ import { GoogleGenAI } from "@google/genai";
 import { type Email, type InsertSubscriptionSuggestion } from "@shared/schema";
 import { IStorage } from "../storage";
 import { recurrenceAnalyzer, type EmailCluster } from "./recurrenceAnalyzer";
+import { generateServiceKey } from "../utils/serviceKey";
 
 interface SuggestionGenerationResult {
   suggestions: InsertSubscriptionSuggestion[];
@@ -392,6 +393,7 @@ ${JSON.stringify(emailData, null, 2)}`;
         suggestions.push({
           userId,
           serviceName: result.serviceName,
+          serviceKey: generateServiceKey(result.serviceName, result.merchantName || email.fromName || email.fromEmail, result.frequency),
           merchantName: result.merchantName || email.fromName || email.fromEmail,
           amount: result.amount.toString(),
           currency: result.currency || 'INR',
@@ -480,6 +482,7 @@ Respond with valid JSON only:`;
         const suggestion: InsertSubscriptionSuggestion = {
           userId,
           serviceName: result.serviceName,
+          serviceKey: generateServiceKey(result.serviceName, result.merchantName, result.frequency),
           merchantName: result.merchantName,
           amount: result.amount.toString(),
           currency: result.currency || 'INR',

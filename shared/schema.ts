@@ -1,15 +1,34 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, decimal, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, decimal, integer, boolean, index, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Session storage table - Required for Replit Auth
+export const sessions = pgTable(
+  "sessions",
+  {
+    sid: varchar("sid").primaryKey(),
+    sess: jsonb("sess").notNull(),
+    expire: timestamp("expire").notNull(),
+  },
+  (table) => [index("IDX_session_expire").on(table.expire)],
+);
+
+// User storage table - Updated for Replit Auth
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  username: text("username").notNull().unique(),
-  password: text("password").notNull(),
+  email: varchar("email").unique(),
+  firstName: varchar("first_name"),
+  lastName: varchar("last_name"),
+  profileImageUrl: varchar("profile_image_url"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  // Gmail integration fields
   gmailAccessToken: text("gmail_access_token"),
   gmailRefreshToken: text("gmail_refresh_token"),
+  gmailTokenExpiry: timestamp("gmail_token_expiry"),
   gmailConnected: boolean("gmail_connected").default(false),
+  gmailEmail: text("gmail_email"),
   lastSync: timestamp("last_sync"),
 });
 
@@ -17,12 +36,15 @@ export const subscriptions = pgTable("subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   serviceName: text("service_name").notNull(),
+  serviceKey: text("service_key").notNull(), // For deduplication: normalized service + frequency
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
-  currency: text("currency").default("USD").notNull(),
+  currency: text("currency").default("INR").notNull(),
   frequency: text("frequency").notNull(), // monthly, yearly, weekly
   category: text("category"), // entertainment, software, utilities, etc.
   status: text("status").default("active").notNull(), // active, cancelled, expiring_soon
   merchantEmail: text("merchant_email"),
+  merchantName: text("merchant_name"),
+  occurrences: integer("occurrences").default(1), // Number of supporting emails
   nextBillingDate: timestamp("next_billing_date"),
   lastEmailDate: timestamp("last_email_date"),
   detectedAt: timestamp("detected_at").defaultNow(),
@@ -52,6 +74,7 @@ export const subscriptionSuggestions = pgTable("subscription_suggestions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
   serviceName: text("service_name").notNull(),
+  serviceKey: text("service_key").notNull(), // For deduplication: normalized service + frequency
   merchantName: text("merchant_name"),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   currency: text("currency").default("INR").notNull(),
@@ -71,8 +94,18 @@ export const subscriptionSuggestions = pgTable("subscription_suggestions", {
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
-  username: true,
-  password: true,
+  email: true,
+  firstName: true,
+  lastName: true,
+  profileImageUrl: true,
+});
+
+export const upsertUserSchema = createInsertSchema(users).pick({
+  id: true,
+  email: true,
+  firstName: true,
+  lastName: true,
+  profileImageUrl: true,
 });
 
 export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
@@ -88,8 +121,11 @@ export const insertEmailSchema = createInsertSchema(emails).omit({
 export const updateUserSchema = createInsertSchema(users).pick({
   gmailAccessToken: true,
   gmailRefreshToken: true,
+  gmailTokenExpiry: true,
   gmailConnected: true,
+  gmailEmail: true,
   lastSync: true,
+  updatedAt: true,
 });
 
 export const insertSubscriptionSuggestionSchema = createInsertSchema(subscriptionSuggestions).omit({
@@ -97,8 +133,24 @@ export const insertSubscriptionSuggestionSchema = createInsertSchema(subscriptio
   detectedAt: true,
 });
 
+// SafeUser schema - excludes sensitive tokens for frontend consumption
+export const safeUserSchema = createInsertSchema(users).pick({
+  id: true,
+  email: true,
+  firstName: true,
+  lastName: true,
+  profileImageUrl: true,
+  gmailConnected: true,
+  gmailEmail: true,
+  lastSync: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
+export type UpsertUser = z.infer<typeof upsertUserSchema>;
 export type User = typeof users.$inferSelect;
+export type SafeUser = z.infer<typeof safeUserSchema>;
 export type Subscription = typeof subscriptions.$inferSelect;
 export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
 export type SubscriptionSuggestion = typeof subscriptionSuggestions.$inferSelect;

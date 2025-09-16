@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/useAuth";
 import { SubscriptionSuggestion } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,11 +12,9 @@ import { Sidebar } from "@/components/Sidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CheckCircle, XCircle, AlertCircle, Eye, Calendar, Mail, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 
-interface SuggestionsPageProps {
-  userId: string;
-}
-
-export function SuggestionsPage({ userId }: SuggestionsPageProps) {
+export function SuggestionsPage() {
+  const { user } = useAuth();
+  const userId = user?.id;
   const { toast } = useToast();
   const [selectedSuggestions, setSelectedSuggestions] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -30,6 +29,10 @@ export function SuggestionsPage({ userId }: SuggestionsPageProps) {
     queryKey: [`/api/suggestions?userId=${userId}&page=${currentPage}&pageSize=${pageSize}&minConfidence=${confidenceFilter}`],
     enabled: !!userId,
   });
+
+  if (!userId) {
+    return <div className="p-8">Loading user...</div>;
+  }
 
   const { suggestions, total } = suggestionsData;
   const totalPages = Math.ceil(total / pageSize);

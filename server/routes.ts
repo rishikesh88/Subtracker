@@ -6,9 +6,11 @@ import { emailParser } from "./services/emailParser";
 import { EnhancedEmailParser } from "./services/enhancedEmailParser";
 import { subscriptionDetector } from "./services/subscriptionDetector";
 import { GeminiSubscriptionDetector } from "./services/geminiSubscriptionDetector";
-import { insertUserSchema, insertEmailSchema } from "@shared/schema";
+import { insertEmailSchema, insertUserSchema, type SafeUser } from "@shared/schema";
 import { randomBytes } from "crypto";
 import { registerGeminiRoutes } from "./routes/geminiSync";
+import { setupAuth, isAuthenticated } from "./replitAuth";
+import { generateServiceKey } from "./utils/serviceKey";
 
 // Simple in-memory store for OAuth states (in production, use Redis or database)
 const oauthStates = new Map<string, { timestamp: number }>();
@@ -27,8 +29,42 @@ const cleanupOldStates = () => {
 setInterval(cleanupOldStates, 5 * 60 * 1000);
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Setup Replit Auth
+  await setupAuth(app);
+
   // Auth routes
-  app.get("/api/auth/google", async (req, res) => {
+  app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Return only safe user data, excluding sensitive tokens
+      const safeUser: SafeUser = {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        profileImageUrl: user.profileImageUrl,
+        gmailConnected: user.gmailConnected,
+        gmailEmail: user.gmailEmail,
+        lastSync: user.lastSync,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+      };
+      
+      res.json(safeUser);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  // Gmail OAuth routes (separate from user auth)
+  app.get("/api/auth/google", isAuthenticated, async (req: any, res) => {
     try {
       console.log("Google Client ID available:", !!process.env.GOOGLE_CLIENT_ID);
       console.log("Google Client Secret available:", !!process.env.GOOGLE_CLIENT_SECRET);
@@ -49,7 +85,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/auth/google/callback", async (req, res) => {
+  app.get("/api/auth/google/callback", isAuthenticated, async (req: any, res) => {
     try {
       const { code, state } = req.query;
       
@@ -71,24 +107,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const gmailService = new GmailService();
       const tokens = await gmailService.getTokens(code as string);
       
-      // Create or get the demo user
-      let user = await storage.getUserByUsername("demo@example.com");
+      // Get the current authenticated user
+      const userId = req.user?.claims?.sub;
+      if (!userId) {
+        throw new Error("User not authenticated");
+      }
+      
+      const user = await storage.getUser(userId);
       if (!user) {
-        user = await storage.createUser({
-          username: "demo@example.com",
-          password: "demo123"
-        });
+        throw new Error("User not found");
       }
 
-      if (!user) {
-        throw new Error("Failed to create or get user");
-      }
-
-      // Update user with Gmail tokens (preserve existing refresh token if new one not provided)
+      // Update user with Gmail tokens and expiry
       const updateData: any = {
         gmailAccessToken: tokens.access_token || null,
+        gmailTokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
         gmailConnected: true,
-        lastSync: new Date()
+        gmailEmail: tokens.scope?.includes('email') ? user.email : null,
+        lastSync: new Date(),
+        updatedAt: new Date()
       };
       
       // Only update refresh token if Google provides a new one
@@ -115,12 +152,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Sync emails and detect subscriptions
-  app.post("/api/sync-emails", async (req, res) => {
+  app.post("/api/sync-emails", isAuthenticated, async (req: any, res) => {
     try {
-      const { userId } = req.body;
+      const userId = req.user.claims.sub;
       
       if (!userId) {
-        return res.status(400).json({ message: "Missing userId" });
+        return res.status(401).json({ message: "User not authenticated" });
       }
 
       const user = await storage.getUser(userId);
@@ -196,12 +233,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get user's subscriptions
-  app.get("/api/subscriptions", async (req, res) => {
+  app.get("/api/subscriptions", isAuthenticated, async (req: any, res) => {
     try {
-      const { userId } = req.query;
+      const userId = req.user.claims.sub;
       
-      if (!userId || typeof userId !== 'string') {
-        return res.status(400).json({ message: "Missing or invalid userId" });
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
       }
 
       const subscriptions = await storage.getSubscriptions(userId);
@@ -213,12 +250,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Clear all data for fresh start
-  app.delete("/api/clear-data/:userId", async (req, res) => {
+  app.delete("/api/clear-data", isAuthenticated, async (req: any, res) => {
     try {
-      const { userId } = req.params;
+      const userId = req.user.claims.sub;
       
       if (!userId) {
-        return res.status(400).json({ message: "Missing userId" });
+        return res.status(401).json({ message: "User not authenticated" });
       }
 
       console.log(`🧹 Clearing all data for user: ${userId}`);
@@ -257,12 +294,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get subscription stats
-  app.get("/api/stats", async (req, res) => {
+  app.get("/api/stats", isAuthenticated, async (req: any, res) => {
     try {
-      const { userId } = req.query;
+      const userId = req.user.claims.sub;
       
-      if (!userId || typeof userId !== 'string') {
-        return res.status(400).json({ message: "Missing or invalid userId" });
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
       }
 
       const stats = await storage.getSubscriptionStats(userId);
@@ -274,12 +311,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get recent emails with pagination
-  app.get("/api/emails", async (req, res) => {
+  app.get("/api/emails", isAuthenticated, async (req: any, res) => {
     try {
-      const { userId, page, pageSize, limit } = req.query;
+      const { page, pageSize, limit } = req.query;
+      const userId = req.user.claims.sub;
       
-      if (!userId || typeof userId !== 'string') {
-        return res.status(400).json({ message: "Missing or invalid userId" });
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
       }
 
       // Support new pagination or legacy limit
@@ -301,12 +339,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Subscription Suggestions API
-  app.get("/api/suggestions", async (req, res) => {
+  app.get("/api/suggestions", isAuthenticated, async (req: any, res) => {
     try {
-      const { userId, page, pageSize, minConfidence } = req.query;
+      const { page, pageSize, minConfidence } = req.query;
+      const userId = req.user.claims.sub;
       
-      if (!userId || typeof userId !== 'string') {
-        return res.status(400).json({ message: "Missing or invalid userId" });
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
       }
       
       const pageNum = parseInt(page as string) || 1;
@@ -324,12 +363,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/suggestions/approve", async (req, res) => {
+  app.post("/api/suggestions/approve", isAuthenticated, async (req: any, res) => {
     try {
-      const { userId, suggestionIds } = req.body;
+      const { suggestionIds } = req.body;
+      const userId = req.user.claims.sub;
       
-      if (!userId || typeof userId !== 'string') {
-        return res.status(400).json({ message: "Missing or invalid userId" });
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
       }
       
       if (!Array.isArray(suggestionIds) || suggestionIds.length === 0) {
@@ -349,7 +389,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/suggestions/reject", async (req, res) => {
+  app.post("/api/suggestions/reject", isAuthenticated, async (req: any, res) => {
     try {
       const { suggestionIds } = req.body;
       
@@ -369,12 +409,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/suggestions/clear/:userId", async (req, res) => {
+  app.delete("/api/suggestions/clear", isAuthenticated, async (req: any, res) => {
     try {
-      const { userId } = req.params;
+      const userId = req.user.claims.sub;
       
       if (!userId) {
-        return res.status(400).json({ message: "Missing userId" });
+        return res.status(401).json({ message: "User not authenticated" });
       }
       
       const result = await storage.clearSuggestions(userId);
@@ -406,8 +446,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get user info
-  app.get("/api/users/:id", async (req, res) => {
+  // Get user info - Restricted to authenticated users only
+  app.get("/api/users/:id", isAuthenticated, async (req: any, res) => {
     try {
       const { id } = req.params;
       const user = await storage.getUser(id);
@@ -417,11 +457,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Return sanitized user data without sensitive tokens
-      const safeUser = {
+      const safeUser: SafeUser = {
         id: user.id,
-        username: user.username,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        profileImageUrl: user.profileImageUrl,
         gmailConnected: user.gmailConnected,
+        gmailEmail: user.gmailEmail,
         lastSync: user.lastSync,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
       };
 
       res.json(safeUser);
@@ -432,11 +478,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Enhanced subscription detection endpoint 
-  app.post("/api/sync-enhanced", async (req, res) => {
+  app.post("/api/sync-enhanced", isAuthenticated, async (req: any, res) => {
     try {
-      const { userId } = req.body;
+      const userId = req.user.claims.sub;
       if (!userId) {
-        return res.status(400).json({ message: "Missing userId" });
+        return res.status(401).json({ message: "User not authenticated" });
       }
 
       const user = await storage.getUser(userId);

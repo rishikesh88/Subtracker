@@ -1,11 +1,13 @@
-import { type User, type InsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion } from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
   // User methods
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  upsertUser(user: UpsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<UpdateUser>): Promise<User | undefined>;
   
   // Subscription methods
@@ -64,22 +66,73 @@ export class MemStorage implements IStorage {
 
   async getUserByUsername(username: string): Promise<User | undefined> {
     return Array.from(this.users.values()).find(
-      (user) => user.username === username,
+      (user) => user.email === username,
+    );
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(
+      (user) => user.email === email,
     );
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = randomUUID();
     const user: User = { 
-      ...insertUser, 
-      id, 
+      id,
+      email: insertUser.email || null,
+      firstName: insertUser.firstName || null,
+      lastName: insertUser.lastName || null,
+      profileImageUrl: insertUser.profileImageUrl || null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
       gmailAccessToken: null,
       gmailRefreshToken: null,
+      gmailTokenExpiry: null,
       gmailConnected: false,
+      gmailEmail: null,
       lastSync: null
     };
     this.users.set(id, user);
     return user;
+  }
+
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const existingUser = this.users.get(userData.id!);
+    
+    if (existingUser) {
+      // Update existing user
+      const updatedUser: User = {
+        ...existingUser,
+        ...userData,
+        email: userData.email || null,
+        firstName: userData.firstName || null,
+        lastName: userData.lastName || null,
+        profileImageUrl: userData.profileImageUrl || null,
+        updatedAt: new Date()
+      };
+      this.users.set(userData.id!, updatedUser);
+      return updatedUser;
+    } else {
+      // Create new user
+      const newUser: User = {
+        id: userData.id!,
+        email: userData.email || null,
+        firstName: userData.firstName || null,
+        lastName: userData.lastName || null,
+        profileImageUrl: userData.profileImageUrl || null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        gmailAccessToken: null,
+        gmailRefreshToken: null,
+        gmailTokenExpiry: null,
+        gmailConnected: false,
+        gmailEmail: null,
+        lastSync: null
+      };
+      this.users.set(userData.id!, newUser);
+      return newUser;
+    }
   }
 
   async updateUser(id: string, updates: Partial<UpdateUser>): Promise<User | undefined> {
@@ -107,8 +160,14 @@ export class MemStorage implements IStorage {
     const subscription: Subscription = {
       ...insertSubscription,
       id,
+      category: insertSubscription.category || null,
+      merchantName: insertSubscription.merchantName || null,
+      merchantEmail: insertSubscription.merchantEmail || null,
+      occurrences: insertSubscription.occurrences || 1,
+      nextBillingDate: insertSubscription.nextBillingDate || null,
+      lastEmailDate: insertSubscription.lastEmailDate || null,
       status: insertSubscription.status || 'active',
-      currency: insertSubscription.currency || 'USD',
+      currency: insertSubscription.currency || 'INR',
       detectedAt: new Date()
     };
     this.subscriptions.set(id, subscription);
@@ -154,6 +213,13 @@ export class MemStorage implements IStorage {
       id,
       content: insertEmail.content || null,
       fromName: insertEmail.fromName || null,
+      merchantName: insertEmail.merchantName || null,
+      attachmentData: insertEmail.attachmentData || null,
+      isTransaction: insertEmail.isTransaction || false,
+      extractedAmount: insertEmail.extractedAmount || null,
+      extractedCurrency: insertEmail.extractedCurrency || null,
+      subscriptionId: insertEmail.subscriptionId || null,
+      processed: insertEmail.processed || false,
       analyzedAt: new Date()
     };
     this.emails.set(id, email);
@@ -229,7 +295,15 @@ export class MemStorage implements IStorage {
     const suggestion: SubscriptionSuggestion = {
       ...insertSuggestion,
       id,
+      category: insertSuggestion.category || null,
       currency: insertSuggestion.currency || 'INR',
+      merchantName: insertSuggestion.merchantName || null,
+      reasoning: insertSuggestion.reasoning || null,
+      evidenceEmailIds: insertSuggestion.evidenceEmailIds || [],
+      occurrences: insertSuggestion.occurrences || 1,
+      recurrenceType: insertSuggestion.recurrenceType || null,
+      recurrenceScore: insertSuggestion.recurrenceScore || 0,
+      nextBillingDate: insertSuggestion.nextBillingDate || null,
       detectedAt: new Date(),
       status: insertSuggestion.status || 'pending'
     };
@@ -258,10 +332,13 @@ export class MemStorage implements IStorage {
       const subscription = await this.createSubscription({
         userId: suggestion.userId,
         serviceName: suggestion.serviceName,
+        serviceKey: suggestion.serviceKey,
         amount: suggestion.amount,
         currency: suggestion.currency,
         frequency: suggestion.frequency,
         category: suggestion.category,
+        merchantName: suggestion.merchantName,
+        occurrences: suggestion.occurrences,
         status: 'active',
         nextBillingDate: suggestion.nextBillingDate || null,
         lastEmailDate: suggestion.lastSeen,
