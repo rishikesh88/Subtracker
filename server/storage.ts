@@ -1,4 +1,7 @@
-import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, users, subscriptions, emails, subscriptionSuggestions } from "@shared/schema";
+import { drizzle } from 'drizzle-orm/neon-http';
+import { eq, and, desc, asc, count, sql } from 'drizzle-orm';
+import { neon } from '@neondatabase/serverless';
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -46,347 +49,514 @@ export interface IStorage {
   }>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-  private subscriptions: Map<string, Subscription>;
-  private emails: Map<string, Email>;
-  private suggestions: Map<string, SubscriptionSuggestion>;
+export class DatabaseStorage implements IStorage {
+  private db: any;
 
   constructor() {
-    this.users = new Map();
-    this.subscriptions = new Map();
-    this.emails = new Map();
-    this.suggestions = new Map();
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL environment variable is required");
+    }
+    const sql = neon(process.env.DATABASE_URL);
+    this.db = drizzle(sql);
   }
 
   // User methods
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    try {
+      const result = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error getting user:', error);
+      throw error;
+    }
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.email === username,
-    );
+    try {
+      const result = await this.db.select().from(users).where(eq(users.email, username)).limit(1);
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error getting user by username:', error);
+      throw error;
+    }
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.email === email,
-    );
+    try {
+      const result = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error getting user by email:', error);
+      throw error;
+    }
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { 
-      id,
-      email: insertUser.email || null,
-      firstName: insertUser.firstName || null,
-      lastName: insertUser.lastName || null,
-      profileImageUrl: insertUser.profileImageUrl || null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      gmailAccessToken: null,
-      gmailRefreshToken: null,
-      gmailTokenExpiry: null,
-      gmailConnected: false,
-      gmailEmail: null,
-      lastSync: null
-    };
-    this.users.set(id, user);
-    return user;
+    try {
+      const userData = {
+        email: insertUser.email || null,
+        firstName: insertUser.firstName || null,
+        lastName: insertUser.lastName || null,
+        profileImageUrl: insertUser.profileImageUrl || null,
+      };
+      
+      const result = await this.db.insert(users).values(userData).returning();
+      return result[0];
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw error;
+    }
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
-    const existingUser = this.users.get(userData.id!);
-    
-    if (existingUser) {
-      // Update existing user
-      const updatedUser: User = {
-        ...existingUser,
-        ...userData,
-        email: userData.email || null,
-        firstName: userData.firstName || null,
-        lastName: userData.lastName || null,
-        profileImageUrl: userData.profileImageUrl || null,
-        updatedAt: new Date()
-      };
-      this.users.set(userData.id!, updatedUser);
-      return updatedUser;
-    } else {
-      // Create new user
-      const newUser: User = {
-        id: userData.id!,
-        email: userData.email || null,
-        firstName: userData.firstName || null,
-        lastName: userData.lastName || null,
-        profileImageUrl: userData.profileImageUrl || null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        gmailAccessToken: null,
-        gmailRefreshToken: null,
-        gmailTokenExpiry: null,
-        gmailConnected: false,
-        gmailEmail: null,
-        lastSync: null
-      };
-      this.users.set(userData.id!, newUser);
-      return newUser;
+    try {
+      if (!userData.id) {
+        throw new Error("User ID is required for upsert operation");
+      }
+
+      // Check if user exists
+      const existingUser = await this.getUser(userData.id);
+      
+      if (existingUser) {
+        // Update existing user
+        const updateData = {
+          email: userData.email || null,
+          firstName: userData.firstName || null,
+          lastName: userData.lastName || null,
+          profileImageUrl: userData.profileImageUrl || null,
+          updatedAt: new Date()
+        };
+        
+        const result = await this.db
+          .update(users)
+          .set(updateData)
+          .where(eq(users.id, userData.id))
+          .returning();
+        
+        return result[0];
+      } else {
+        // Create new user with specified ID
+        const insertData = {
+          id: userData.id,
+          email: userData.email || null,
+          firstName: userData.firstName || null,
+          lastName: userData.lastName || null,
+          profileImageUrl: userData.profileImageUrl || null,
+        };
+        
+        const result = await this.db.insert(users).values(insertData).returning();
+        return result[0];
+      }
+    } catch (error) {
+      console.error('Error upserting user:', error);
+      throw error;
     }
   }
 
   async updateUser(id: string, updates: Partial<UpdateUser>): Promise<User | undefined> {
-    const user = this.users.get(id);
-    if (!user) return undefined;
-    
-    const updatedUser = { ...user, ...updates };
-    this.users.set(id, updatedUser);
-    return updatedUser;
+    try {
+      const result = await this.db
+        .update(users)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(eq(users.id, id))
+        .returning();
+      
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error updating user:', error);
+      throw error;
+    }
   }
 
   // Subscription methods
   async getSubscriptions(userId: string): Promise<Subscription[]> {
-    return Array.from(this.subscriptions.values()).filter(
-      (sub) => sub.userId === userId
-    );
+    try {
+      return await this.db
+        .select()
+        .from(subscriptions)
+        .where(eq(subscriptions.userId, userId))
+        .orderBy(desc(subscriptions.detectedAt));
+    } catch (error) {
+      console.error('Error getting subscriptions:', error);
+      throw error;
+    }
   }
 
   async getSubscription(id: string): Promise<Subscription | undefined> {
-    return this.subscriptions.get(id);
+    try {
+      const result = await this.db.select().from(subscriptions).where(eq(subscriptions.id, id)).limit(1);
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error getting subscription:', error);
+      throw error;
+    }
   }
 
   async createSubscription(insertSubscription: InsertSubscription): Promise<Subscription> {
-    const id = randomUUID();
-    const subscription: Subscription = {
-      ...insertSubscription,
-      id,
-      category: insertSubscription.category || null,
-      merchantName: insertSubscription.merchantName || null,
-      merchantEmail: insertSubscription.merchantEmail || null,
-      occurrences: insertSubscription.occurrences || 1,
-      nextBillingDate: insertSubscription.nextBillingDate || null,
-      lastEmailDate: insertSubscription.lastEmailDate || null,
-      status: insertSubscription.status || 'active',
-      currency: insertSubscription.currency || 'INR',
-      detectedAt: new Date()
-    };
-    this.subscriptions.set(id, subscription);
-    return subscription;
+    try {
+      const subscriptionData = {
+        ...insertSubscription,
+        category: insertSubscription.category || null,
+        merchantName: insertSubscription.merchantName || null,
+        merchantEmail: insertSubscription.merchantEmail || null,
+        occurrences: insertSubscription.occurrences || 1,
+        nextBillingDate: insertSubscription.nextBillingDate || null,
+        lastEmailDate: insertSubscription.lastEmailDate || null,
+        status: insertSubscription.status || 'active',
+        currency: insertSubscription.currency || 'INR',
+      };
+      
+      const result = await this.db.insert(subscriptions).values(subscriptionData).returning();
+      return result[0];
+    } catch (error) {
+      console.error('Error creating subscription:', error);
+      throw error;
+    }
   }
 
   async updateSubscription(id: string, updates: Partial<Subscription>): Promise<Subscription | undefined> {
-    const subscription = this.subscriptions.get(id);
-    if (!subscription) return undefined;
-    
-    const updatedSubscription = { ...subscription, ...updates };
-    this.subscriptions.set(id, updatedSubscription);
-    return updatedSubscription;
+    try {
+      const result = await this.db
+        .update(subscriptions)
+        .set(updates)
+        .where(eq(subscriptions.id, id))
+        .returning();
+      
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error updating subscription:', error);
+      throw error;
+    }
   }
 
   async deleteSubscription(id: string): Promise<boolean> {
-    return this.subscriptions.delete(id);
+    try {
+      const result = await this.db.delete(subscriptions).where(eq(subscriptions.id, id));
+      return result.rowCount > 0;
+    } catch (error) {
+      console.error('Error deleting subscription:', error);
+      throw error;
+    }
   }
 
   // Email methods
   async getEmails(userId: string, limit: number = 50): Promise<Email[]> {
-    const userEmails = Array.from(this.emails.values())
-      .filter((email) => email.userId === userId)
-      .sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
-    
-    return userEmails.slice(0, limit);
+    try {
+      return await this.db
+        .select()
+        .from(emails)
+        .where(eq(emails.userId, userId))
+        .orderBy(desc(emails.receivedAt))
+        .limit(limit);
+    } catch (error) {
+      console.error('Error getting emails:', error);
+      throw error;
+    }
   }
 
   async getEmail(id: string): Promise<Email | undefined> {
-    return this.emails.get(id);
+    try {
+      const result = await this.db.select().from(emails).where(eq(emails.id, id)).limit(1);
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error getting email:', error);
+      throw error;
+    }
   }
 
   async getEmailByGmailId(gmailId: string): Promise<Email | undefined> {
-    return Array.from(this.emails.values()).find(
-      (email) => email.gmailId === gmailId
-    );
+    try {
+      const result = await this.db.select().from(emails).where(eq(emails.gmailId, gmailId)).limit(1);
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error getting email by Gmail ID:', error);
+      throw error;
+    }
   }
 
   async createEmail(insertEmail: InsertEmail): Promise<Email> {
-    const id = randomUUID();
-    const email: Email = {
-      ...insertEmail,
-      id,
-      content: insertEmail.content || null,
-      fromName: insertEmail.fromName || null,
-      merchantName: insertEmail.merchantName || null,
-      attachmentData: insertEmail.attachmentData || null,
-      isTransaction: insertEmail.isTransaction || false,
-      extractedAmount: insertEmail.extractedAmount || null,
-      extractedCurrency: insertEmail.extractedCurrency || null,
-      subscriptionId: insertEmail.subscriptionId || null,
-      processed: insertEmail.processed || false,
-      analyzedAt: new Date()
-    };
-    this.emails.set(id, email);
-    return email;
+    try {
+      const emailData = {
+        ...insertEmail,
+        content: insertEmail.content || null,
+        fromName: insertEmail.fromName || null,
+        merchantName: insertEmail.merchantName || null,
+        attachmentData: insertEmail.attachmentData || null,
+        isTransaction: insertEmail.isTransaction || false,
+        extractedAmount: insertEmail.extractedAmount || null,
+        extractedCurrency: insertEmail.extractedCurrency || null,
+        subscriptionId: insertEmail.subscriptionId || null,
+        processed: insertEmail.processed || false,
+      };
+      
+      const result = await this.db.insert(emails).values(emailData).returning();
+      return result[0];
+    } catch (error) {
+      console.error('Error creating email:', error);
+      throw error;
+    }
   }
 
   async updateEmail(id: string, updates: Partial<Email>): Promise<Email | undefined> {
-    const email = this.emails.get(id);
-    if (!email) return undefined;
-    
-    const updatedEmail = { ...email, ...updates };
-    this.emails.set(id, updatedEmail);
-    return updatedEmail;
+    try {
+      const result = await this.db
+        .update(emails)
+        .set(updates)
+        .where(eq(emails.id, id))
+        .returning();
+      
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error updating email:', error);
+      throw error;
+    }
   }
 
   async deleteEmail(id: string): Promise<boolean> {
-    return this.emails.delete(id);
+    try {
+      const result = await this.db.delete(emails).where(eq(emails.id, id));
+      return result.rowCount > 0;
+    } catch (error) {
+      console.error('Error deleting email:', error);
+      throw error;
+    }
   }
 
   async getUnprocessedEmails(userId: string): Promise<Email[]> {
-    return Array.from(this.emails.values()).filter(
-      (email) => email.userId === userId && !email.processed
-    );
+    try {
+      return await this.db
+        .select()
+        .from(emails)
+        .where(and(eq(emails.userId, userId), eq(emails.processed, false)))
+        .orderBy(desc(emails.receivedAt));
+    } catch (error) {
+      console.error('Error getting unprocessed emails:', error);
+      throw error;
+    }
   }
 
   // Email pagination methods
   async getEmailsPaginated(userId: string, options?: { page?: number; pageSize?: number }): Promise<{ emails: Email[]; total: number }> {
-    const page = options?.page || 1;
-    const pageSize = options?.pageSize || 50;
-    const offset = (page - 1) * pageSize;
-    
-    const userEmails = Array.from(this.emails.values())
-      .filter((email) => email.userId === userId)
-      .sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
-    
-    const total = userEmails.length;
-    const emails = userEmails.slice(offset, offset + pageSize);
-    
-    return { emails, total };
+    try {
+      const page = options?.page || 1;
+      const pageSize = options?.pageSize || 50;
+      const offset = (page - 1) * pageSize;
+      
+      const [emailsResult, countResult] = await Promise.all([
+        this.db
+          .select()
+          .from(emails)
+          .where(eq(emails.userId, userId))
+          .orderBy(desc(emails.receivedAt))
+          .limit(pageSize)
+          .offset(offset),
+        this.db
+          .select({ count: count() })
+          .from(emails)
+          .where(eq(emails.userId, userId))
+      ]);
+      
+      return {
+        emails: emailsResult,
+        total: countResult[0].count
+      };
+    } catch (error) {
+      console.error('Error getting paginated emails:', error);
+      throw error;
+    }
   }
 
   // Suggestion methods
   async getSuggestions(userId: string, options?: { page?: number; pageSize?: number; minConfidence?: string }): Promise<{ suggestions: SubscriptionSuggestion[]; total: number }> {
-    const page = options?.page || 1;
-    const pageSize = options?.pageSize || 50;
-    const offset = (page - 1) * pageSize;
-    
-    let userSuggestions = Array.from(this.suggestions.values())
-      .filter((suggestion) => suggestion.userId === userId && suggestion.status === 'pending');
-    
-    // Filter by confidence if specified
-    if (options?.minConfidence) {
-      userSuggestions = userSuggestions.filter(s => s.confidence === options.minConfidence);
+    try {
+      const page = options?.page || 1;
+      const pageSize = options?.pageSize || 50;
+      const offset = (page - 1) * pageSize;
+      
+      let whereCondition = and(
+        eq(subscriptionSuggestions.userId, userId),
+        eq(subscriptionSuggestions.status, 'pending')
+      );
+      
+      // Filter by confidence if specified
+      if (options?.minConfidence) {
+        whereCondition = and(
+          whereCondition,
+          eq(subscriptionSuggestions.confidence, options.minConfidence)
+        );
+      }
+      
+      const [suggestionsResult, countResult] = await Promise.all([
+        this.db
+          .select()
+          .from(subscriptionSuggestions)
+          .where(whereCondition)
+          .orderBy(
+            desc(
+              sql`CASE WHEN ${subscriptionSuggestions.confidence} = 'high' THEN 3 WHEN ${subscriptionSuggestions.confidence} = 'medium' THEN 2 WHEN ${subscriptionSuggestions.confidence} = 'low' THEN 1 ELSE 0 END`
+            ),
+            desc(subscriptionSuggestions.detectedAt)
+          )
+          .limit(pageSize)
+          .offset(offset),
+        this.db
+          .select({ count: count() })
+          .from(subscriptionSuggestions)
+          .where(whereCondition)
+      ]);
+      
+      return {
+        suggestions: suggestionsResult,
+        total: countResult[0].count
+      };
+    } catch (error) {
+      console.error('Error getting suggestions:', error);
+      throw error;
     }
-    
-    // Sort by confidence score (highest first) then by detected date
-    userSuggestions.sort((a, b) => {
-      const confidenceOrder = { 'high': 3, 'medium': 2, 'low': 1 };
-      const aConf = confidenceOrder[a.confidence as keyof typeof confidenceOrder] || 0;
-      const bConf = confidenceOrder[b.confidence as keyof typeof confidenceOrder] || 0;
-      if (aConf !== bConf) return bConf - aConf;
-      return new Date(b.detectedAt!).getTime() - new Date(a.detectedAt!).getTime();
-    });
-    
-    const total = userSuggestions.length;
-    const suggestions = userSuggestions.slice(offset, offset + pageSize);
-    
-    return { suggestions, total };
   }
 
   async createSuggestion(insertSuggestion: InsertSubscriptionSuggestion): Promise<SubscriptionSuggestion> {
-    const id = randomUUID();
-    const suggestion: SubscriptionSuggestion = {
-      ...insertSuggestion,
-      id,
-      category: insertSuggestion.category || null,
-      currency: insertSuggestion.currency || 'INR',
-      merchantName: insertSuggestion.merchantName || null,
-      reasoning: insertSuggestion.reasoning || null,
-      evidenceEmailIds: insertSuggestion.evidenceEmailIds || [],
-      occurrences: insertSuggestion.occurrences || 1,
-      recurrenceType: insertSuggestion.recurrenceType || null,
-      recurrenceScore: insertSuggestion.recurrenceScore || 0,
-      nextBillingDate: insertSuggestion.nextBillingDate || null,
-      detectedAt: new Date(),
-      status: insertSuggestion.status || 'pending'
-    };
-    this.suggestions.set(id, suggestion);
-    return suggestion;
+    try {
+      const suggestionData = {
+        ...insertSuggestion,
+        category: insertSuggestion.category || null,
+        currency: insertSuggestion.currency || 'INR',
+        merchantName: insertSuggestion.merchantName || null,
+        reasoning: insertSuggestion.reasoning || null,
+        evidenceEmailIds: insertSuggestion.evidenceEmailIds || [],
+        occurrences: insertSuggestion.occurrences || 1,
+        recurrenceType: insertSuggestion.recurrenceType || null,
+        recurrenceScore: insertSuggestion.recurrenceScore || 0,
+        nextBillingDate: insertSuggestion.nextBillingDate || null,
+        status: insertSuggestion.status || 'pending'
+      };
+      
+      const result = await this.db.insert(subscriptionSuggestions).values(suggestionData).returning();
+      return result[0];
+    } catch (error) {
+      console.error('Error creating suggestion:', error);
+      throw error;
+    }
   }
 
   async createSuggestionsBulk(suggestions: InsertSubscriptionSuggestion[]): Promise<SubscriptionSuggestion[]> {
-    const created: SubscriptionSuggestion[] = [];
-    for (const suggestion of suggestions) {
-      const created_suggestion = await this.createSuggestion(suggestion);
-      created.push(created_suggestion);
+    try {
+      if (suggestions.length === 0) return [];
+      
+      const suggestionData = suggestions.map(suggestion => ({
+        ...suggestion,
+        category: suggestion.category || null,
+        currency: suggestion.currency || 'INR',
+        merchantName: suggestion.merchantName || null,
+        reasoning: suggestion.reasoning || null,
+        evidenceEmailIds: suggestion.evidenceEmailIds || [],
+        occurrences: suggestion.occurrences || 1,
+        recurrenceType: suggestion.recurrenceType || null,
+        recurrenceScore: suggestion.recurrenceScore || 0,
+        nextBillingDate: suggestion.nextBillingDate || null,
+        status: suggestion.status || 'pending'
+      }));
+      
+      const result = await this.db.insert(subscriptionSuggestions).values(suggestionData).returning();
+      return result;
+    } catch (error) {
+      console.error('Error creating suggestions bulk:', error);
+      throw error;
     }
-    return created;
   }
 
   async approveSuggestions(suggestionIds: string[], userId: string): Promise<{ subscriptions: Subscription[]; approved: number }> {
-    const subscriptions: Subscription[] = [];
-    let approved = 0;
-    
-    for (const suggestionId of suggestionIds) {
-      const suggestion = this.suggestions.get(suggestionId);
-      if (!suggestion || suggestion.userId !== userId || suggestion.status !== 'pending') continue;
+    try {
+      const suggestions = await this.db
+        .select()
+        .from(subscriptionSuggestions)
+        .where(
+          and(
+            sql`${subscriptionSuggestions.id} = ANY(${suggestionIds})`,
+            eq(subscriptionSuggestions.userId, userId),
+            eq(subscriptionSuggestions.status, 'pending')
+          )
+        );
       
-      // Convert suggestion to subscription
-      const subscription = await this.createSubscription({
-        userId: suggestion.userId,
-        serviceName: suggestion.serviceName,
-        serviceKey: suggestion.serviceKey,
-        amount: suggestion.amount,
-        currency: suggestion.currency,
-        frequency: suggestion.frequency,
-        category: suggestion.category,
-        merchantName: suggestion.merchantName,
-        occurrences: suggestion.occurrences,
-        status: 'active',
-        nextBillingDate: suggestion.nextBillingDate || null,
-        lastEmailDate: suggestion.lastSeen,
-        merchantEmail: null
-      });
+      if (suggestions.length === 0) {
+        return { subscriptions: [], approved: 0 };
+      }
       
-      // Mark suggestion as approved
-      suggestion.status = 'approved';
-      this.suggestions.set(suggestionId, suggestion);
+      const createdSubscriptions: Subscription[] = [];
       
-      // Link evidence emails to subscription
-      if (suggestion.evidenceEmailIds) {
-        for (const emailId of suggestion.evidenceEmailIds) {
-          await this.updateEmail(emailId, { subscriptionId: subscription.id, processed: true });
+      // Create subscriptions from approved suggestions
+      for (const suggestion of suggestions) {
+        const subscriptionData = {
+          userId: suggestion.userId,
+          serviceName: suggestion.serviceName,
+          serviceKey: suggestion.serviceKey,
+          amount: suggestion.amount,
+          currency: suggestion.currency,
+          frequency: suggestion.frequency,
+          category: suggestion.category,
+          merchantName: suggestion.merchantName,
+          occurrences: suggestion.occurrences,
+          status: 'active' as const,
+          nextBillingDate: suggestion.nextBillingDate || null,
+          lastEmailDate: suggestion.lastSeen,
+          merchantEmail: null
+        };
+        
+        const [createdSubscription] = await this.db.insert(subscriptions).values(subscriptionData).returning();
+        createdSubscriptions.push(createdSubscription);
+        
+        // Link evidence emails to subscription
+        if (suggestion.evidenceEmailIds && suggestion.evidenceEmailIds.length > 0) {
+          await this.db
+            .update(emails)
+            .set({ subscriptionId: createdSubscription.id, processed: true })
+            .where(sql`${emails.id} = ANY(${suggestion.evidenceEmailIds})`);
         }
       }
       
-      subscriptions.push(subscription);
-      approved++;
+      // Mark suggestions as approved
+      await this.db
+        .update(subscriptionSuggestions)
+        .set({ status: 'approved' })
+        .where(sql`${subscriptionSuggestions.id} = ANY(${suggestionIds})`);
+      
+      return { subscriptions: createdSubscriptions, approved: suggestions.length };
+    } catch (error) {
+      console.error('Error approving suggestions:', error);
+      throw error;
     }
-    
-    return { subscriptions, approved };
   }
 
   async rejectSuggestions(suggestionIds: string[]): Promise<{ rejected: number }> {
-    let rejected = 0;
-    for (const suggestionId of suggestionIds) {
-      const suggestion = this.suggestions.get(suggestionId);
-      if (suggestion && suggestion.status === 'pending') {
-        suggestion.status = 'rejected';
-        this.suggestions.set(suggestionId, suggestion);
-        rejected++;
-      }
+    try {
+      const result = await this.db
+        .update(subscriptionSuggestions)
+        .set({ status: 'rejected' })
+        .where(
+          and(
+            sql`${subscriptionSuggestions.id} = ANY(${suggestionIds})`,
+            eq(subscriptionSuggestions.status, 'pending')
+          )
+        );
+      
+      return { rejected: result.rowCount || 0 };
+    } catch (error) {
+      console.error('Error rejecting suggestions:', error);
+      throw error;
     }
-    return { rejected };
   }
 
   async clearSuggestions(userId: string): Promise<{ cleared: number }> {
-    const userSuggestions = Array.from(this.suggestions.values())
-      .filter(suggestion => suggestion.userId === userId);
-    
-    let cleared = 0;
-    for (const suggestion of userSuggestions) {
-      this.suggestions.delete(suggestion.id);
-      cleared++;
+    try {
+      const result = await this.db
+        .delete(subscriptionSuggestions)
+        .where(eq(subscriptionSuggestions.userId, userId));
+      
+      return { cleared: result.rowCount || 0 };
+    } catch (error) {
+      console.error('Error clearing suggestions:', error);
+      throw error;
     }
-    
-    return { cleared };
   }
 
   // Analytics methods
@@ -396,31 +566,39 @@ export class MemStorage implements IStorage {
     emailsAnalyzed: number;
     avgPerService: number;
   }> {
-    const userSubscriptions = await this.getSubscriptions(userId);
-    const { total: emailsAnalyzed } = await this.getEmailsPaginated(userId, { page: 1, pageSize: 999999 }); // Get total count
-    
-    const activeSubscriptions = userSubscriptions.filter(sub => sub.status === 'active');
-    
-    const totalMonthly = activeSubscriptions.reduce((sum, sub) => {
-      const amount = parseFloat(sub.amount);
-      if (sub.frequency === 'yearly') {
-        return sum + (amount / 12);
-      } else if (sub.frequency === 'weekly') {
-        return sum + (amount * 4.33); // average weeks per month
-      }
-      return sum + amount; // monthly
-    }, 0);
+    try {
+      const [userSubscriptions, emailCount] = await Promise.all([
+        this.getSubscriptions(userId),
+        this.db.select({ count: count() }).from(emails).where(eq(emails.userId, userId))
+      ]);
+      
+      const activeSubscriptions = userSubscriptions.filter(sub => sub.status === 'active');
+      
+      const totalMonthly = activeSubscriptions.reduce((sum, sub) => {
+        const amount = parseFloat(sub.amount);
+        if (sub.frequency === 'yearly') {
+          return sum + (amount / 12);
+        } else if (sub.frequency === 'weekly') {
+          return sum + (amount * 4.33); // average weeks per month
+        }
+        return sum + amount; // monthly
+      }, 0);
 
-    const activeCount = activeSubscriptions.length;
-    const avgPerService = activeCount > 0 ? totalMonthly / activeCount : 0;
+      const activeCount = activeSubscriptions.length;
+      const emailsAnalyzed = emailCount[0].count;
+      const avgPerService = activeCount > 0 ? totalMonthly / activeCount : 0;
 
-    return {
-      totalMonthly: Math.round(totalMonthly * 100) / 100,
-      activeCount,
-      emailsAnalyzed,
-      avgPerService: Math.round(avgPerService * 100) / 100
-    };
+      return {
+        totalMonthly: Math.round(totalMonthly * 100) / 100,
+        activeCount,
+        emailsAnalyzed,
+        avgPerService: Math.round(avgPerService * 100) / 100
+      };
+    } catch (error) {
+      console.error('Error getting subscription stats:', error);
+      throw error;
+    }
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
