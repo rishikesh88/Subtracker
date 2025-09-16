@@ -72,15 +72,17 @@ export class GmailService {
 
     const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
     
-    // Use Gmail's preferred newer_than format (much more reliable than epoch timestamps)
-    const baseQuery = 'newer_than:90d';
+    // Use broader search to catch forwarded emails (6 months instead of 90 days)
+    const baseQuery = 'newer_than:180d';
     
-    // Subscription-targeted query to catch more subscription emails
-    const subscriptionQuery = 'newer_than:90d (receipt OR invoice OR subscription OR renewal OR billed OR payment OR statement OR plan OR membership OR trial)';
+    // Subscription-targeted query to catch more subscription emails  
+    const subscriptionQuery = 'newer_than:180d (receipt OR invoice OR subscription OR renewal OR billed OR payment OR statement OR plan OR membership OR trial OR bank OR card OR charged OR billing)';
     
     console.log(`🔍 Gmail API: Enhanced email fetching with subscription detection`);
     console.log(`📧 Base Query: ${baseQuery}`);
     console.log(`🎯 Subscription Query: ${subscriptionQuery}`);
+    console.log(`🔑 Access Token Present: ${!!accessToken}`);
+    console.log(`🔄 Refresh Token Present: ${!!refreshToken}`);
 
     try {
       // First: Get general emails (casting wider net)
@@ -118,29 +120,44 @@ export class GmailService {
     let nextPageToken: string | undefined;
     let totalFetched = 0;
 
+    console.log(`📞 Making Gmail API call with query: "${query}"`);
+    
     do {
-      const listResponse = await gmail.users.messages.list({
-        userId: 'me',
-        q: query,
-        maxResults: Math.min(500, maxResults - totalFetched),
-        pageToken: nextPageToken,
-        includeSpamTrash: false  // Exclude spam and trash for cleaner results
-      });
+      try {
+        const listResponse = await gmail.users.messages.list({
+          userId: 'me',
+          q: query,
+          maxResults: Math.min(500, maxResults - totalFetched),
+          pageToken: nextPageToken,
+          includeSpamTrash: false  // Exclude spam and trash for cleaner results
+        });
+        
+        console.log(`📊 Gmail API Response: ${listResponse.data.messages?.length || 0} messages in this page`);
 
-      if (listResponse.data.messages) {
-        const ids = listResponse.data.messages.map((msg: any) => msg.id);
-        allIds.push(...ids);
-        totalFetched += ids.length;
-      }
+        if (listResponse.data.messages) {
+          const ids = listResponse.data.messages.map((msg: any) => msg.id);
+          allIds.push(...ids);
+          totalFetched += ids.length;
+          console.log(`📈 Total fetched so far: ${totalFetched}`);
+        } else {
+          console.log(`ℹ️ No messages in this response`);
+        }
 
-      nextPageToken = listResponse.data.nextPageToken;
-      
-      // Stop if we've reached our limit
-      if (totalFetched >= maxResults) {
-        break;
+        nextPageToken = listResponse.data.nextPageToken;
+        console.log(`🔄 Next page token: ${nextPageToken ? 'Present' : 'None'}`);
+        
+        // Stop if we've reached our limit
+        if (totalFetched >= maxResults) {
+          console.log(`🛑 Reached maxResults limit of ${maxResults}`);
+          break;
+        }
+      } catch (error) {
+        console.error(`❌ Gmail API Error for query "${query}":`, error);
+        throw error;
       }
     } while (nextPageToken);
 
+    console.log(`✅ Final result: ${allIds.length} message IDs collected`);
     return allIds;
   }
 

@@ -453,13 +453,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`🚀 Starting enhanced subscription detection for user: ${userId}`);
 
-      // Get all user emails for analysis
+      // STEP 1: Fetch emails from Gmail first
+      const gmailService = new GmailService();
+      const emailParser = new EmailParser();
+      
+      // Create token refresh callback
+      const onTokenRefresh = async (newAccessToken: string) => {
+        try {
+          await storage.updateUser(user.id, {
+            gmailAccessToken: newAccessToken
+          });
+          console.log('Updated access token in storage for user:', user.id);
+        } catch (error) {
+          console.error('Failed to update access token in storage:', error);
+        }
+      };
+      
+      // Fetch emails from Gmail with enhanced search
+      console.log('📧 Fetching emails from Gmail...');
+      const gmailMessages = await gmailService.getEmails(
+        user.gmailAccessToken,
+        user.gmailRefreshToken || '',
+        500, // Fetch up to 500 emails for analysis
+        onTokenRefresh
+      );
+      
+      console.log(`📬 Gmail fetch complete: ${gmailMessages.length} emails retrieved`);
+
+      // STEP 2: Parse and store new emails
+      let newEmailsStored = 0;
+      for (const gmailMessage of gmailMessages) {
+        if (!gmailMessage.id) continue;
+
+        // Check if email already exists
+        const existingEmail = await storage.getEmailByGmailId(gmailMessage.id);
+        if (existingEmail) continue;
+
+        const parsedEmail = emailParser.parseEmail(gmailMessage);
+        
+        const emailData = {
+          userId: user.id,
+          gmailId: gmailMessage.id,
+          subject: parsedEmail.subject,
+          fromEmail: parsedEmail.fromEmail,
+          fromName: parsedEmail.fromName || null,
+          receivedAt: parsedEmail.receivedAt,
+          content: parsedEmail.content,
+          isTransaction: parsedEmail.isTransaction,
+          extractedAmount: parsedEmail.extractedAmount ? parsedEmail.extractedAmount.toString() : null,
+          extractedCurrency: parsedEmail.extractedCurrency || null,
+          merchantName: parsedEmail.merchantName || null,
+          subscriptionId: null,
+          processed: false
+        };
+
+        await storage.createEmail(emailData);
+        newEmailsStored++;
+      }
+      
+      console.log(`💾 Stored ${newEmailsStored} new emails in database`);
+
+      // STEP 3: Get all user emails for analysis (including newly stored ones)
       const { emails: allEmails, total } = await storage.getEmailsPaginated(userId, { page: 1, pageSize: 999999 });
       
       if (allEmails.length === 0) {
         return res.json({
           success: true,
-          message: "No emails found for analysis",
+          message: "No emails found for analysis after Gmail sync",
           suggestionsGenerated: 0,
           redirectToSuggestions: false
         });
