@@ -55,7 +55,7 @@ export default function Dashboard() {
                 });
                 
                 // Refresh all data after sync  
-                queryClient.invalidateQueries({ queryKey: [`/api/subscriptions?userId=${userId}`] });
+                queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${userId}`] });
                 queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${userId}`] });
                 queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${userId}`] });
               } catch (error) {
@@ -144,10 +144,11 @@ export default function Dashboard() {
     enabled: !!currentUserId,
   });
 
-  // Fetch subscriptions
-  const { data: subscriptions = [], isLoading: subscriptionsLoading } = useQuery<Subscription[]>({
-    queryKey: [`/api/subscriptions?userId=${currentUserId}`],
+  // Fetch subscription suggestions (newly generated from hybrid pipeline)
+  const { data: subscriptions = [], isLoading: subscriptionsLoading } = useQuery<any>({
+    queryKey: [`/api/suggestions?userId=${currentUserId}`],
     enabled: !!currentUserId,
+    select: (data) => data?.suggestions || [],
   });
 
   // Fetch recent emails
@@ -197,7 +198,7 @@ export default function Dashboard() {
       }
       
       // Refresh all data after sync  
-      queryClient.invalidateQueries({ queryKey: [`/api/subscriptions?userId=${userId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${userId}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${userId}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${userId}`] });
     } catch (error) {
@@ -223,7 +224,7 @@ export default function Dashboard() {
         description: `Cleared ${data.clearedEmails} emails and ${data.clearedSubscriptions} subscriptions`,
       });
       // Refresh all data
-      queryClient.invalidateQueries({ queryKey: [`/api/subscriptions?userId=${currentUserId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${currentUserId}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${currentUserId}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
     },
@@ -258,7 +259,7 @@ export default function Dashboard() {
       }
       
       // Invalidate and refetch all data
-      queryClient.invalidateQueries({ queryKey: [`/api/subscriptions?userId=${currentUserId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${currentUserId}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/emails`] }); // Invalidate all email queries
       queryClient.invalidateQueries({ queryKey: [`/api/users/${currentUserId}`] });
