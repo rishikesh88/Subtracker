@@ -96,7 +96,7 @@ export class GmailService {
       console.log(`✅ Subscription-targeted emails found: ${subscriptionIds.length}`);
       
       // Combine and deduplicate
-      const allMessageIds = [...new Set([...generalIds, ...subscriptionIds])];
+      const allMessageIds = Array.from(new Set([...generalIds, ...subscriptionIds]));
       console.log(`📊 Total unique emails after deduplication: ${allMessageIds.length}`);
 
       if (allMessageIds.length === 0) {

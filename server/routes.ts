@@ -189,13 +189,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: "Legacy sync disabled. Use enhanced sync endpoint for suggestion-based workflow.",
         redirectToEnhanced: true 
       });
-
-      res.json({
-        success: true,
-        newEmails,
-        processedEmails,
-        detectedSubscriptions: detectedSubscriptions.length
-      });
     } catch (error) {
       console.error("Sync emails error:", error);
       res.status(500).json({ message: "Failed to sync emails" });
@@ -455,7 +448,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // STEP 1: Fetch emails from Gmail first
       const gmailService = new GmailService();
-      const emailParser = new EmailParser();
       
       // Create token refresh callback
       const onTokenRefresh = async (newAccessToken: string) => {
@@ -472,7 +464,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Fetch emails from Gmail with enhanced search
       console.log('📧 Fetching emails from Gmail...');
       const gmailMessages = await gmailService.getEmails(
-        user.gmailAccessToken,
+        user.gmailAccessToken!,
         user.gmailRefreshToken || '',
         500, // Fetch up to 500 emails for analysis
         onTokenRefresh
