@@ -602,3 +602,6 @@ Respond with valid JSON only:`;
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
+
+// Export a singleton instance
+export const enhancedSubscriptionDetector = new EnhancedSubscriptionDetector();
