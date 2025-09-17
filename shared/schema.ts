@@ -3,6 +3,10 @@ import { pgTable, text, varchar, timestamp, decimal, integer, boolean, index, js
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Currency enum for validation
+export const currencyEnum = z.enum(["INR", "USD", "EUR", "GBP"]);
+export type Currency = z.infer<typeof currencyEnum>;
+
 // Session storage table - Required for Replit Auth
 export const sessions = pgTable(
   "sessions",
@@ -30,6 +34,8 @@ export const users = pgTable("users", {
   gmailConnected: boolean("gmail_connected").default(false),
   gmailEmail: text("gmail_email"),
   lastSync: timestamp("last_sync"),
+  // Currency preference
+  preferredCurrency: text("preferred_currency").default("INR").notNull(),
 });
 
 export const subscriptions = pgTable("subscriptions", {
@@ -125,6 +131,7 @@ export const updateUserSchema = createInsertSchema(users).pick({
   gmailConnected: true,
   gmailEmail: true,
   lastSync: true,
+  preferredCurrency: true,
   updatedAt: true,
 });
 
@@ -143,8 +150,14 @@ export const safeUserSchema = createInsertSchema(users).pick({
   gmailConnected: true,
   gmailEmail: true,
   lastSync: true,
+  preferredCurrency: true,
   createdAt: true,
   updatedAt: true,
+});
+
+// Settings schema for currency preference updates
+export const updateSettingsSchema = z.object({
+  preferredCurrency: currencyEnum,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -158,3 +171,4 @@ export type InsertSubscriptionSuggestion = z.infer<typeof insertSubscriptionSugg
 export type Email = typeof emails.$inferSelect;
 export type InsertEmail = z.infer<typeof insertEmailSchema>;
 export type UpdateUser = z.infer<typeof updateUserSchema>;
+export type UpdateSettings = z.infer<typeof updateSettingsSchema>;

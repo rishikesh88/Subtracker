@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/neon-http';
 import { eq, and, desc, asc, count, sql, inArray } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { randomUUID } from "crypto";
+import { convertCurrency } from "./utils/currencyConverter";
 
 export interface IStorage {
   // User methods
@@ -572,7 +573,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Analytics methods
-  async getSubscriptionStats(userId: string): Promise<{
+  async getSubscriptionStats(userId: string, preferredCurrency: string = 'INR'): Promise<{
     totalMonthly: number;
     activeCount: number;
     emailsAnalyzed: number;
@@ -595,16 +596,19 @@ export class DatabaseStorage implements IStorage {
           return sum;
         }
         
+        // Convert to preferred currency first
+        const convertedAmount = convertCurrency(amountNum, sub.currency, preferredCurrency);
+        
         switch (sub.frequency) {
           case 'yearly':
-            return sum + (amountNum / 12); // Convert yearly to monthly
+            return sum + (convertedAmount / 12); // Convert yearly to monthly
           case 'quarterly':
-            return sum + (amountNum / 3); // Convert quarterly to monthly
+            return sum + (convertedAmount / 3); // Convert quarterly to monthly
           case 'weekly':
-            return sum + (amountNum * 4.33); // Convert weekly to monthly: 4.33 weeks per month
+            return sum + (convertedAmount * 4.33); // Convert weekly to monthly: 4.33 weeks per month
           case 'monthly':
           default:
-            return sum + amountNum; // Already monthly
+            return sum + convertedAmount; // Already monthly
         }
       }, 0);
 

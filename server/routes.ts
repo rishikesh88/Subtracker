@@ -6,7 +6,7 @@ import { emailParser } from "./services/emailParser";
 import { EnhancedEmailParser } from "./services/enhancedEmailParser";
 import { subscriptionDetector } from "./services/subscriptionDetector";
 import { GeminiSubscriptionDetector } from "./services/geminiSubscriptionDetector";
-import { insertEmailSchema, insertUserSchema, type SafeUser } from "@shared/schema";
+import { insertEmailSchema, insertUserSchema, updateSettingsSchema, type SafeUser } from "@shared/schema";
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { registerGeminiRoutes } from "./routes/geminiSync";
@@ -259,6 +259,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get user settings (currency preference)
+  app.get("/api/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      res.json({
+        preferredCurrency: user.preferredCurrency || "INR"
+      });
+    } catch (error) {
+      console.error("Get settings error:", error);
+      res.status(500).json({ message: "Failed to fetch settings" });
+    }
+  });
+
+  // Update user settings (currency preference)
+  app.patch("/api/settings", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      const settingsData = updateSettingsSchema.parse(req.body);
+      
+      await storage.updateUser(userId, {
+        preferredCurrency: settingsData.preferredCurrency,
+        updatedAt: new Date()
+      });
+
+      res.json({
+        success: true,
+        message: "Settings updated successfully",
+        preferredCurrency: settingsData.preferredCurrency
+      });
+    } catch (error) {
+      console.error("Update settings error:", error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid settings data", details: (error as any).issues });
+      }
+      res.status(500).json({ message: "Failed to update settings" });
+    }
+  });
+
   // Clear all data for fresh start
   app.delete("/api/clear-data", isAuthenticated, async (req: any, res) => {
     try {
@@ -312,7 +365,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "User not authenticated" });
       }
 
-      const stats = await storage.getSubscriptionStats(userId);
+      // Get user's preferred currency
+      const user = await storage.getUser(userId);
+      const preferredCurrency = user?.preferredCurrency || 'INR';
+
+      const stats = await storage.getSubscriptionStats(userId, preferredCurrency);
       res.json(stats);
     } catch (error) {
       console.error("Get stats error:", error);
