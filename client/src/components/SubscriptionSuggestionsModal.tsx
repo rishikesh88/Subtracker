@@ -10,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCircle, XCircle, AlertCircle, ChevronLeft, ChevronRight, Trash2, Eye } from "lucide-react";
+import { CheckCircle, XCircle, AlertCircle, ChevronLeft, ChevronRight, Trash2, Eye, Target, TrendingUp } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface SubscriptionSuggestionsModalProps {
   open: boolean;
@@ -25,6 +26,7 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 8; // Smaller page size for modal
   const [confidenceFilter, setConfidenceFilter] = useState<string>("");
+  const [processingSuggestions, setProcessingSuggestions] = useState<string[]>([]);
 
   // Fetch suggestions with pagination
   const { data: suggestionsData = { suggestions: [], total: 0 }, isLoading, refetch } = useQuery<{
@@ -38,7 +40,7 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
   const { suggestions, total } = suggestionsData;
   const totalPages = Math.ceil(total / pageSize);
 
-  // Approve suggestions mutation
+  // Approve suggestions mutation with optimistic updates
   const approveMutation = useMutation({
     mutationFn: async (suggestionIds: string[]) => {
       const response = await apiRequest("POST", "/api/suggestions/approve", {
@@ -47,18 +49,43 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
       });
       return response.json();
     },
-    onSuccess: (data) => {
+    onMutate: async (suggestionIds: string[]) => {
+      // Optimistic update: immediately mark as processing
+      setProcessingSuggestions(prev => [...prev, ...suggestionIds]);
+      setSelectedSuggestions([]);
+      
+      toast({
+        title: "Processing...",
+        description: `Approving ${suggestionIds.length} suggestions`,
+      });
+      
+      return { suggestionIds };
+    },
+    onSuccess: (data, variables) => {
+      // Remove from processing state
+      setProcessingSuggestions(prev => 
+        prev.filter(id => !variables.includes(id))
+      );
+      
       toast({
         title: "Suggestions Approved",
         description: `Successfully approved ${data.approved} suggestions and created subscriptions`,
       });
-      setSelectedSuggestions([]);
+      
       refetch();
       // Invalidate subscription queries to show new subscriptions
       queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
       queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${userId}`] });
     },
-    onError: () => {
+    onError: (error, variables, context) => {
+      // Rollback optimistic update
+      if (context?.suggestionIds) {
+        setProcessingSuggestions(prev => 
+          prev.filter(id => !context.suggestionIds.includes(id))
+        );
+        setSelectedSuggestions(context.suggestionIds);
+      }
+      
       toast({
         title: "Approval Failed",
         description: "Failed to approve suggestions. Please try again.",
@@ -67,7 +94,7 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
     },
   });
 
-  // Reject suggestions mutation
+  // Reject suggestions mutation with optimistic updates
   const rejectMutation = useMutation({
     mutationFn: async (suggestionIds: string[]) => {
       const response = await apiRequest("POST", "/api/suggestions/reject", {
@@ -75,15 +102,40 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
       });
       return response.json();
     },
-    onSuccess: (data) => {
+    onMutate: async (suggestionIds: string[]) => {
+      // Optimistic update: immediately mark as processing
+      setProcessingSuggestions(prev => [...prev, ...suggestionIds]);
+      setSelectedSuggestions([]);
+      
+      toast({
+        title: "Processing...",
+        description: `Rejecting ${suggestionIds.length} suggestions`,
+      });
+      
+      return { suggestionIds };
+    },
+    onSuccess: (data, variables) => {
+      // Remove from processing state
+      setProcessingSuggestions(prev => 
+        prev.filter(id => !variables.includes(id))
+      );
+      
       toast({
         title: "Suggestions Rejected",
         description: `Successfully rejected ${data.rejected} suggestions`,
       });
-      setSelectedSuggestions([]);
+      
       refetch();
     },
-    onError: () => {
+    onError: (error, variables, context) => {
+      // Rollback optimistic update
+      if (context?.suggestionIds) {
+        setProcessingSuggestions(prev => 
+          prev.filter(id => !context.suggestionIds.includes(id))
+        );
+        setSelectedSuggestions(context.suggestionIds);
+      }
+      
       toast({
         title: "Rejection Failed", 
         description: "Failed to reject suggestions. Please try again.",
@@ -131,6 +183,36 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
     }
   };
 
+  // Smart selection functions
+  const selectHighConfidence = () => {
+    const highConfidenceIds = suggestions
+      .filter(s => s.confidence === 'high')
+      .map(s => s.id);
+    setSelectedSuggestions(highConfidenceIds);
+  };
+
+  const selectAboveAmount = () => {
+    // Select suggestions with amount > $20 USD equivalent
+    const threshold = 20;
+    const aboveThresholdIds = suggestions
+      .filter(s => {
+        const amount = parseFloat(s.amount);
+        // Convert to approximate USD for comparison
+        const exchangeRates: Record<string, number> = { 
+          'USD': 1, 'INR': 0.012, 'EUR': 1.09, 'GBP': 1.27 
+        };
+        const rate = exchangeRates[s.currency?.toUpperCase()] || 0.012; // Default INR
+        const usdAmount = amount * rate;
+        return usdAmount > threshold;
+      })
+      .map(s => s.id);
+    setSelectedSuggestions(aboveThresholdIds);
+  };
+
+  const clearSelection = () => {
+    setSelectedSuggestions([]);
+  };
+
   const getConfidenceIcon = (confidence: string) => {
     switch (confidence) {
       case 'high': return <CheckCircle className="h-4 w-4 text-green-600" />;
@@ -165,6 +247,40 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
     }
   };
 
+  // Skeleton card component for loading state
+  const SkeletonCard = () => (
+    <Card className="hover:shadow-md transition-shadow">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-4 w-4 rounded" />
+            <div className="space-y-1">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+          </div>
+          <Skeleton className="h-5 w-16 rounded-full" />
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <div className="space-y-2">
+          <div className="flex justify-between">
+            <Skeleton className="h-3 w-16" />
+            <Skeleton className="h-3 w-20" />
+          </div>
+          <div className="flex justify-between">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-3 w-16" />
+          </div>
+          <div className="flex justify-between">
+            <Skeleton className="h-3 w-18" />
+            <Skeleton className="h-3 w-14" />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
   if (!userId) {
     return null;
   }
@@ -191,6 +307,43 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
               <span className="text-sm text-muted-foreground">
                 {selectedSuggestions.length} of {suggestions.length} selected
               </span>
+              
+              {/* Smart selection buttons */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={selectHighConfidence}
+                  disabled={suggestions.length === 0}
+                  className="text-xs"
+                  data-testid="select-high-confidence"
+                >
+                  <Target className="h-3 w-3 mr-1" />
+                  High
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={selectAboveAmount}
+                  disabled={suggestions.length === 0}
+                  className="text-xs"
+                  data-testid="select-above-amount"
+                >
+                  <TrendingUp className="h-3 w-3 mr-1" />
+                  $20+
+                </Button>
+                {selectedSuggestions.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearSelection}
+                    className="text-xs text-muted-foreground"
+                    data-testid="clear-selection"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-2">
@@ -208,8 +361,10 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
           {/* Suggestions grid - Scrollable content */}
           <div className="flex-1 overflow-y-auto max-h-96">
             {isLoading ? (
-              <div className="flex items-center justify-center h-32">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {Array.from({ length: pageSize }).map((_, index) => (
+                  <SkeletonCard key={index} />
+                ))}
               </div>
             ) : suggestions.length === 0 ? (
               <div className="text-center py-8">
@@ -222,10 +377,10 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
                 {suggestions.map((suggestion) => (
                   <Card 
                     key={suggestion.id} 
-                    className={`hover:shadow-md transition-shadow ${
-                      selectedSuggestions.includes(suggestion.id) 
-                        ? 'ring-2 ring-primary' 
-                        : ''
+                    className={`hover:shadow-md transition-all duration-200 ${
+                      selectedSuggestions.includes(suggestion.id) ? 'ring-2 ring-primary' : ''
+                    } ${
+                      processingSuggestions.includes(suggestion.id) ? 'opacity-60 scale-95 pointer-events-none' : ''
                     }`}
                     data-testid={`suggestion-card-${suggestion.id}`}
                   >
@@ -235,14 +390,21 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
                           <Checkbox
                             checked={selectedSuggestions.includes(suggestion.id)}
                             onCheckedChange={(checked) => handleSuggestionSelect(suggestion.id, checked as boolean)}
+                            disabled={processingSuggestions.includes(suggestion.id)}
                             data-testid={`suggestion-checkbox-${suggestion.id}`}
                           />
-                          <div>
-                            <CardTitle className="text-sm font-medium" data-testid={`suggestion-name-${suggestion.id}`}>
+                          <div className="flex-1">
+                            <CardTitle className="text-sm font-medium flex items-center gap-2" data-testid={`suggestion-name-${suggestion.id}`}>
                               {suggestion.serviceName}
+                              {processingSuggestions.includes(suggestion.id) && (
+                                <div className="animate-spin rounded-full h-3 w-3 border border-gray-300 border-t-primary"></div>
+                              )}
                             </CardTitle>
                             <CardDescription className="text-xs">
                               {suggestion.merchantName || "Unknown merchant"}
+                              {processingSuggestions.includes(suggestion.id) && (
+                                <span className="ml-2 text-primary font-medium">Processing...</span>
+                              )}
                             </CardDescription>
                           </div>
                         </div>
