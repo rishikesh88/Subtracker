@@ -193,8 +193,106 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  // Deduplication helper functions
+  private normalizeServiceName(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '') // Remove special characters
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .trim();
+  }
+
+  private calculateSimilarity(str1: string, str2: string): number {
+    const normalize = (s: string) => s.toLowerCase().replace(/[^\w]/g, '');
+    const s1 = normalize(str1);
+    const s2 = normalize(str2);
+    
+    if (s1 === s2) return 1;
+    
+    const longer = s1.length > s2.length ? s1 : s2;
+    const shorter = s1.length > s2.length ? s2 : s1;
+    
+    if (longer.length === 0) return 1;
+    
+    const editDistance = this.levenshteinDistance(longer, shorter);
+    return (longer.length - editDistance) / longer.length;
+  }
+
+  private levenshteinDistance(str1: string, str2: string): number {
+    const matrix = Array(str2.length + 1).fill(null).map(() => Array(str1.length + 1).fill(null));
+    
+    for (let i = 0; i <= str1.length; i++) matrix[0][i] = i;
+    for (let j = 0; j <= str2.length; j++) matrix[j][0] = j;
+    
+    for (let j = 1; j <= str2.length; j++) {
+      for (let i = 1; i <= str1.length; i++) {
+        const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
+        matrix[j][i] = Math.min(
+          matrix[j][i - 1] + 1, // deletion
+          matrix[j - 1][i] + 1, // insertion
+          matrix[j - 1][i - 1] + indicator // substitution
+        );
+      }
+    }
+    
+    return matrix[str2.length][str1.length];
+  }
+
+  async findDuplicateSubscription(
+    userId: string, 
+    serviceName: string, 
+    amount: string, 
+    currency: string, 
+    frequency: string
+  ): Promise<Subscription | null> {
+    try {
+      const userSubscriptions = await this.getSubscriptions(userId);
+      const amountNum = Number(amount);
+      
+      for (const existing of userSubscriptions) {
+        const existingAmount = Number(existing.amount);
+        
+        // Check for exact duplicates first
+        const nameMatch = this.calculateSimilarity(serviceName, existing.serviceName) > 0.85;
+        const amountMatch = Math.abs(amountNum - existingAmount) < Math.max(0.01, existingAmount * 0.05); // Within 5% or 1 cent
+        const currencyMatch = (currency || 'INR').toUpperCase() === (existing.currency || 'INR').toUpperCase();
+        const frequencyMatch = frequency === existing.frequency;
+        
+        if (nameMatch && amountMatch && currencyMatch && frequencyMatch) {
+          return existing;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error finding duplicate subscription:', error);
+      return null;
+    }
+  }
+
   async createSubscription(insertSubscription: InsertSubscription): Promise<Subscription> {
     try {
+      // Check for duplicates before creating
+      const existingDuplicate = await this.findDuplicateSubscription(
+        insertSubscription.userId,
+        insertSubscription.serviceName,
+        insertSubscription.amount,
+        insertSubscription.currency || 'INR',
+        insertSubscription.frequency
+      );
+
+      if (existingDuplicate) {
+        console.log(`Duplicate subscription detected for ${insertSubscription.serviceName}, updating existing instead`);
+        // Update the existing subscription's occurrence count and last seen date
+        const updatedSubscription = await this.updateSubscription(existingDuplicate.id, {
+          occurrences: (existingDuplicate.occurrences || 1) + 1,
+          lastEmailDate: insertSubscription.lastEmailDate || new Date(),
+          merchantEmail: insertSubscription.merchantEmail || existingDuplicate.merchantEmail,
+          merchantName: insertSubscription.merchantName || existingDuplicate.merchantName,
+        });
+        return updatedSubscription!;
+      }
+
       const subscriptionData = {
         ...insertSubscription,
         category: insertSubscription.category || null,
@@ -485,7 +583,7 @@ export class DatabaseStorage implements IStorage {
       
       const createdSubscriptions: Subscription[] = [];
       
-      // Create subscriptions from approved suggestions
+      // Create subscriptions from approved suggestions (with deduplication)
       for (const suggestion of suggestions) {
         const subscriptionData = {
           userId: suggestion.userId,
@@ -503,7 +601,8 @@ export class DatabaseStorage implements IStorage {
           merchantEmail: null
         };
         
-        const [createdSubscription] = await this.db.insert(subscriptions).values(subscriptionData).returning();
+        // Use createSubscription method which has deduplication logic
+        const createdSubscription = await this.createSubscription(subscriptionData);
         createdSubscriptions.push(createdSubscription);
         
         // Link evidence emails to subscription (SECURITY: Defense-in-depth with userId constraint)
