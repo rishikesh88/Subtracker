@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import { RefreshCw, Mail, User } from "lucide-react";
+import { RefreshCw, Mail, User, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -10,7 +10,16 @@ import { StatsCards } from "@/components/StatsCards";
 import { SubscriptionList } from "@/components/SubscriptionList";
 import { EmailAnalysis } from "@/components/EmailAnalysis";
 import { SubscriptionSuggestionsModal } from "@/components/SubscriptionSuggestionsModal";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type Subscription, type Email } from "@shared/schema";
+
+// Supported currencies
+const supportedCurrencies = [
+  { code: 'INR', name: 'Indian Rupee', symbol: '₹' },
+  { code: 'USD', name: 'US Dollar', symbol: '$' },
+  { code: 'EUR', name: 'Euro', symbol: '€' },
+  { code: 'GBP', name: 'British Pound', symbol: '£' }
+];
 
 export default function Dashboard() {
   const { toast } = useToast();
@@ -192,6 +201,34 @@ export default function Dashboard() {
     }
   });
 
+  // Currency change mutation
+  const changeCurrencyMutation = useMutation({
+    mutationFn: async (newCurrency: string) => {
+      const response = await apiRequest("PATCH", "/api/settings", { 
+        preferredCurrency: newCurrency 
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      const currency = supportedCurrencies.find(c => c.code === data.preferredCurrency);
+      toast({
+        title: "Currency Updated",
+        description: `Your preferred currency is now ${currency?.symbol || ''}${data.preferredCurrency}`,
+      });
+      // Refresh user data to update preference
+      queryClient.invalidateQueries({ queryKey: [`/api/auth/user`] });
+      // Refresh stats with new currency
+      queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
+    },
+    onError: () => {
+      toast({
+        title: "Currency Update Failed",
+        description: "Failed to update your preferred currency. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Enhanced sync emails mutation with suggestions
   const syncEmailsMutation = useMutation({
     mutationFn: async () => {
@@ -234,6 +271,30 @@ export default function Dashboard() {
       toast({
         title: "Sync Failed",
         description: error.message || "Failed to sync emails",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Cleanup duplicates mutation
+  const cleanupDuplicatesMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/cleanup-duplicates");
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Cleanup Complete! 🎉",
+        description: `Removed ${data.duplicatesRemoved} duplicate subscriptions from ${data.groupsProcessed} groups`,
+      });
+      // Refresh all data to show updated results
+      queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
+      queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
+    },
+    onError: () => {
+      toast({
+        title: "Cleanup Failed",
+        description: "Failed to cleanup duplicates. Please try again.",
         variant: "destructive",
       });
     },
@@ -323,22 +384,65 @@ export default function Dashboard() {
                   >
                     📋 Review Suggestions
                   </Button>
-                  
-                  <Button
-                    variant="destructive"
-                    onClick={() => clearDataMutation.mutate()}
-                    disabled={clearDataMutation.isPending}
-                    data-testid="clear-data"
-                  >
-                    {clearDataMutation.isPending ? (
-                      <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-                    ) : (
-                      "🗑️"
-                    )}
-                    Clear Data
-                  </Button>
                 </div>
               )}
+              
+              {/* Cleanup and Clear buttons - always visible for authenticated users */}
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => cleanupDuplicatesMutation.mutate()}
+                  disabled={cleanupDuplicatesMutation.isPending}
+                  data-testid="cleanup-duplicates"
+                >
+                  {cleanupDuplicatesMutation.isPending ? (
+                    <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    "🧹"
+                  )}
+                  Remove Duplicates
+                </Button>
+                
+                <Button
+                  variant="destructive"
+                  onClick={() => clearDataMutation.mutate()}
+                  disabled={clearDataMutation.isPending}
+                  data-testid="clear-data"
+                >
+                  {clearDataMutation.isPending ? (
+                    <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                  ) : (
+                    "🗑️"
+                  )}
+                  Clear Data
+                </Button>
+              </div>
+              
+              {/* Currency Selector */}
+              <Select 
+                value={user?.preferredCurrency || 'INR'} 
+                onValueChange={(value) => changeCurrencyMutation.mutate(value)}
+                disabled={changeCurrencyMutation.isPending}
+              >
+                <SelectTrigger className="w-20 h-8 data-testid-currency-selector">
+                  <Globe className="w-3 h-3 mr-1" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent data-testid="currency-dropdown">
+                  {supportedCurrencies.map((currency) => (
+                    <SelectItem 
+                      key={currency.code} 
+                      value={currency.code}
+                      data-testid={`currency-option-${currency.code}`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span>{currency.symbol}</span>
+                        <span>{currency.code}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               
               <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
                 <User className="text-secondary-foreground w-4 h-4" />
@@ -361,7 +465,7 @@ export default function Dashboard() {
               ))}
             </div>
           ) : (
-            <StatsCards stats={stats || defaultStats} />
+            <StatsCards stats={stats || defaultStats} userCurrency={user?.preferredCurrency || 'INR'} />
           )}
 
           {/* Subscriptions List */}

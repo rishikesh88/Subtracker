@@ -7,13 +7,34 @@ interface StatsCardsProps {
     emailsAnalyzed: number;
     avgPerService: number;
   };
+  userCurrency?: string;
 }
 
-export function StatsCards({ stats }: StatsCardsProps) {
+// Currency formatting function (reused from SubscriptionList)
+const formatCurrency = (amount: number, currency: string = "INR") => {
+  const validCurrency = currency && currency.length === 3 && currency !== "unknown" 
+    ? currency.toUpperCase() 
+    : "INR";
+  
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: validCurrency,
+    }).format(amount);
+  } catch (error) {
+    // If currency is still invalid, fallback to INR
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "INR",
+    }).format(amount);
+  }
+};
+
+export function StatsCards({ stats, userCurrency = "INR" }: StatsCardsProps) {
   const cards = [
     {
       title: "Total Monthly",
-      value: `$${stats.totalMonthly.toFixed(2)}`,
+      value: formatCurrency(stats.totalMonthly, userCurrency),
       icon: DollarSign,
       change: "12% from last month",
       changeType: "positive" as const,
@@ -43,7 +64,7 @@ export function StatsCards({ stats }: StatsCardsProps) {
     },
     {
       title: "Avg. Per Service",
-      value: `$${stats.avgPerService.toFixed(2)}`,
+      value: formatCurrency(stats.avgPerService, userCurrency),
       icon: BarChart,
       change: "Across all subscriptions",
       changeType: "neutral" as const,

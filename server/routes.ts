@@ -62,6 +62,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         gmailConnected: user.gmailConnected,
         gmailEmail: user.gmailEmail,
         lastSync: user.lastSync,
+        preferredCurrency: user.preferredCurrency,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       };
@@ -353,6 +354,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Clear data error:", error);
       res.status(500).json({ message: "Failed to clear data" });
+    }
+  });
+
+  // Helper function for calculating string similarity
+  function calculateSimilarity(str1: string, str2: string): number {
+    const normalize = (s: string) => s.toLowerCase().replace(/[^\w]/g, '');
+    const s1 = normalize(str1);
+    const s2 = normalize(str2);
+    
+    if (s1 === s2) return 1;
+    
+    const longer = s1.length > s2.length ? s1 : s2;
+    const shorter = s1.length > s2.length ? s2 : s1;
+    
+    if (longer.length === 0) return 1;
+    
+    const editDistance = levenshteinDistance(longer, shorter);
+    return (longer.length - editDistance) / longer.length;
+  }
+
+  function levenshteinDistance(str1: string, str2: string): number {
+    const matrix = Array(str2.length + 1).fill(null).map(() => Array(str1.length + 1).fill(null));
+    
+    for (let i = 0; i <= str1.length; i++) matrix[0][i] = i;
+    for (let j = 0; j <= str2.length; j++) matrix[j][0] = j;
+    
+    for (let j = 1; j <= str2.length; j++) {
+      for (let i = 1; i <= str1.length; i++) {
+        const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
+        matrix[j][i] = Math.min(
+          matrix[j][i - 1] + 1, // deletion
+          matrix[j - 1][i] + 1, // insertion
+          matrix[j - 1][i - 1] + indicator // substitution
+        );
+      }
+    }
+    
+    return matrix[str2.length][str1.length];
+  }
+
+  // Cleanup duplicates endpoint
+  app.post("/api/cleanup-duplicates", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+      
+      // Get all subscriptions for the user
+      const subscriptions = await storage.getSubscriptions(userId);
+      console.log(`🔍 Found ${subscriptions.length} subscriptions for duplicate cleanup analysis`);
+      
+      const duplicateGroups: Record<string, typeof subscriptions> = {};
+      const toRemove: string[] = [];
+      
+      // Group subscriptions that are duplicates using same logic as deduplication
+      for (const subscription of subscriptions) {
+        let foundGroup = false;
+        
+        for (const [groupKey, group] of Object.entries(duplicateGroups)) {
+          const representative = group[0];
+          
+          // Use same deduplication logic as createSubscription
+          const vendorSimilarity = calculateSimilarity(
+            subscription.serviceName.toLowerCase().trim(),
+            representative.serviceName.toLowerCase().trim()
+          );
+          
+          const amountDifference = Math.abs(parseFloat(subscription.amount) - parseFloat(representative.amount));
+          const amountSimilarity = amountDifference <= (parseFloat(representative.amount) * 0.05); // 5% threshold
+          
+          const frequencyMatch = subscription.frequency === representative.frequency;
+          
+          if (vendorSimilarity >= 0.80 && amountSimilarity && frequencyMatch) {
+            group.push(subscription);
+            foundGroup = true;
+            break;
+          }
+        }
+        
+        if (!foundGroup) {
+          duplicateGroups[subscription.id] = [subscription];
+        }
+      }
+      
+      // Identify duplicates to remove (keep the first one in each group)
+      let duplicatesFound = 0;
+      for (const group of Object.values(duplicateGroups)) {
+        if (group.length > 1) {
+          duplicatesFound += group.length - 1;
+          // Keep the first one, mark others for removal
+          for (let i = 1; i < group.length; i++) {
+            toRemove.push(group[i].id);
+          }
+          console.log(`📋 Found duplicate group for ${group[0].serviceName}: ${group.length} subscriptions (keeping 1, removing ${group.length - 1})`);
+        }
+      }
+      
+      // Remove the duplicates
+      let removedCount = 0;
+      for (const subscriptionId of toRemove) {
+        await storage.deleteSubscription(subscriptionId);
+        removedCount++;
+      }
+      
+      console.log(`✅ Cleanup complete: Removed ${removedCount} duplicate subscriptions from ${Object.keys(duplicateGroups).length} groups`);
+      
+      res.json({
+        success: true,
+        duplicatesFound,
+        duplicatesRemoved: removedCount,
+        groupsProcessed: Object.keys(duplicateGroups).length,
+        message: `Successfully removed ${removedCount} duplicate subscriptions`
+      });
+    } catch (error) {
+      console.error("Cleanup duplicates error:", error);
+      res.status(500).json({ message: "Failed to cleanup duplicates" });
     }
   });
 
