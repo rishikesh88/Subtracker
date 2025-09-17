@@ -9,12 +9,14 @@ import { Sidebar } from "@/components/Sidebar";
 import { StatsCards } from "@/components/StatsCards";
 import { SubscriptionList } from "@/components/SubscriptionList";
 import { EmailAnalysis } from "@/components/EmailAnalysis";
+import { SubscriptionSuggestionsModal } from "@/components/SubscriptionSuggestionsModal";
 import { type Subscription, type Email } from "@shared/schema";
 
 export default function Dashboard() {
   const { toast } = useToast();
   const { user } = useAuth();
   const currentUserId = user?.id;
+  const [suggestionsModalOpen, setSuggestionsModalOpen] = useState(false);
 
   // Handle Gmail OAuth callback
   useEffect(() => {
@@ -143,9 +145,9 @@ export default function Dashboard() {
         description: `Generated ${data.suggestionsGenerated || 0} subscription suggestions for your review`,
       });
       
-      // Redirect to suggestions page if suggestions were generated
+      // Open suggestions modal if suggestions were generated
       if (data.redirectToSuggestions && data.suggestionsGenerated > 0) {
-        window.location.href = '/suggestions';
+        setSuggestionsModalOpen(true);
       }
       
       // Refresh all data after sync  
@@ -206,9 +208,9 @@ export default function Dashboard() {
         description: `Generated ${data.suggestionsGenerated || 0} subscription suggestions for your review`,
       });
       
-      // Redirect to suggestions page if suggestions were generated
+      // Open suggestions modal if suggestions were generated
       if (data.redirectToSuggestions && data.suggestionsGenerated > 0) {
-        window.location.href = '/suggestions';
+        setSuggestionsModalOpen(true);
       }
       
       // Invalidate and refetch all data
@@ -316,10 +318,10 @@ export default function Dashboard() {
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={() => window.location.href = '/suggestions'}
-                    data-testid="view-suggestions"
+                    onClick={() => setSuggestionsModalOpen(true)}
+                    data-testid="review-suggestions"
                   >
-                    📋 View Suggestions
+                    📋 Review Suggestions
                   </Button>
                   
                   <Button
@@ -390,6 +392,12 @@ export default function Dashboard() {
           {/* Email Analysis */}
           <EmailAnalysis emails={emails} />
         </main>
+
+        {/* Suggestions Modal */}
+        <SubscriptionSuggestionsModal 
+          open={suggestionsModalOpen}
+          onOpenChange={setSuggestionsModalOpen}
+        />
       </div>
     </div>
   );

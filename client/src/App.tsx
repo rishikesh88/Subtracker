@@ -8,7 +8,6 @@ import Dashboard from "@/pages/dashboard";
 import Subscriptions from "@/pages/subscriptions";
 import Emails from "@/pages/emails";
 import Settings from "@/pages/settings";
-import { SuggestionsPage } from "@/pages/suggestions";
 import { Landing } from "@/pages/Landing";
 import NotFound from "@/pages/not-found";
 
@@ -36,7 +35,6 @@ function Router() {
           <Route path="/subscriptions" component={Subscriptions} />
           <Route path="/emails" component={Emails} />
           <Route path="/settings" component={Settings} />
-          <Route path="/suggestions" component={() => <SuggestionsPage />} />
         </>
       )}
       <Route component={NotFound} />
