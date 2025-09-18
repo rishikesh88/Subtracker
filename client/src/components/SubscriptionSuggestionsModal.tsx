@@ -120,7 +120,7 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
       
       toast({
         title: "Processing...",
-        description: `Rejecting ${suggestionIds.length} suggestions`,
+        description: `Skipping ${suggestionIds.length} suggestions`,
       });
       
       return { suggestionIds };
@@ -132,8 +132,8 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
       );
       
       toast({
-        title: "Suggestions Rejected",
-        description: `Successfully rejected ${data.rejected} suggestions`,
+        title: "Suggestions Skipped",
+        description: `Successfully skipped ${data.rejected} suggestions`,
       });
       
       refetch();
@@ -148,8 +148,8 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
       }
       
       toast({
-        title: "Rejection Failed", 
-        description: "Failed to reject suggestions. Please try again.",
+        title: "Skip Failed", 
+        description: "Failed to skip suggestions. Please try again.",
         variant: "destructive",
       });
     },
