@@ -189,6 +189,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Gmail connection management endpoints
+  app.post("/api/auth/google/disconnect", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Clear all Gmail-related data
+      const updatedUser = await storage.updateUser(user.id, {
+        gmailAccessToken: null,
+        gmailRefreshToken: null,
+        gmailTokenExpiry: null,
+        gmailConnected: false,
+        gmailEmail: null,
+        updatedAt: new Date()
+      });
+
+      if (!updatedUser) {
+        return res.status(500).json({ message: "Failed to disconnect Gmail" });
+      }
+
+      console.log("Gmail disconnected successfully for user:", user.id);
+      res.json({ message: "Gmail disconnected successfully", gmailConnected: false });
+    } catch (error) {
+      console.error("Gmail disconnect error:", error);
+      res.status(500).json({ message: "Failed to disconnect Gmail" });
+    }
+  });
+
+  app.post("/api/auth/google/connect", isAuthenticated, async (req: any, res) => {
+    try {
+      console.log("Gmail reconnection initiated");
+      console.log("Google Client ID available:", !!process.env.GOOGLE_CLIENT_ID);
+      console.log("Google Client Secret available:", !!process.env.GOOGLE_CLIENT_SECRET);
+      
+      // Generate cryptographically random state for CSRF protection
+      const state = randomBytes(32).toString('hex');
+      oauthStates.set(state, { timestamp: Date.now() });
+      
+      const gmailService = new GmailService();
+      const authUrl = gmailService.getAuthUrl(state);
+      console.log("Generated reconnection auth URL with state:", authUrl);
+      res.json({ authUrl });
+    } catch (error) {
+      console.error("Gmail reconnection URL generation error:", error);
+      res.status(500).json({ message: "Failed to generate reconnection auth URL" });
+    }
+  });
+
   // Sync emails and detect subscriptions
   app.post("/api/sync-emails", isAuthenticated, async (req: any, res) => {
     try {

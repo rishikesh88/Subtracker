@@ -2,9 +2,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { useQuery } from "@tanstack/react-query";
-import { User, LogOut, Mail } from "lucide-react";
-import { queryClient } from "@/lib/queryClient";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { User, LogOut, Mail, Unlink } from "lucide-react";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { SafeUser } from "@shared/schema";
 
@@ -14,6 +14,56 @@ export default function Settings() {
   });
   
   const { toast } = useToast();
+
+  // Gmail disconnect mutation
+  const disconnectGmailMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('POST', '/api/auth/google/disconnect');
+      return response.json();
+    },
+    onSuccess: () => {
+      // Invalidate and refetch user data
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+      toast({
+        title: "Gmail Disconnected",
+        description: "Your Gmail account has been successfully disconnected.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Disconnect Failed",
+        description: error?.message || "Failed to disconnect Gmail. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Gmail connect mutation
+  const connectGmailMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('POST', '/api/auth/google/connect');
+      return response.json();
+    },
+    onSuccess: (data: { authUrl: string }) => {
+      // Redirect to Gmail OAuth flow
+      window.location.href = data.authUrl;
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Connection Failed",
+        description: error?.message || "Failed to start Gmail connection. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDisconnectGmail = () => {
+    disconnectGmailMutation.mutate();
+  };
+
+  const handleConnectGmail = () => {
+    connectGmailMutation.mutate();
+  };
   
   const handleLogout = () => {
     // Clear all cached data before logout for seamless account switching
@@ -103,18 +153,61 @@ export default function Settings() {
                 <Mail className="h-5 w-5 text-muted-foreground" />
                 <div>
                   <p className="font-medium">Gmail Account</p>
-                  <p className="text-sm text-muted-foreground">
-                    {user?.gmailEmail || user?.email || 'Not connected'}
+                  <p className="text-sm text-muted-foreground" data-testid="gmail-email-display">
+                    {user?.gmailConnected 
+                      ? (user?.gmailEmail || 'Connected')
+                      : 'Not connected'
+                    }
                   </p>
+                  {user?.lastSync && (
+                    <p className="text-xs text-muted-foreground">
+                      Last sync: {new Date(user.lastSync).toLocaleDateString()}
+                    </p>
+                  )}
                 </div>
               </div>
-              <Badge variant={user?.gmailConnected ? "default" : "secondary"}>
+              <Badge variant={user?.gmailConnected ? "default" : "secondary"} data-testid="gmail-connection-status">
                 {user?.gmailConnected ? "Connected" : "Disconnected"}
               </Badge>
             </div>
-            <Button variant="outline" size="sm">
-              Reconnect Gmail
-            </Button>
+            
+            <div className="flex items-center gap-2">
+              {user?.gmailConnected ? (
+                <>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handleConnectGmail}
+                    disabled={connectGmailMutation.isPending}
+                    data-testid="reconnect-gmail-button"
+                  >
+                    {connectGmailMutation.isPending ? "Connecting..." : "Connect Different Account"}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handleDisconnectGmail}
+                    disabled={disconnectGmailMutation.isPending}
+                    className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
+                    data-testid="disconnect-gmail-button"
+                  >
+                    <Unlink className="mr-2 h-4 w-4" />
+                    {disconnectGmailMutation.isPending ? "Disconnecting..." : "Disconnect"}
+                  </Button>
+                </>
+              ) : (
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={handleConnectGmail}
+                  disabled={connectGmailMutation.isPending}
+                  data-testid="connect-gmail-button"
+                >
+                  <Mail className="mr-2 h-4 w-4" />
+                  {connectGmailMutation.isPending ? "Connecting..." : "Connect Gmail"}
+                </Button>
+              )}
+            </div>
           </CardContent>
         </Card>
 
