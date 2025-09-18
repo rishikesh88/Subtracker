@@ -6,7 +6,6 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import Dashboard from "@/pages/dashboard";
 import Subscriptions from "@/pages/subscriptions";
-import Emails from "@/pages/emails";
 import Settings from "@/pages/settings";
 import { Landing } from "@/pages/Landing";
 import AuthCallback from "@/pages/auth";
@@ -36,14 +35,12 @@ function Router() {
           <Route path="/" component={Landing} />
           {/* Redirect protected routes to landing when not authenticated */}
           <Route path="/subscriptions" component={() => { window.location.href = '/'; return null; }} />
-          <Route path="/emails" component={() => { window.location.href = '/'; return null; }} />
           <Route path="/settings" component={() => { window.location.href = '/'; return null; }} />
         </>
       ) : (
         <>
           <Route path="/" component={Dashboard} />
           <Route path="/subscriptions" component={Subscriptions} />
-          <Route path="/emails" component={Emails} />
           <Route path="/settings" component={Settings} />
         </>
       )}

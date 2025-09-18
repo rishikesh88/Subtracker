@@ -23,7 +23,6 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
   const navigation = [
     { name: "Dashboard", href: "/", icon: BarChart3 },
     { name: "Subscriptions", href: "/subscriptions", icon: List },
-    { name: "Email Analysis", href: "/emails", icon: Mail },
     { name: "Settings", href: "/settings", icon: Settings },
   ];
 

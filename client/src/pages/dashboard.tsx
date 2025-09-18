@@ -8,10 +8,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { Sidebar } from "@/components/Sidebar";
 import { StatsCards } from "@/components/StatsCards";
 import { SubscriptionList } from "@/components/SubscriptionList";
-import { EmailAnalysis } from "@/components/EmailAnalysis";
 import { SubscriptionSuggestionsModal } from "@/components/SubscriptionSuggestionsModal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { type Subscription, type Email } from "@shared/schema";
+import { type Subscription } from "@shared/schema";
 
 // Supported currencies
 const supportedCurrencies = [
@@ -113,11 +112,6 @@ export default function Dashboard() {
     enabled: !!currentUserId,
   });
 
-  // Fetch recent emails
-  const { data: emails = [], isLoading: emailsLoading } = useQuery<Email[]>({
-    queryKey: [`/api/emails?userId=${currentUserId}`],
-    enabled: !!currentUserId,
-  });
 
   // Gmail auth mutation
   const gmailAuthMutation = useMutation({
@@ -493,8 +487,6 @@ export default function Dashboard() {
             <SubscriptionList subscriptions={subscriptions} />
           )}
 
-          {/* Email Analysis */}
-          <EmailAnalysis emails={emails} />
         </main>
 
         {/* Suggestions Modal */}
