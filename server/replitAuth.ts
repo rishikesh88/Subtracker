@@ -102,9 +102,8 @@ export async function setupAuth(app: Express) {
   passport.deserializeUser((user: Express.User, cb) => cb(null, user));
 
   app.get("/api/login", (req, res, next) => {
-    // Force account selection for seamless user switching
     passport.authenticate(`replitauth:${req.hostname}`, {
-      prompt: "select_account login consent",
+      prompt: "login consent",
       scope: ["openid", "email", "profile", "offline_access"],
     })(req, res, next);
   });
