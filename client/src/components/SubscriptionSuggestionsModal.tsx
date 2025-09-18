@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,8 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCircle, XCircle, AlertCircle, ChevronLeft, ChevronRight, Trash2, Eye, Target, TrendingUp } from "lucide-react";
+import { CheckCircle, XCircle, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface SubscriptionSuggestionsModalProps {
@@ -39,6 +38,18 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
 
   const { suggestions, total } = suggestionsData;
   const totalPages = Math.ceil(total / pageSize);
+
+  // Reset selection and auto-select high confidence suggestions when page or data changes
+  useEffect(() => {
+    if (suggestions.length > 0) {
+      const highConfidenceIds = suggestions
+        .filter(s => s.confidence === 'high')
+        .map(s => s.id);
+      setSelectedSuggestions(highConfidenceIds);
+    } else {
+      setSelectedSuggestions([]);
+    }
+  }, [suggestions, currentPage]);
 
   // Approve suggestions mutation with optimistic updates
   const approveMutation = useMutation({
@@ -296,7 +307,7 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden">
-          {/* Controls - Sticky header */}
+          {/* Simplified header */}
           <div className="flex items-center justify-between mb-4 pb-4 border-b">
             <div className="flex items-center gap-4">
               <Checkbox
@@ -304,57 +315,14 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
                 onCheckedChange={handleSelectAll}
                 data-testid="select-all-suggestions"
               />
-              <span className="text-sm text-muted-foreground">
+              <span className="text-sm font-medium">
                 {selectedSuggestions.length} of {suggestions.length} selected
               </span>
-              
-              {/* Smart selection buttons */}
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={selectHighConfidence}
-                  disabled={suggestions.length === 0}
-                  className="text-xs"
-                  data-testid="select-high-confidence"
-                >
-                  <Target className="h-3 w-3 mr-1" />
-                  High
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={selectAboveAmount}
-                  disabled={suggestions.length === 0}
-                  className="text-xs"
-                  data-testid="select-above-amount"
-                >
-                  <TrendingUp className="h-3 w-3 mr-1" />
-                  $20+
-                </Button>
-                {selectedSuggestions.length > 0 && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={clearSelection}
-                    className="text-xs text-muted-foreground"
-                    data-testid="clear-selection"
-                  >
-                    Clear
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Tabs value={confidenceFilter} onValueChange={setConfidenceFilter} className="w-auto">
-                <TabsList className="grid grid-cols-4 w-auto">
-                  <TabsTrigger value="" className="text-xs px-3">All</TabsTrigger>
-                  <TabsTrigger value="high" className="text-xs px-3">High</TabsTrigger>
-                  <TabsTrigger value="medium" className="text-xs px-3">Medium</TabsTrigger>
-                  <TabsTrigger value="low" className="text-xs px-3">Low</TabsTrigger>
-                </TabsList>
-              </Tabs>
+              {selectedSuggestions.length > 0 && suggestions.some(s => s.confidence === 'high' && selectedSuggestions.includes(s.id)) && (
+                <Badge variant="outline" className="text-xs">
+                  High confidence auto-selected
+                </Badge>
+              )}
             </div>
           </div>
 
@@ -368,9 +336,9 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
               </div>
             ) : suggestions.length === 0 ? (
               <div className="text-center py-8">
-                <Eye className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <AlertCircle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <p className="text-muted-foreground">No suggestions found</p>
-                <p className="text-sm text-muted-foreground">Try adjusting the confidence filter or sync more emails</p>
+                <p className="text-sm text-muted-foreground">Sync more emails to get subscription suggestions</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -438,6 +406,30 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
                             {suggestion.category || "Other"}
                           </span>
                         </div>
+                        
+                        {/* Quick Action Buttons */}
+                        <div className="flex items-center gap-2 mt-3 pt-3 border-t">
+                          <Button
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => approveMutation.mutate([suggestion.id])}
+                            disabled={processingSuggestions.includes(suggestion.id)}
+                            data-testid={`quick-approve-${suggestion.id}`}
+                          >
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Approve
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => rejectMutation.mutate([suggestion.id])}
+                            disabled={processingSuggestions.includes(suggestion.id)}
+                            data-testid={`quick-skip-${suggestion.id}`}
+                          >
+                            <XCircle className="h-3 w-3 mr-1" />
+                            Skip
+                          </Button>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -485,8 +477,8 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
             className="text-destructive hover:text-destructive"
             data-testid="clear-all-suggestions"
           >
-            <Trash2 className="h-4 w-4 mr-2" />
-            {clearMutation.isPending ? "Clearing..." : "Clear All"}
+            <XCircle className="h-4 w-4 mr-2" />
+            {clearMutation.isPending ? "Clearing..." : "Skip All"}
           </Button>
 
           <div className="flex items-center gap-2">
@@ -497,7 +489,7 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
               data-testid="reject-suggestions"
             >
               <XCircle className="h-4 w-4 mr-2" />
-              {rejectMutation.isPending ? "Rejecting..." : `Reject ${selectedSuggestions.length}`}
+              {rejectMutation.isPending ? "Skipping..." : `Skip ${selectedSuggestions.length}`}
             </Button>
             <Button
               onClick={() => approveMutation.mutate(selectedSuggestions)}
