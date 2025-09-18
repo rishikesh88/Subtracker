@@ -9,6 +9,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { StatsCards } from "@/components/StatsCards";
 import { SubscriptionList } from "@/components/SubscriptionList";
 import { SubscriptionSuggestionsModal } from "@/components/SubscriptionSuggestionsModal";
+import { SyncProgressModal } from "@/components/SyncProgressModal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type Subscription } from "@shared/schema";
 
@@ -25,6 +26,7 @@ export default function Dashboard() {
   const { user } = useAuth();
   const currentUserId = user?.id;
   const [suggestionsModalOpen, setSuggestionsModalOpen] = useState(false);
+  const [syncProgressOpen, setSyncProgressOpen] = useState(false);
 
   // Handle Gmail OAuth callback
   useEffect(() => {
@@ -49,30 +51,10 @@ export default function Dashboard() {
             // Refresh user data
             queryClient.invalidateQueries({ queryKey: [`/api/auth/user`] });
             
-            // Automatically trigger email sync after a delay
-            setTimeout(async () => {
-              try {
-                const response = await apiRequest("POST", "/api/sync-enhanced", { userId: currentUserId });
-                const data = await response.json();
-                
-                toast({
-                  title: "Email Sync Complete",
-                  description: `Processed ${data.processedEmails || 0} emails and found ${data.detectedSubscriptions || 0} subscriptions`,
-                });
-                
-                // Refresh all data after sync  
-                queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
-                queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${currentUserId}`] });
-                queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${currentUserId}`] });
-                queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
-              } catch (error) {
-                console.error("Auto email sync error:", error);
-                toast({
-                  title: "Sync Failed",
-                  description: "Failed to sync emails automatically. You can try again manually.",
-                  variant: "destructive",
-                });
-              }
+            // Automatically trigger email sync with progress modal after a delay
+            setTimeout(() => {
+              setSyncProgressOpen(true);
+              syncEmailsMutation.mutate();
             }, 1500);
         } else if (gmailConnected === 'false') {
           const error = urlParams.get('error');
@@ -223,14 +205,12 @@ export default function Dashboard() {
     },
   });
 
-  // Enhanced sync emails mutation with suggestions
+  // Enhanced sync emails mutation with suggestions and progress notifications
   const syncEmailsMutation = useMutation({
     mutationFn: async () => {
       if (!currentUserId) throw new Error("No user ID");
       
-      const response = await apiRequest("POST", "/api/sync-enhanced", {
-        userId: currentUserId,
-      });
+      const response = await apiRequest("POST", "/api/sync-emails-llm");
       return response.json();
     },
     onSuccess: (data) => {
@@ -308,7 +288,19 @@ export default function Dashboard() {
       return;
     }
     
+    setSyncProgressOpen(true);
     syncEmailsMutation.mutate();
+  };
+  
+  const handleSyncComplete = () => {
+    // Refresh all data after sync
+    queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
+    queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${currentUserId}`] });
+    queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${currentUserId}`] });
+    queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
+    
+    // Show suggestions modal if there are suggestions
+    setSuggestionsModalOpen(true);
   };
 
   const defaultStats = {
@@ -493,6 +485,14 @@ export default function Dashboard() {
         <SubscriptionSuggestionsModal 
           open={suggestionsModalOpen}
           onOpenChange={setSuggestionsModalOpen}
+        />
+        
+        {/* Sync Progress Modal */}
+        <SyncProgressModal
+          isOpen={syncProgressOpen}
+          onOpenChange={setSyncProgressOpen}
+          userId={currentUserId}
+          onComplete={handleSyncComplete}
         />
       </div>
     </div>

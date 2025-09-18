@@ -38,6 +38,33 @@ const cleanupOldStates = () => {
 // Cleanup every 5 minutes
 setInterval(cleanupOldStates, 5 * 60 * 1000);
 
+// SSE connections by userId for real-time progress notifications
+const sseConnections = new Map<string, Set<any>>();
+
+// Progress notification helper using Server-Sent Events
+export function sendProgressUpdate(userId: string, data: {
+  stage: string;
+  progress: number;
+  message: string;
+  details?: any;
+}) {
+  const connections = sseConnections.get(userId);
+  if (connections && connections.size > 0) {
+    const eventData = JSON.stringify({
+      type: 'progress',
+      timestamp: new Date().toISOString(),
+      ...data
+    });
+    
+    // Send to all SSE connections for this user
+    connections.forEach(res => {
+      if (!res.headersSent && !res.destroyed) {
+        res.write(`data: ${eventData}\n\n`);
+      }
+    });
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup Replit Auth
   await setupAuth(app);
@@ -788,9 +815,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Register Gemini LLM routes BEFORE the HTTP server creation
+  const httpServer = createServer(app);
+  
+  // Setup Server-Sent Events endpoint for real-time progress updates
+  app.get('/api/sync-progress/:userId', isAuthenticated, (req: any, res) => {
+    const { userId } = req.params;
+    const authenticatedUserId = req.user?.claims?.sub;
+    
+    // Verify user can only access their own progress stream
+    if (userId !== authenticatedUserId) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+    
+    // Set SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Cache-Control'
+    });
+    
+    // Add connection to user's SSE connections
+    if (!sseConnections.has(userId)) {
+      sseConnections.set(userId, new Set());
+    }
+    sseConnections.get(userId)!.add(res);
+    
+    console.log(`SSE connection established for user: ${userId}`);
+    
+    // Send initial connection event
+    res.write(`data: ${JSON.stringify({
+      type: 'connected',
+      timestamp: new Date().toISOString(),
+      message: 'Connected for real-time sync updates'
+    })}\n\n`);
+    
+    // Handle client disconnect
+    req.on('close', () => {
+      const connections = sseConnections.get(userId);
+      if (connections) {
+        connections.delete(res);
+        if (connections.size === 0) {
+          sseConnections.delete(userId);
+        }
+      }
+      console.log(`SSE connection closed for user: ${userId}`);
+    });
+  });
+  
+  // Make progress update function globally available
+  (globalThis as any).sendProgressUpdate = sendProgressUpdate;
+  
+  // Register Gemini LLM routes with progress notification support
   registerGeminiRoutes(app);
 
-  const httpServer = createServer(app);
   return httpServer;
 }

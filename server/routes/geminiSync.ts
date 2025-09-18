@@ -3,6 +3,8 @@ import { storage } from "../storage";
 import { GmailService } from "../services/gmail";
 import { EnhancedEmailParser } from "../services/enhancedEmailParser";
 import { GeminiSubscriptionDetector } from "../services/geminiSubscriptionDetector";
+import { generateServiceKey } from "../utils/serviceKey";
+import { isAuthenticated } from "../replitAuth";
 
 // Store LLM suggestions temporarily for user review
 interface LLMSuggestionSession {
@@ -15,13 +17,16 @@ interface LLMSuggestionSession {
 const suggestionSessions = new Map<string, LLMSuggestionSession>();
 
 export function registerGeminiRoutes(app: Express) {
-  // Enhanced sync with LLM analysis
-  app.post("/api/sync-emails-llm", async (req, res) => {
+  // Get progress notification function from parent scope
+  const sendProgressUpdate = (globalThis as any).sendProgressUpdate || (() => {});
+  // Enhanced sync with LLM analysis (AUTHENTICATED)
+  app.post("/api/sync-emails-llm", isAuthenticated, async (req: any, res) => {
     try {
-      const { userId } = req.body;
+      // Get userId from authenticated user, ignore request body for security
+      const userId = req.user?.claims?.sub;
       
       if (!userId) {
-        return res.status(400).json({ message: "Missing userId" });
+        return res.status(401).json({ message: "User not authenticated" });
       }
 
       const user = await storage.getUser(userId);
@@ -35,6 +40,13 @@ export function registerGeminiRoutes(app: Express) {
       
       console.log('Starting enhanced LLM-powered sync...');
       
+      // Send initial progress update
+      sendProgressUpdate(userId, {
+        stage: 'starting',
+        progress: 0,
+        message: 'Initializing sync process...'
+      });
+      
       // Get emails from Gmail (past 90 days)
       const gmailMessages = await gmailService.getEmails(
         user.gmailAccessToken,
@@ -47,6 +59,14 @@ export function registerGeminiRoutes(app: Express) {
 
       console.log(`📬 Gmail Fetch Complete: ${gmailMessages.length} emails (past 90 days)`);
       console.log(`🕰️ Estimated processing time: ${Math.ceil(gmailMessages.length / 50)} minutes for full analysis`);
+      
+      // Send Gmail fetch completion update
+      sendProgressUpdate(userId, {
+        stage: 'gmail_fetch',
+        progress: 20,
+        message: `Fetched ${gmailMessages.length} emails from Gmail`,
+        details: { emailCount: gmailMessages.length }
+      });
 
       // HYBRID APPROACH: First filter with rules, then LLM analysis
       
@@ -63,6 +83,12 @@ export function registerGeminiRoutes(app: Express) {
           // Progress update every 50 emails
           if (i % 50 === 0) {
             console.log(`Parsed ${i}/${gmailMessages.length} emails...`);
+            sendProgressUpdate(userId, {
+              stage: 'parsing',
+              progress: 20 + Math.round((i / gmailMessages.length) * 30),
+              message: `Parsing emails: ${i}/${gmailMessages.length}`,
+              details: { parsed: i, total: gmailMessages.length }
+            });
           }
         } catch (error) {
           console.error('Error parsing email:', error);
@@ -106,6 +132,14 @@ export function registerGeminiRoutes(app: Express) {
       console.log(`   • Candidate emails selected: ${candidateEmails.length}`);
       console.log(`   • Filter efficiency: ${Math.round((candidateEmails.length / parsedEmails.length) * 100)}% pass rate`);
       console.log(`   • This is a ${candidateEmails.length > parsedEmails.length * 0.5 ? 'WIDE' : candidateEmails.length > parsedEmails.length * 0.2 ? 'MODERATE' : 'NARROW'} filter strategy`);
+      
+      // Send filtering completion update
+      sendProgressUpdate(userId, {
+        stage: 'filtering_complete',
+        progress: 60,
+        message: `Filtered ${candidateEmails.length} candidate emails for AI analysis`,
+        details: { candidates: candidateEmails.length, total: parsedEmails.length }
+      });
 
       // Step 3: Save candidate emails to database
       const savedEmails = [];
@@ -156,6 +190,14 @@ export function registerGeminiRoutes(app: Express) {
       let geminiResults;
       try {
         console.log(`🤖 Starting Gemini LLM analysis on ${savedEmails.length} emails...`);
+        
+        // Send LLM analysis start update
+        sendProgressUpdate(userId, {
+          stage: 'llm_analysis_start',
+          progress: 70,
+          message: `Starting AI analysis of ${savedEmails.length} emails...`,
+          details: { emailCount: savedEmails.length }
+        });
         const analysisStartTime = Date.now();
         
         geminiResults = await geminiDetector.analyzeEmailsForSubscriptions(savedEmails);
@@ -167,6 +209,18 @@ export function registerGeminiRoutes(app: Express) {
         console.log(`   • Medium confidence: ${geminiResults.subscriptions.filter(s => s.confidence === 'medium').length}`);
         console.log(`   • Low confidence: ${geminiResults.subscriptions.filter(s => s.confidence === 'low').length}`);
         console.log(`   • Processing rate: ${(savedEmails.length / parseFloat(analysisTime)).toFixed(1)} emails/second`);
+        
+        // Send LLM analysis completion update
+        sendProgressUpdate(userId, {
+          stage: 'llm_analysis_complete',
+          progress: 90,
+          message: `AI analysis complete! Found ${geminiResults.subscriptions.length} subscription suggestions`,
+          details: { 
+            total: geminiResults.subscriptions.length,
+            high: geminiResults.subscriptions.filter(s => s.confidence === 'high').length,
+            analysisTime: parseFloat(analysisTime)
+          }
+        });
       } catch (error) {
         console.error('Gemini analysis failed:', error);
         return res.status(500).json({ 
@@ -199,6 +253,19 @@ export function registerGeminiRoutes(app: Express) {
       // Update user's last sync timestamp
       await storage.updateUser(userId, { lastSync: new Date() });
 
+      // Send final completion update
+      sendProgressUpdate(userId, {
+        stage: 'sync_complete',
+        progress: 100,
+        message: `Sync complete! Generated ${geminiResults.subscriptions.length} subscription suggestions`,
+        details: { 
+          sessionId,
+          total: geminiResults.subscriptions.length,
+          confident: geminiResults.totalConfidentSubscriptions,
+          emailsProcessed: savedEmails.length
+        }
+      });
+      
       res.json({
         success: true,
         message: "Enhanced LLM sync completed - review suggestions",
@@ -278,6 +345,7 @@ export function registerGeminiRoutes(app: Express) {
             const subscriptionData = {
               userId: session.userId,
               serviceName: suggestion.serviceName,
+              serviceKey: generateServiceKey(suggestion.serviceName),
               amount: suggestion.amount.toString(),
               currency: suggestion.currency,
               frequency: suggestion.frequency,
