@@ -4,12 +4,32 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useQuery } from "@tanstack/react-query";
 import { User, LogOut, Mail } from "lucide-react";
+import { queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { SafeUser } from "@shared/schema";
 
 export default function Settings() {
   const { data: user } = useQuery<SafeUser>({ 
-    queryKey: ['/api/user']
+    queryKey: ['/api/auth/user']
   });
+  
+  const { toast } = useToast();
+  
+  const handleLogout = () => {
+    // Clear all cached data before logout for seamless account switching
+    queryClient.clear();
+    
+    // Show signing out feedback
+    toast({
+      title: "Signing out...",
+      description: "You'll be redirected to sign in with a different account.",
+    });
+    
+    // Redirect to logout endpoint
+    setTimeout(() => {
+      window.location.href = '/api/logout';
+    }, 500);
+  };
 
   return (
     <div className="container mx-auto px-6 py-8" data-testid="settings-page">
@@ -59,7 +79,7 @@ export default function Settings() {
               <Button 
                 variant="outline" 
                 size="sm" 
-                onClick={() => window.location.href = '/api/logout'}
+                onClick={handleLogout}
                 className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
                 data-testid="logout-settings-button"
               >

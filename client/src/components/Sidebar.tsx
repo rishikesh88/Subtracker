@@ -10,6 +10,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { SafeUser } from "@shared/schema";
 
 interface SidebarProps {
@@ -19,6 +21,23 @@ interface SidebarProps {
 
 export function Sidebar({ user, isGmailConnected }: SidebarProps) {
   const [location] = useLocation();
+  const { toast } = useToast();
+  
+  const handleLogout = () => {
+    // Clear all cached data before logout for seamless account switching
+    queryClient.clear();
+    
+    // Show signing out feedback
+    toast({
+      title: "Signing out...",
+      description: "You'll be redirected to sign in with a different account.",
+    });
+    
+    // Redirect to logout endpoint
+    setTimeout(() => {
+      window.location.href = '/api/logout';
+    }, 500);
+  };
 
   const navigation = [
     { name: "Dashboard", href: "/", icon: BarChart3 },
@@ -99,7 +118,7 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem 
-                onClick={() => window.location.href = '/api/logout'}
+                onClick={handleLogout}
                 className="flex items-center cursor-pointer text-red-600 focus:text-red-600" 
                 data-testid="logout-button"
               >

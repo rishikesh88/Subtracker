@@ -1,9 +1,23 @@
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { CheckCircle2 } from "lucide-react";
 
 export function Landing() {
+  // Check for signed-out feedback
+  const urlParams = new URLSearchParams(window.location.search);
+  const isSignedOut = urlParams.get('signed_out') === 'true';
+  
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-8">
       <div className="max-w-2xl mx-auto text-center space-y-8">
+        {isSignedOut && (
+          <Alert className="border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200" data-testid="signed-out-alert">
+            <CheckCircle2 className="h-4 w-4" />
+            <AlertDescription>
+              You've been successfully signed out. You can now sign in with a different account.
+            </AlertDescription>
+          </Alert>
+        )}
         <div className="space-y-4">
           <h1 className="text-4xl font-bold text-foreground" data-testid="landing-title">
             SubTracker
@@ -46,7 +60,7 @@ export function Landing() {
             data-testid="login-button"
             className="px-8 py-3"
           >
-            Get Started - Sign In
+            {isSignedOut ? 'Sign In with Different Account' : 'Get Started - Sign In'}
           </Button>
           
           <p className="text-sm text-muted-foreground">
