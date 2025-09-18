@@ -9,6 +9,7 @@ import Subscriptions from "@/pages/subscriptions";
 import Emails from "@/pages/emails";
 import Settings from "@/pages/settings";
 import { Landing } from "@/pages/Landing";
+import AuthCallback from "@/pages/auth";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -27,8 +28,17 @@ function Router() {
 
   return (
     <Switch>
+      {/* Auth callback - available for both authenticated and unauthenticated users */}
+      <Route path="/auth/callback" component={AuthCallback} />
+      
       {!isAuthenticated ? (
-        <Route path="/" component={Landing} />
+        <>
+          <Route path="/" component={Landing} />
+          {/* Redirect protected routes to landing when not authenticated */}
+          <Route path="/subscriptions" component={() => { window.location.href = '/'; return null; }} />
+          <Route path="/emails" component={() => { window.location.href = '/'; return null; }} />
+          <Route path="/settings" component={() => { window.location.href = '/'; return null; }} />
+        </>
       ) : (
         <>
           <Route path="/" component={Dashboard} />

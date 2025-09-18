@@ -1,9 +1,19 @@
 import { Link, useLocation } from "wouter";
-import { BarChart3, List, Mail, Settings, RefreshCw, User } from "lucide-react";
+import { BarChart3, List, Mail, Settings, RefreshCw, User, LogOut } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import type { SafeUser } from "@shared/schema";
 
 interface SidebarProps {
-  user?: any;
+  user?: SafeUser;
   isGmailConnected?: boolean;
 }
 
@@ -55,8 +65,55 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
         </ul>
       </nav>
 
-      {/* Gmail Connection Status */}
+      {/* User Profile */}
       <div className="p-4 border-t border-border">
+        <div className="flex items-center space-x-3 mb-4">
+          <Avatar className="h-10 w-10">
+            <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
+            <AvatarFallback className="bg-primary/10">
+              <User className="h-4 w-4" />
+            </AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground truncate" data-testid="user-name">
+              {user?.firstName && user?.lastName 
+                ? `${user.firstName} ${user.lastName}` 
+                : user?.email || 'User'
+              }
+            </p>
+            <p className="text-xs text-muted-foreground truncate" data-testid="user-email">
+              {user?.email}
+            </p>
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" data-testid="user-menu">
+                <Settings className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem asChild>
+                <Link href="/settings" className="flex items-center cursor-pointer">
+                  <Settings className="mr-2 h-4 w-4" />
+                  Settings
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem 
+                onClick={() => window.location.href = '/api/logout'}
+                className="flex items-center cursor-pointer text-red-600 focus:text-red-600" 
+                data-testid="logout-button"
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Sign Out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+      
+      {/* Gmail Connection Status */}
+      <div className="px-4 pb-4">
         <div
           className={cn(
             "flex items-center space-x-3 p-3 rounded-lg border",
@@ -81,15 +138,15 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
             >
               {isGmailConnected ? "Gmail Connected" : "Gmail Disconnected"}
             </p>
-            {user?.username && (
+            {user?.gmailEmail && (
               <p
                 className={cn(
                   "text-xs",
                   isGmailConnected ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
                 )}
-                data-testid="user-email"
+                data-testid="gmail-email"
               >
-                {user.username}
+                {user.gmailEmail}
               </p>
             )}
           </div>
