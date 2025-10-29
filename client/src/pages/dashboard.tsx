@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import { RefreshCw, Mail, User, Globe } from "lucide-react";
+import { RefreshCw, Mail, User, Globe, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -9,6 +9,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { StatsCards } from "@/components/StatsCards";
 import { SubscriptionList } from "@/components/SubscriptionList";
 import { SubscriptionSuggestionsModal } from "@/components/SubscriptionSuggestionsModal";
+import { AddSubscriptionModal } from "@/components/AddSubscriptionModal";
 import { SyncProgressModal } from "@/components/SyncProgressModal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type Subscription } from "@shared/schema";
@@ -27,6 +28,7 @@ export default function Dashboard() {
   const currentUserId = user?.id;
   const [suggestionsModalOpen, setSuggestionsModalOpen] = useState(false);
   const [syncProgressOpen, setSyncProgressOpen] = useState(false);
+  const [addSubscriptionModalOpen, setAddSubscriptionModalOpen] = useState(false);
 
   // Handle Gmail OAuth callback
   useEffect(() => {
@@ -370,6 +372,14 @@ export default function Dashboard() {
                   >
                     📋 Review Suggestions
                   </Button>
+                  <Button
+                    variant="default"
+                    onClick={() => setAddSubscriptionModalOpen(true)}
+                    data-testid="add-subscription"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Subscription
+                  </Button>
                 </div>
               )}
               
@@ -485,6 +495,12 @@ export default function Dashboard() {
         <SubscriptionSuggestionsModal 
           open={suggestionsModalOpen}
           onOpenChange={setSuggestionsModalOpen}
+        />
+        
+        {/* Add Subscription Modal */}
+        <AddSubscriptionModal
+          open={addSubscriptionModalOpen}
+          onOpenChange={setAddSubscriptionModalOpen}
         />
         
         {/* Sync Progress Modal */}
