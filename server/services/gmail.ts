@@ -161,6 +161,108 @@ export class GmailService {
     return allIds;
   }
 
+  /**
+   * Fetch lightweight email metadata (subject, sender, snippet only)
+   * Much faster than full fetch - for Phase 1 screening
+   */
+  async getEmailMetadata(accessToken: string, refreshToken: string, maxResults: number = 5000, onTokenRefresh?: (newAccessToken: string) => Promise<void>, days: number = 90) {
+    this.oauth2Client.setCredentials({
+      access_token: accessToken,
+      refresh_token: refreshToken
+    });
+
+    if (onTokenRefresh) {
+      this.oauth2Client.on('tokens', (tokens) => {
+        if (tokens.access_token && tokens.access_token !== accessToken) {
+          onTokenRefresh(tokens.access_token);
+        }
+      });
+    }
+
+    const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
+    const emailSyncDays = Math.min(Math.max(days, 1), 180);
+    const query = `newer_than:${emailSyncDays}d`;
+    
+    console.log(`🔍 Phase 1: Fetching lightweight email metadata (${maxResults} max)`);
+
+    try {
+      const allMessageIds = await this.getAllMessageIds(gmail, query, maxResults);
+      console.log(`✅ Found ${allMessageIds.length} email IDs`);
+
+      if (allMessageIds.length === 0) {
+        return [];
+      }
+
+      // Fetch metadata only (much faster)
+      const metadata = await this.fetchMetadataInBatches(gmail, allMessageIds);
+      console.log(`✅ Retrieved metadata for ${metadata.length} emails`);
+      return metadata;
+    } catch (error) {
+      console.error('Error fetching email metadata:', error);
+      throw new Error('Failed to fetch email metadata from Gmail');
+    }
+  }
+
+  /**
+   * Fetch full email details for specific message IDs
+   * Used in Phase 2 for deep processing of candidates only
+   */
+  async getEmailsByIds(accessToken: string, refreshToken: string, messageIds: string[]): Promise<any[]> {
+    this.oauth2Client.setCredentials({
+      access_token: accessToken,
+      refresh_token: refreshToken
+    });
+
+    const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
+    console.log(`📥 Phase 2: Fetching full content for ${messageIds.length} candidate emails`);
+    
+    const messages = await this.fetchMessagesInBatches(gmail, messageIds);
+    console.log(`✅ Retrieved full content for ${messages.length} emails`);
+    return messages;
+  }
+
+  private async fetchMetadataInBatches(gmail: any, messageIds: string[]): Promise<any[]> {
+    const metadata: any[] = [];
+    const batchSize = 50; // Larger batches for metadata since it's lightweight
+    
+    console.log(`📥 Fetching metadata for ${messageIds.length} emails in batches of ${batchSize}`);
+
+    for (let i = 0; i < messageIds.length; i += batchSize) {
+      const batch = messageIds.slice(i, i + batchSize);
+      
+      try {
+        const batchMetadata = await Promise.all(
+          batch.map(async (messageId: string) => {
+            try {
+              // Use 'metadata' format for lightweight fetch
+              const messageResponse = await gmail.users.messages.get({
+                userId: 'me',
+                id: messageId,
+                format: 'metadata',
+                metadataHeaders: ['From', 'Subject', 'Date']
+              });
+              return messageResponse.data;
+            } catch (error) {
+              console.error(`Error fetching metadata for ${messageId}:`, error);
+              return null;
+            }
+          })
+        );
+
+        const validMetadata = batchMetadata.filter(msg => msg !== null);
+        metadata.push(...validMetadata);
+
+        if ((i + batchSize) % 250 === 0 || i + batchSize >= messageIds.length) {
+          console.log(`Fetched metadata: ${Math.min(i + batchSize, messageIds.length)}/${messageIds.length}`);
+        }
+      } catch (error) {
+        console.error(`Error fetching metadata batch:`, error);
+      }
+    }
+
+    return metadata;
+  }
+
   private async fetchMessagesInBatches(gmail: any, messageIds: string[]): Promise<any[]> {
     const messages: any[] = [];
     const batchSize = 20; // Controlled concurrency to avoid rate limits

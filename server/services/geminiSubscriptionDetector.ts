@@ -43,6 +43,118 @@ export class GeminiSubscriptionDetector {
     this.ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
   }
 
+  /**
+   * Phase 1.5: Lightweight AI pre-filter
+   * Quick assessment of email metadata to identify subscription candidates
+   */
+  async prefilterCandidates(
+    candidates: Array<{ id: string; subject: string; fromEmail: string; fromName?: string; snippet?: string }>,
+    onProgress?: (progress: number) => void
+  ): Promise<string[]> {
+    if (!candidates.length) return [];
+
+    console.log(`🤖 AI Pre-filter: Analyzing ${candidates.length} candidates...`);
+
+    try {
+      const chunks = this.chunkArray(candidates, 100); // Larger chunks for lightweight analysis
+      const approvedIds: string[] = [];
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        
+        // Create lightweight prompt
+        const emailSummaries = chunk.map((c, idx) => 
+          `${idx + 1}. ID:${c.id} | From: ${c.fromEmail} | Subject: ${c.subject} | Preview: ${c.snippet?.substring(0, 100) || 'N/A'}`
+        ).join('\n');
+
+        const prompt = `You are analyzing email metadata to identify potential subscription/billing emails.
+
+EMAILS TO ANALYZE:
+${emailSummaries}
+
+TASK: Return ONLY the IDs (comma-separated) of emails that are likely:
+- Subscription renewals
+- Recurring payments/billings
+- Service invoices
+- Membership charges
+- Regular service fees
+
+Be CONSERVATIVE - only include emails with strong subscription indicators.
+Respond with ONLY the IDs, nothing else. Format: ID1,ID2,ID3
+
+If NONE qualify, respond with: NONE`;
+
+        const result = await this.ai.models.generateContent({
+          model: "gemini-2.0-flash-exp",
+          contents: prompt
+        });
+        const rawResponse = (result.text || '').trim();
+        
+        // Validate candidate IDs for cross-checking
+        const candidateIdSet = new Set(chunk.map(c => c.id));
+        
+        // Handle NONE case (no qualified emails) - flexible prefix matching
+        // Catches: "NONE", "None", "none", "NONE.", "None – no matches", etc.
+        const normalizedResponse = rawResponse.toUpperCase().trim();
+        if (!rawResponse || normalizedResponse.startsWith('NONE')) {
+          console.log(`  Chunk ${i + 1}: AI returned NONE - no qualified emails`);
+          continue;
+        }
+        
+        // Parse IDs from response - flexible extraction
+        try {
+          // Extract all potential IDs using regex and multiple delimiters
+          // Gmail IDs are typically alphanumeric strings (16+ chars)
+          const idPattern = /[a-zA-Z0-9_-]{16,}/g;
+          const potentialIds = rawResponse.match(idPattern) || [];
+          
+          // Validate and filter IDs against candidate set
+          const parsedIds = potentialIds.filter((id: string) => {
+            if (candidateIdSet.has(id)) {
+              return true;
+            }
+            console.warn(`  AI returned unknown ID (not in candidate set): ${id.substring(0, 20)}...`);
+            return false;
+          });
+          
+          // Critical: If parsing yields zero valid IDs, trigger fallback
+          if (parsedIds.length === 0) {
+            console.error(`  Chunk ${i + 1}: Parsing failed - no valid IDs extracted from response`);
+            console.error(`  Raw response: ${rawResponse.substring(0, 200)}...`);
+            console.warn(`  FALLBACK: Including all ${chunk.length} candidates from this chunk`);
+            approvedIds.push(...chunk.map(c => c.id));
+          } else {
+            approvedIds.push(...parsedIds);
+            console.log(`  Chunk ${i + 1}: Approved ${parsedIds.length}/${chunk.length} emails (${Math.round((parsedIds.length / chunk.length) * 100)}% pass rate)`);
+          }
+        } catch (parseError) {
+          console.error(`  Chunk ${i + 1}: Exception during parsing:`, parseError);
+          console.error(`  Raw response: ${rawResponse.substring(0, 200)}...`);
+          console.warn(`  FALLBACK: Including all ${chunk.length} candidates from this chunk`);
+          // Fail-safe: include all chunk candidates if parsing fails
+          approvedIds.push(...chunk.map(c => c.id));
+        }
+
+        if (onProgress) {
+          onProgress(((i + 1) / chunks.length) * 100);
+        }
+
+        // Rate limiting
+        if (i < chunks.length - 1) {
+          await this.delay(500);
+        }
+      }
+
+      console.log(`✅ Pre-filter complete: ${approvedIds.length}/${candidates.length} approved`);
+      return approvedIds;
+
+    } catch (error) {
+      console.error('AI pre-filter failed, falling back to all candidates:', error);
+      // Fallback: return all candidate IDs if AI fails
+      return candidates.map(c => c.id);
+    }
+  }
+
   async analyzeEmailsForSubscriptions(emails: Email[]): Promise<GeminiAnalysisResult> {
     if (!emails.length) {
       return {
@@ -200,6 +312,14 @@ IMPORTANT: Only suggest subscriptions where you have strong evidence from the em
     const chunks: Email[][] = [];
     for (let i = 0; i < emails.length; i += chunkSize) {
       chunks.push(emails.slice(i, i + chunkSize));
+    }
+    return chunks;
+  }
+
+  private chunkArray<T>(array: T[], chunkSize: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < array.length; i += chunkSize) {
+      chunks.push(array.slice(i, i + chunkSize));
     }
     return chunks;
   }

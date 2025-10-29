@@ -3,6 +3,7 @@ import { storage } from "../storage";
 import { GmailService } from "../services/gmail";
 import { EnhancedEmailParser } from "../services/enhancedEmailParser";
 import { GeminiSubscriptionDetector } from "../services/geminiSubscriptionDetector";
+import { TransactionDetector } from "../services/transactionDetector";
 import { generateServiceKey } from "../utils/serviceKey";
 import { isAuthenticated } from "../replitAuth";
 
@@ -83,106 +84,180 @@ export function registerGeminiRoutes(app: Express) {
       // Get user's email sync days setting (default 90, max 180)
       const emailSyncDays = user.emailSyncDays || 90;
       
-      // Get emails from Gmail (past N days based on user setting, max 5000)
-      const gmailMessages = await gmailService.getEmails(
+      console.log('🚀 OPTIMIZED TWO-PHASE EMAIL PROCESSING');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      
+      // ═══════════════════════════════════════════
+      // PHASE 1: LIGHTWEIGHT SCREENING (FAST)
+      // ═══════════════════════════════════════════
+      
+      console.log('\n📊 PHASE 1: Lightweight Email Screening');
+      console.log('Fetching metadata only (subject, sender, snippet)...\n');
+      
+      // Phase 1a: Fetch lightweight metadata (much faster than full emails)
+      sendProgressUpdate(userId, {
+        stage: 'phase1_metadata_fetch',
+        progress: 10,
+        message: 'Fetching email metadata...'
+      });
+      
+      const emailMetadata = await gmailService.getEmailMetadata(
         accessToken,
         user.gmailRefreshToken!,
-        5000, // Backend limit - fetch up to 5000 emails for AI analysis
+        5000, // Backend limit
         async (newAccessToken: string) => {
           await storage.updateUser(userId, { gmailAccessToken: newAccessToken });
         },
-        emailSyncDays // Pass user's configured email sync days
+        emailSyncDays
       );
-
-      console.log(`📬 Gmail Fetch Complete: ${gmailMessages.length} emails (past ${emailSyncDays} days)`);
-      console.log(`🕰️ Estimated processing time: ${Math.ceil(gmailMessages.length / 50)} minutes for full analysis`);
       
-      // Send Gmail fetch completion update
+      console.log(`✅ Fetched metadata for ${emailMetadata.length} emails`);
+      
       sendProgressUpdate(userId, {
-        stage: 'gmail_fetch',
+        stage: 'phase1_metadata_complete',
         progress: 20,
-        message: `Fetched ${gmailMessages.length} emails from Gmail`,
+        message: `Retrieved metadata for ${emailMetadata.length} emails`,
+        details: { totalEmails: emailMetadata.length }
+      });
+      
+      // Phase 1b: Extract metadata and apply enhanced transaction detection
+      console.log('\n🎯 Applying enhanced transaction detection...');
+      
+      const transactionDetector = new TransactionDetector();
+      const extractedMetadata = emailMetadata.map(msg => {
+        // Extract subject, sender, and snippet from Gmail metadata format
+        const headers = msg.payload?.headers || [];
+        const subject = headers.find((h: any) => h.name === 'Subject')?.value || '';
+        const from = headers.find((h: any) => h.name === 'From')?.value || '';
+        const snippet = msg.snippet || '';
+        
+        // Parse sender email and name
+        const emailMatch = from.match(/<(.+?)>/);
+        const fromEmail = emailMatch ? emailMatch[1] : from;
+        const fromName = from.replace(/<.+?>/, '').trim();
+        
+        return {
+          id: msg.id!, // Include message ID for AI pre-filter
+          subject,
+          fromEmail,
+          fromName,
+          snippet,
+          bodyPreview: snippet
+        };
+      });
+      
+      const detectionResults = transactionDetector.filterCandidates(extractedMetadata);
+      
+      console.log(`\n📊 Phase 1 Detection Results:`);
+      console.log(`   ✅ High confidence: ${detectionResults.stats.high}`);
+      console.log(`   ⚠️  Medium confidence: ${detectionResults.stats.medium}`);
+      console.log(`   ⚡ Low confidence: ${detectionResults.stats.low}`);
+      console.log(`   ❌ Rejected: ${detectionResults.stats.rejected}`);
+      console.log(`   📈 Filter efficiency: ${Math.round((detectionResults.candidates.length / detectionResults.stats.total) * 100)}% pass rate`);
+      
+      sendProgressUpdate(userId, {
+        stage: 'phase1_detection_complete',
+        progress: 30,
+        message: `Identified ${detectionResults.candidates.length} potential candidates`,
+        details: { 
+          candidates: detectionResults.candidates.length,
+          total: emailMetadata.length,
+          stats: detectionResults.stats
+        }
+      });
+      
+      // Phase 1c: AI Pre-filter on candidates (subject+snippet only)
+      console.log(`\n🤖 PHASE 1.5: AI Pre-screening ${detectionResults.candidates.length} candidates...`);
+      
+      sendProgressUpdate(userId, {
+        stage: 'phase1_ai_prefilter',
+        progress: 40,
+        message: `AI pre-filtering ${detectionResults.candidates.length} candidates...`
+      });
+      
+      // Map candidates to include required id field
+      const candidatesWithIds = detectionResults.candidates
+        .filter(c => c.id) // Only include candidates with Gmail IDs
+        .map(c => ({ ...c, id: c.id! })); // Make id non-nullable
+      
+      const aiApprovedIds = await geminiDetector.prefilterCandidates(
+        candidatesWithIds,
+        (progress) => {
+          sendProgressUpdate(userId, {
+            stage: 'phase1_ai_progress',
+            progress: 40 + Math.round(progress * 0.2),
+            message: `AI screening progress: ${Math.round(progress)}%`
+          });
+        }
+      );
+      
+      console.log(`✅ AI approved ${aiApprovedIds.length} emails for deep processing`);
+      console.log(`   Reduction: ${detectionResults.candidates.length} → ${aiApprovedIds.length} (${Math.round((1 - aiApprovedIds.length / detectionResults.candidates.length) * 100)}% filtered out)`);
+      
+      sendProgressUpdate(userId, {
+        stage: 'phase1_complete',
+        progress: 60,
+        message: `Phase 1 complete: ${aiApprovedIds.length} emails selected for deep analysis`,
+        details: { approved: aiApprovedIds.length }
+      });
+      
+      // ═══════════════════════════════════════════
+      // PHASE 2: DEEP PROCESSING (TARGETED)
+      // ═══════════════════════════════════════════
+      
+      console.log('\n\n📥 PHASE 2: Deep Processing of Approved Emails');
+      console.log('Fetching full content + attachments for selected emails only...\n');
+      
+      sendProgressUpdate(userId, {
+        stage: 'phase2_start',
+        progress: 65,
+        message: `Starting deep processing of ${aiApprovedIds.length} emails...`
+      });
+      
+      // Phase 2a: Fetch full email content for approved candidates only
+      const gmailMessages = await gmailService.getEmailsByIds(
+        accessToken,
+        user.gmailRefreshToken!,
+        aiApprovedIds
+      );
+      
+      console.log(`✅ Fetched full content for ${gmailMessages.length} emails`);
+      
+      sendProgressUpdate(userId, {
+        stage: 'phase2_content_fetched',
+        progress: 70,
+        message: `Retrieved full content for ${gmailMessages.length} emails`,
         details: { emailCount: gmailMessages.length }
       });
-
-      // HYBRID APPROACH: First filter with rules, then LLM analysis
       
-      // Step 1: Parse emails with enhanced parser and attach Gmail message ID
+      // Phase 2b: Parse emails
+      console.log('\n📝 Parsing email content...');
       const parsedEmails = [];
       for (let i = 0; i < gmailMessages.length; i++) {
         const msg = gmailMessages[i];
         try {
           const basicEmail = enhancedParser.parseEmail(msg);
-          // CRITICAL: Thread the Gmail message ID so we can uniquely identify emails
           parsedEmails.push({ 
             ...basicEmail, 
-            gmailId: msg.id, // Add Gmail message ID for unique identification
+            gmailId: msg.id,
             attachments: [] 
           });
-          
-          // Progress update every 50 emails
-          if (i % 50 === 0) {
-            console.log(`Parsed ${i}/${gmailMessages.length} emails...`);
-            sendProgressUpdate(userId, {
-              stage: 'parsing',
-              progress: 20 + Math.round((i / gmailMessages.length) * 30),
-              message: `Parsing emails: ${i}/${gmailMessages.length}`,
-              details: { parsed: i, total: gmailMessages.length }
-            });
-          }
         } catch (error) {
           console.error('Error parsing email:', error);
         }
       }
-
-      // Step 2: ENHANCED wide-net rule-based filtering (based on user examples)
-      const candidateEmails = parsedEmails.filter(email => {
-        const content = (email.content + ' ' + email.subject + ' ' + email.fromEmail).toLowerCase();
-        
-        // Original transaction detection
-        const hasTransactionKeywords = email.isTransaction;
-        
-        // Enhanced subscription patterns (much wider net)
-        const subscriptionPatterns = /\$|\₹|rs\b|usd|inr|payment|bill|amount|price|cost|subscription|recurring|membership|trial|premium|upgrade|renewal|auto.?renew|billed|charged|invoice|receipt|statement|plan|order|purchase|transaction|confirmation|welcome|verify|verification|account|profile|thank.?you|feedback|update|notification|alert|reminder|expired|due|service|product|digest|summary|report/i;
-        const hasSubscriptionKeywords = subscriptionPatterns.test(content);
-        
-        // Service/platform patterns (Indian + Global)
-        const servicePatterns = /airtel|jio|vodafone|bsnl|replit|bolt|netflix|hotstar|primevideo|spotify|apple|google|microsoft|openai|github|aws|azure|stripe|razorpay|paytm|phonepe|gpay|upwork|freelancer|linkedin|zoom|slack|notion|figma|canva|dropbox|youtube|uber|ola|swiggy|zomato|flipkart|amazon|myntra|nykaa|bigbasket|grofers|dunzo/i;
-        const hasServiceKeywords = servicePatterns.test(content);
-        
-        // Job/Application patterns (from user's screenshot)
-        const jobPatterns = /application|job|position|career|interview|recruitment|hiring|vacancy|opportunity|apply|submit|submitted|candidate|cv|resume|profile|linkedin|tata|insurance|lead|manager|product/i;
-        const hasJobKeywords = jobPatterns.test(content);
-        
-        // Communication/Verification patterns
-        const communicationPatterns = /verify|verification|confirm|confirmation|activate|activation|welcome|getting.?started|onboard|setup|signin|login|password|security|otp|code|email.?address|phone.?number|profile/i;
-        const hasCommunicationKeywords = communicationPatterns.test(content);
-        
-        // Merchant domains check
-        const hasMerchantDomains = enhancedParser.merchantDomains.some(domain => 
-          email.fromEmail.includes(domain) || email.content.includes(domain)
-        );
-        
-        // MUCH WIDER NET: Include if ANY pattern matches
-        return hasTransactionKeywords || hasSubscriptionKeywords || hasServiceKeywords || hasJobKeywords || hasCommunicationKeywords || hasMerchantDomains;
-      });
       
-      console.log(`🎯 Rule-based filtering results:`);
-      console.log(`   • Total emails parsed: ${parsedEmails.length}`);
-      console.log(`   • Candidate emails selected: ${candidateEmails.length}`);
-      console.log(`   • Filter efficiency: ${Math.round((candidateEmails.length / parsedEmails.length) * 100)}% pass rate`);
-      console.log(`   • This is a ${candidateEmails.length > parsedEmails.length * 0.5 ? 'WIDE' : candidateEmails.length > parsedEmails.length * 0.2 ? 'MODERATE' : 'NARROW'} filter strategy`);
+      console.log(`✅ Parsed ${parsedEmails.length} emails`);
       
-      // Send filtering completion update
       sendProgressUpdate(userId, {
-        stage: 'filtering_complete',
-        progress: 60,
-        message: `Filtered ${candidateEmails.length} candidate emails for AI analysis`,
-        details: { candidates: candidateEmails.length, total: parsedEmails.length }
+        stage: 'phase2_parsing_complete',
+        progress: 75,
+        message: `Parsed ${parsedEmails.length} emails`,
+        details: { parsed: parsedEmails.length }
       });
 
-      // Step 3: Download and process attachments, then save emails to database
-      console.log(`📎 Processing attachments for ${candidateEmails.length} candidate emails...`);
+      // Phase 2c: Download and process attachments for approved emails only
+      console.log(`\n📎 Phase 2c: Processing attachments for ${parsedEmails.length} approved emails...`);
       const savedEmails = [];
       let totalAttachments = 0;
       
@@ -192,7 +267,7 @@ export function registerGeminiRoutes(app: Express) {
       // Create a lookup map for Gmail messages by ID for O(1) access
       const gmailMessageMap = new Map(gmailMessages.map(msg => [msg.id, msg]));
       
-      for (const email of candidateEmails) {
+      for (const email of parsedEmails) {
         try {
           // CRITICAL FIX: Use Gmail message ID directly (already attached in Step 1)
           if (!email.gmailId) {
@@ -348,8 +423,8 @@ export function registerGeminiRoutes(app: Express) {
         message: "Enhanced LLM sync completed - review suggestions",
         sessionId,
         emailsProcessed: savedEmails.length,
-        candidateEmails: candidateEmails.length,
-        totalEmails: parsedEmails.length,
+        candidateEmails: aiApprovedIds.length,
+        totalEmails: emailMetadata.length,
         llmSuggestions: geminiResults.subscriptions.length,
         confidentSuggestions: geminiResults.totalConfidentSubscriptions,
         analysisDate: geminiResults.analysisDate,
