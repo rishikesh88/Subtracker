@@ -434,8 +434,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`🧹 Clearing all data for user: ${userId}`);
       
-      // Clear all emails
-      const emails = await storage.getEmails(userId);
+      // Clear all emails - fetch with very large limit to get ALL emails
+      const emails = await storage.getEmails(userId, 999999);
       for (const email of emails) {
         await storage.deleteEmail(email.id);
       }
