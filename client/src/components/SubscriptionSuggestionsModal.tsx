@@ -35,7 +35,16 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
   }>({
     queryKey: [`/api/suggestions?userId=${userId}&page=${currentPage}&pageSize=${pageSize}&minConfidence=${confidenceFilter}`],
     enabled: !!userId && open, // Only fetch when modal is open
+    refetchOnMount: true, // Always refetch fresh data when modal opens
+    staleTime: 0, // Consider data stale immediately to ensure fresh fetches
   });
+  
+  // Force refetch when modal opens
+  useEffect(() => {
+    if (open && userId) {
+      refetch();
+    }
+  }, [open, userId, refetch]);
 
   const { suggestions, total } = suggestionsData;
   const totalPages = Math.ceil(total / pageSize);
