@@ -36,6 +36,8 @@ export const users = pgTable("users", {
   lastSync: timestamp("last_sync"),
   // Currency preference
   preferredCurrency: text("preferred_currency").default("INR").notNull(),
+  // Email sync settings
+  emailSyncDays: integer("email_sync_days").default(90).notNull(), // Number of days to fetch emails (1-180)
 });
 
 export const subscriptions = pgTable("subscriptions", {
@@ -139,6 +141,7 @@ export const updateUserSchema = createInsertSchema(users).pick({
   gmailEmail: true,
   lastSync: true,
   preferredCurrency: true,
+  emailSyncDays: true,
   updatedAt: true,
 });
 
@@ -158,13 +161,15 @@ export const safeUserSchema = createInsertSchema(users).pick({
   gmailEmail: true,
   lastSync: true,
   preferredCurrency: true,
+  emailSyncDays: true,
   createdAt: true,
   updatedAt: true,
 });
 
-// Settings schema for currency preference updates
+// Settings schema for user preference updates
 export const updateSettingsSchema = z.object({
-  preferredCurrency: currencyEnum,
+  preferredCurrency: currencyEnum.optional(),
+  emailSyncDays: z.number().int().min(1).max(180).optional(),
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
