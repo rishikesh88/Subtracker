@@ -261,6 +261,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const gmailService = new GmailService();
       
+      // Check if access token is expired and refresh if needed
+      let accessToken = user.gmailAccessToken;
+      const now = new Date();
+      const tokenExpiry = user.gmailTokenExpiry ? new Date(user.gmailTokenExpiry) : null;
+      
+      if (tokenExpiry && now >= tokenExpiry) {
+        console.log('⚠️ Access token expired, refreshing...');
+        try {
+          const newTokens = await gmailService.refreshAccessToken(user.gmailRefreshToken!);
+          accessToken = newTokens.access_token!;
+          
+          // Update user with new tokens
+          await storage.updateUser(userId, {
+            gmailAccessToken: accessToken,
+            gmailTokenExpiry: newTokens.expiry_date ? new Date(newTokens.expiry_date) : null,
+          });
+          
+          console.log('✅ Access token refreshed successfully');
+        } catch (error) {
+          console.error('❌ Failed to refresh access token:', error);
+          return res.status(401).json({ 
+            message: "Gmail authentication expired. Please reconnect your Gmail account.",
+            error: "token_refresh_failed"
+          });
+        }
+      }
+      
       // Create token refresh callback to update storage
       const onTokenRefresh = async (newAccessToken: string) => {
         try {
@@ -275,7 +302,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Fetch emails from Gmail
       const gmailMessages = await gmailService.getEmails(
-        user.gmailAccessToken,
+        accessToken,
         user.gmailRefreshToken || '',
         200, // Fetch up to 200 emails
         onTokenRefresh

@@ -47,9 +47,42 @@ export function registerGeminiRoutes(app: Express) {
         message: 'Initializing sync process...'
       });
       
+      // Check if access token is expired and refresh if needed
+      let accessToken = user.gmailAccessToken;
+      const now = new Date();
+      const tokenExpiry = user.gmailTokenExpiry ? new Date(user.gmailTokenExpiry) : null;
+      
+      if (tokenExpiry && now >= tokenExpiry) {
+        console.log('⚠️ Access token expired, refreshing...');
+        sendProgressUpdate(userId, {
+          stage: 'token_refresh',
+          progress: 5,
+          message: 'Refreshing Gmail authentication...'
+        });
+        
+        try {
+          const newTokens = await gmailService.refreshAccessToken(user.gmailRefreshToken!);
+          accessToken = newTokens.access_token!;
+          
+          // Update user with new tokens
+          await storage.updateUser(userId, {
+            gmailAccessToken: accessToken,
+            gmailTokenExpiry: newTokens.expiry_date ? new Date(newTokens.expiry_date) : null,
+          });
+          
+          console.log('✅ Access token refreshed successfully');
+        } catch (error) {
+          console.error('❌ Failed to refresh access token:', error);
+          return res.status(401).json({ 
+            message: "Gmail authentication expired. Please reconnect your Gmail account.",
+            error: "token_refresh_failed"
+          });
+        }
+      }
+      
       // Get emails from Gmail (past 90 days)
       const gmailMessages = await gmailService.getEmails(
-        user.gmailAccessToken,
+        accessToken,
         user.gmailRefreshToken!,
         1000, // Limit for LLM processing
         async (newAccessToken: string) => {
