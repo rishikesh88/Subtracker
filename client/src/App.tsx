@@ -34,12 +34,14 @@ function Router() {
         <>
           <Route path="/" component={Landing} />
           {/* Redirect protected routes to landing when not authenticated */}
+          <Route path="/dashboard" component={() => { window.location.href = '/'; return null; }} />
           <Route path="/subscriptions" component={() => { window.location.href = '/'; return null; }} />
           <Route path="/settings" component={() => { window.location.href = '/'; return null; }} />
         </>
       ) : (
         <>
           <Route path="/" component={Dashboard} />
+          <Route path="/dashboard" component={Dashboard} />
           <Route path="/subscriptions" component={Subscriptions} />
           <Route path="/settings" component={Settings} />
         </>

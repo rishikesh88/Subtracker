@@ -39,17 +39,17 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
   const { suggestions, total } = suggestionsData;
   const totalPages = Math.ceil(total / pageSize);
 
-  // Reset selection and auto-select high confidence suggestions when page or data changes
+  // Reset selection and auto-select high confidence suggestions when page changes or modal opens
   useEffect(() => {
-    if (suggestions.length > 0) {
+    if (!isLoading && suggestions.length > 0) {
       const highConfidenceIds = suggestions
         .filter(s => s.confidence === 'high')
         .map(s => s.id);
       setSelectedSuggestions(highConfidenceIds);
-    } else {
+    } else if (!isLoading && suggestions.length === 0) {
       setSelectedSuggestions([]);
     }
-  }, [suggestions, currentPage]);
+  }, [currentPage, isLoading]); // Only depend on page changes and loading state
 
   // Approve suggestions mutation with optimistic updates
   const approveMutation = useMutation({
