@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { PDFParse } from 'pdf-parse';
 
 export class GmailService {
   private oauth2Client;
@@ -217,6 +218,97 @@ export class GmailService {
     const oauth2 = google.oauth2({ version: 'v2', auth: this.oauth2Client });
     const response = await oauth2.userinfo.get();
     return response.data;
+  }
+
+  /**
+   * Download and process attachments from a Gmail message
+   * Supports PDFs and images
+   */
+  async processAttachments(gmail: any, messageId: string, message: any): Promise<{
+    hasAttachments: boolean;
+    attachments: Array<{
+      filename: string;
+      mimeType: string;
+      size: number;
+      extractedText?: string;
+      base64Data?: string;
+    }>;
+  }> {
+    const attachments: any[] = [];
+    let hasAttachments = false;
+
+    try {
+      // Look for attachments in message parts
+      const parts = message.payload?.parts || [];
+      
+      for (const part of parts) {
+        // Check if this part is an attachment
+        if (part.filename && part.body?.attachmentId) {
+          hasAttachments = true;
+          const filename = part.filename;
+          const mimeType = part.mimeType || '';
+          const size = part.body.size || 0;
+
+          // Only process PDFs and images, and limit size to 5MB
+          const isPDF = mimeType.includes('pdf');
+          const isImage = mimeType.includes('image');
+          
+          if ((isPDF || isImage) && size < 5 * 1024 * 1024) {
+            try {
+              // Download the attachment
+              const attachment = await gmail.users.messages.attachments.get({
+                userId: 'me',
+                messageId: messageId,
+                id: part.body.attachmentId
+              });
+
+              const data = Buffer.from(attachment.data.data, 'base64');
+
+              if (isPDF) {
+                // Extract text from PDF
+                const extractedText = await this.extractPDFText(data);
+                attachments.push({
+                  filename,
+                  mimeType,
+                  size,
+                  extractedText
+                });
+              } else if (isImage) {
+                // Store base64 for Gemini Vision API processing
+                attachments.push({
+                  filename,
+                  mimeType,
+                  size,
+                  base64Data: attachment.data.data
+                });
+              }
+            } catch (attachmentError) {
+              console.error(`Error processing attachment ${filename}:`, attachmentError);
+              // Continue with other attachments even if one fails
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error processing attachments:', error);
+    }
+
+    return { hasAttachments, attachments };
+  }
+
+  /**
+   * Extract text from PDF buffer
+   */
+  private async extractPDFText(buffer: Buffer): Promise<string> {
+    try {
+      const parser = new PDFParse({ data: buffer });
+      const result = await parser.getText();
+      await parser.destroy();
+      return result.text || '';
+    } catch (error) {
+      console.error('Error extracting PDF text:', error);
+      return '';
+    }
   }
 }
 

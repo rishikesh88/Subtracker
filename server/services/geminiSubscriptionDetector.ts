@@ -18,6 +18,16 @@ interface SubscriptionSuggestion {
   reasoning: string;
   nextBillingDate?: string;
   isActive: boolean;
+  
+  // Enhanced validation and detection evidence
+  recurringKeywords: string[]; // Keywords found: "monthly", "auto-renew", etc.
+  validationChecks: {
+    subjectValid: boolean;
+    contentValid: boolean;
+    attachmentValid: boolean;
+  };
+  attachmentEvidence?: string; // Summary of findings from PDFs/images
+  senderHistory?: string; // Pattern detected from sender's historical emails
 }
 
 interface GeminiAnalysisResult {
@@ -93,40 +103,37 @@ export class GeminiSubscriptionDetector {
       attachments: email.attachmentData ? JSON.parse(email.attachmentData) : []
     }));
 
-    const systemPrompt = `You are an expert subscription detection system. Analyze the provided emails and their attachments to identify recurring subscription services.
+    const systemPrompt = `You are an expert subscription detection system. You MUST perform comprehensive validation on emails before suggesting subscriptions.
 
-For each subscription you detect, consider:
+VALIDATION REQUIREMENTS (ALL must pass):
+1. Subject Line: Must contain transaction/subscription indicators (invoice, receipt, payment, subscription, billing, charged)
+2. Content (Body/HTML): Must contain payment/billing details, amounts, merchant info
+3. Attachments: If present, PDF/images MUST contain billing info, amounts, or invoice details
+
+RECURRING DETECTION (identify ALL patterns):
+- Keywords: "monthly", "annual", "auto-renew", "recurring", "subscription", "membership", "plan"
+- Sender History: Multiple emails from same sender with similar amounts
+- Frequency Patterns: Weekly, monthly, quarterly, yearly billing cycles
+
+For EACH subscription detected, you MUST provide:
 1. Service name and merchant
-2. Billing amount and currency
+2. Exact billing amount and currency
 3. Billing frequency (monthly, quarterly, yearly, weekly)
 4. Service category (streaming, software, utilities, telecom, fitness, etc.)
-5. Confidence level based on evidence strength
-6. Whether it appears to be an active subscription
+5. Validation results: Did subject, content, AND attachments all indicate a valid transaction?
+6. Recurring keywords found in the email
+7. Evidence from attachments (if any)
+8. Pattern detected from sender's email history
+9. Detailed reasoning explaining why this is a subscription
 
-Assign confidence levels:
-- HIGH: Clear subscription language, recurring billing terms, known subscription services
-- MEDIUM: Strong indicators but some ambiguity
-- LOW: Possible subscription but weak evidence
+Confidence Levels (STRICT criteria):
+- HIGH: All 3 validation checks pass + Clear recurring indicators + Known subscription service
+- MEDIUM: 2/3 validation checks pass + Some recurring indicators
+- LOW: Only 1/3 validation check passes OR weak recurring evidence
 
-Focus on Indian services like Airtel, Jio, Netflix India, Hotstar, Paytm, PhonePe, Replit, and international services with INR billing.
+Focus on Indian services (Airtel, Jio, Netflix India, Hotstar, Paytm, PhonePe, Replit) and international services with INR billing.
 
-Respond only with valid JSON matching this exact schema:
-{
-  "subscriptions": [
-    {
-      "serviceName": "string",
-      "merchantName": "string", 
-      "amount": number,
-      "currency": "string",
-      "frequency": "monthly|quarterly|yearly|weekly",
-      "category": "string",
-      "confidence": "high|medium|low",
-      "reasoning": "string",
-      "nextBillingDate": "YYYY-MM-DD or null",
-      "isActive": boolean
-    }
-  ]
-}`;
+IMPORTANT: Only suggest subscriptions where you have strong evidence from the email content and attachments. Do not suggest if validation fails.`;
 
     const response = await this.ai.models.generateContent({
       model: "gemini-2.5-pro",
@@ -150,9 +157,21 @@ Respond only with valid JSON matching this exact schema:
                   confidence: { type: "string", enum: ["high", "medium", "low"] },
                   reasoning: { type: "string" },
                   nextBillingDate: { type: "string" },
-                  isActive: { type: "boolean" }
+                  isActive: { type: "boolean" },
+                  recurringKeywords: { type: "array", items: { type: "string" } },
+                  validationChecks: {
+                    type: "object",
+                    properties: {
+                      subjectValid: { type: "boolean" },
+                      contentValid: { type: "boolean" },
+                      attachmentValid: { type: "boolean" }
+                    },
+                    required: ["subjectValid", "contentValid", "attachmentValid"]
+                  },
+                  attachmentEvidence: { type: "string" },
+                  senderHistory: { type: "string" }
                 },
-                required: ["serviceName", "merchantName", "amount", "currency", "frequency", "category", "confidence", "reasoning", "isActive"]
+                required: ["serviceName", "merchantName", "amount", "currency", "frequency", "category", "confidence", "reasoning", "isActive", "recurringKeywords", "validationChecks"]
               }
             }
           },
@@ -220,12 +239,15 @@ Respond only with valid JSON matching this exact schema:
     return suggestions.map(suggestion => ({
       id: `suggested_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       userId,
+      merchantName: suggestion.merchantName,
       serviceName: suggestion.serviceName,
+      serviceKey: `${suggestion.merchantName.toLowerCase()}_${suggestion.frequency}`.replace(/\s+/g, '_'),
       amount: suggestion.amount.toString(),
       currency: suggestion.currency,
       frequency: suggestion.frequency,
       category: suggestion.category,
       status: 'suggested',
+      occurrences: 1,
       merchantEmail: null,
       nextBillingDate: suggestion.nextBillingDate ? new Date(suggestion.nextBillingDate) : null,
       lastEmailDate: null,

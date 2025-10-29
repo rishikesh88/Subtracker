@@ -93,6 +93,13 @@ export const subscriptionSuggestions = pgTable("subscription_suggestions", {
   occurrences: integer("occurrences").notNull().default(1), // Number of supporting emails
   recurrenceType: text("recurrence_type"), // detected pattern: weekly, monthly, yearly
   recurrenceScore: integer("recurrence_score").default(0), // 0-100 confidence in recurrence
+  
+  // Enhanced recurring detection evidence
+  recurringKeywords: text("recurring_keywords").array(), // Keywords found: "monthly", "auto-renew", etc.
+  senderHistory: text("sender_history"), // JSON: historical emails from same sender with amounts
+  attachmentEvidence: text("attachment_evidence"), // JSON: PDF/image analysis results
+  validationChecks: text("validation_checks"), // JSON: subject, content, attachment validation results
+  
   nextBillingDate: timestamp("next_billing_date"),
   lastSeen: timestamp("last_seen").notNull(),
   detectedAt: timestamp("detected_at").defaultNow(),
