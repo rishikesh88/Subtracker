@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 const addSubscriptionFormSchema = z.object({
   serviceName: z.string().min(1, "Service name is required"),
-  amount: z.string().min(0.01, "Amount must be greater than 0"),
+  amount: z.coerce.number().positive("Amount must be greater than 0"),
   currency: z.string().min(1, "Currency is required"),
   frequency: z.enum(["monthly", "yearly", "quarterly", "weekly"]),
   category: z.string().optional(),
@@ -36,7 +36,7 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
     resolver: zodResolver(addSubscriptionFormSchema),
     defaultValues: {
       serviceName: "",
-      amount: "",
+      amount: 0,
       currency: "INR",
       frequency: "monthly",
       category: "",

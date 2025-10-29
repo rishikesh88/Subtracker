@@ -339,18 +339,28 @@ export default function Dashboard() {
             </div>
             <div className="flex items-center space-x-4">
               {!user || !user.gmailConnected ? (
-                <Button
-                  onClick={handleConnectGmail}
-                  disabled={gmailAuthMutation.isPending}
-                  data-testid="connect-gmail"
-                >
-                  {gmailAuthMutation.isPending ? (
-                    <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-                  ) : (
-                    <Mail className="w-4 h-4 mr-2" />
-                  )}
-                  Connect Gmail
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={handleConnectGmail}
+                    disabled={gmailAuthMutation.isPending}
+                    data-testid="connect-gmail"
+                  >
+                    {gmailAuthMutation.isPending ? (
+                      <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                    ) : (
+                      <Mail className="w-4 h-4 mr-2" />
+                    )}
+                    Connect Gmail
+                  </Button>
+                  <Button
+                    variant="default"
+                    onClick={() => setAddSubscriptionModalOpen(true)}
+                    data-testid="add-subscription"
+                  >
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Subscription
+                  </Button>
+                </div>
               ) : (
                 <div className="flex gap-2">
                   <Button

@@ -5,6 +5,7 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
+import { useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -14,7 +15,7 @@ import { Subscription } from "@shared/schema";
 
 const editSubscriptionFormSchema = z.object({
   serviceName: z.string().min(1, "Service name is required"),
-  amount: z.string().min(0.01, "Amount must be greater than 0"),
+  amount: z.coerce.number().positive("Amount must be greater than 0"),
   currency: z.string().min(1, "Currency is required"),
   frequency: z.enum(["monthly", "yearly", "quarterly", "weekly"]),
   category: z.string().optional(),
@@ -36,26 +37,28 @@ export function EditSubscriptionModal({ subscription, open, onOpenChange }: Edit
   const form = useForm<EditSubscriptionFormData>({
     resolver: zodResolver(editSubscriptionFormSchema),
     defaultValues: {
-      serviceName: subscription?.serviceName || "",
-      amount: subscription?.amount || "",
-      currency: subscription?.currency || "INR",
-      frequency: subscription?.frequency as any || "monthly",
-      category: subscription?.category || "",
-      status: subscription?.status as any || "active",
+      serviceName: "",
+      amount: 0,
+      currency: "INR",
+      frequency: "monthly",
+      category: "",
+      status: "active",
     },
   });
 
-  // Reset form when subscription changes
-  if (subscription && open) {
-    form.reset({
-      serviceName: subscription.serviceName,
-      amount: subscription.amount,
-      currency: subscription.currency,
-      frequency: subscription.frequency as any,
-      category: subscription.category || "",
-      status: subscription.status as any,
-    });
-  }
+  // Reset form when subscription or modal open state changes
+  useEffect(() => {
+    if (subscription && open) {
+      form.reset({
+        serviceName: subscription.serviceName,
+        amount: Number(subscription.amount),
+        currency: subscription.currency,
+        frequency: subscription.frequency as any,
+        category: subscription.category || "",
+        status: subscription.status as any,
+      });
+    }
+  }, [subscription?.id, open, form]);
 
   const updateMutation = useMutation({
     mutationFn: async (data: EditSubscriptionFormData) => {
