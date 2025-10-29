@@ -9,8 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { CheckCircle, XCircle, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
+import { CheckCircle, XCircle, AlertCircle, ChevronLeft, ChevronRight, ChevronDown, CheckSquare, FileText } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface SubscriptionSuggestionsModalProps {
   open: boolean;
@@ -406,6 +407,105 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
                             {suggestion.category || "Other"}
                           </span>
                         </div>
+                        
+                        {/* Evidence Details - Expandable Section */}
+                        <Collapsible className="mt-3 pt-3 border-t">
+                          <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full">
+                            <ChevronDown className="h-3 w-3" />
+                            <span>View Analysis Details</span>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="mt-2 space-y-2">
+                            {/* Validation Checks */}
+                            {suggestion.validationChecks && (() => {
+                              try {
+                                const checks = typeof suggestion.validationChecks === 'string' 
+                                  ? JSON.parse(suggestion.validationChecks)
+                                  : suggestion.validationChecks;
+                                return (
+                                  <div className="text-xs space-y-1 bg-muted/30 p-2 rounded">
+                                    <div className="font-medium mb-1">Validation Results:</div>
+                                    <div className="flex items-center gap-1.5">
+                                      {checks.subjectValid ? (
+                                        <CheckCircle className="h-3 w-3 text-green-600" />
+                                      ) : (
+                                        <XCircle className="h-3 w-3 text-red-600" />
+                                      )}
+                                      <span className={checks.subjectValid ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}>
+                                        Subject Line
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      {checks.contentValid ? (
+                                        <CheckCircle className="h-3 w-3 text-green-600" />
+                                      ) : (
+                                        <XCircle className="h-3 w-3 text-red-600" />
+                                      )}
+                                      <span className={checks.contentValid ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}>
+                                        Email Content
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      {checks.attachmentValid ? (
+                                        <CheckCircle className="h-3 w-3 text-green-600" />
+                                      ) : (
+                                        <XCircle className="h-3 w-3 text-red-600" />
+                                      )}
+                                      <span className={checks.attachmentValid ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"}>
+                                        Attachments
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              } catch {
+                                return null;
+                              }
+                            })()}
+                            
+                            {/* Recurring Keywords */}
+                            {suggestion.recurringKeywords && suggestion.recurringKeywords.length > 0 && (
+                              <div className="text-xs space-y-1 bg-muted/30 p-2 rounded">
+                                <div className="font-medium mb-1 flex items-center gap-1">
+                                  <CheckSquare className="h-3 w-3" />
+                                  Recurring Patterns Found:
+                                </div>
+                                <div className="flex flex-wrap gap-1">
+                                  {suggestion.recurringKeywords.map((keyword, idx) => (
+                                    <Badge key={idx} variant="secondary" className="text-xs py-0 px-1.5">
+                                      {keyword}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Attachment Evidence */}
+                            {suggestion.attachmentEvidence && (
+                              <div className="text-xs space-y-1 bg-muted/30 p-2 rounded">
+                                <div className="font-medium mb-1 flex items-center gap-1">
+                                  <FileText className="h-3 w-3" />
+                                  Attachment Findings:
+                                </div>
+                                <p className="text-muted-foreground">{suggestion.attachmentEvidence}</p>
+                              </div>
+                            )}
+                            
+                            {/* Sender History */}
+                            {suggestion.senderHistory && (
+                              <div className="text-xs space-y-1 bg-muted/30 p-2 rounded">
+                                <div className="font-medium mb-1">Email History Pattern:</div>
+                                <p className="text-muted-foreground">{suggestion.senderHistory}</p>
+                              </div>
+                            )}
+                            
+                            {/* AI Reasoning */}
+                            {suggestion.reasoning && (
+                              <div className="text-xs space-y-1 bg-muted/30 p-2 rounded">
+                                <div className="font-medium mb-1">AI Analysis:</div>
+                                <p className="text-muted-foreground">{suggestion.reasoning}</p>
+                              </div>
+                            )}
+                          </CollapsibleContent>
+                        </Collapsible>
                         
                         {/* Quick Action Buttons */}
                         <div className="flex items-center gap-2 mt-3 pt-3 border-t">

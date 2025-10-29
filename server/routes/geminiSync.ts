@@ -103,15 +103,18 @@ export function registerGeminiRoutes(app: Express) {
 
       // HYBRID APPROACH: First filter with rules, then LLM analysis
       
-      // Step 1: Parse emails with enhanced parser (includes attachments)
+      // Step 1: Parse emails with enhanced parser and attach Gmail message ID
       const parsedEmails = [];
       for (let i = 0; i < gmailMessages.length; i++) {
         const msg = gmailMessages[i];
         try {
-          // Note: For now, we'll skip attachment processing to focus on core LLM functionality
-          // TODO: Add full attachment processing after core implementation
           const basicEmail = enhancedParser.parseEmail(msg);
-          parsedEmails.push({ ...basicEmail, attachments: [] });
+          // CRITICAL: Thread the Gmail message ID so we can uniquely identify emails
+          parsedEmails.push({ 
+            ...basicEmail, 
+            gmailId: msg.id, // Add Gmail message ID for unique identification
+            attachments: [] 
+          });
           
           // Progress update every 50 emails
           if (i % 50 === 0) {
@@ -174,50 +177,84 @@ export function registerGeminiRoutes(app: Express) {
         details: { candidates: candidateEmails.length, total: parsedEmails.length }
       });
 
-      // Step 3: Save candidate emails to database
+      // Step 3: Download and process attachments, then save emails to database
+      console.log(`📎 Processing attachments for ${candidateEmails.length} candidate emails...`);
       const savedEmails = [];
+      let totalAttachments = 0;
+      
+      // Create a lookup map for Gmail messages by ID for O(1) access
+      const gmailMessageMap = new Map(gmailMessages.map(msg => [msg.id, msg]));
+      
       for (const email of candidateEmails) {
         try {
-          // Check if email already exists
-          const existingEmail = await storage.getEmailByGmailId(
-            gmailMessages.find(msg => 
-              enhancedParser.getHeader(msg.payload?.headers || [], 'Subject') === email.subject &&
-              enhancedParser.getHeader(msg.payload?.headers || [], 'From')?.includes(email.fromEmail)
-            )?.id || `unknown_${Date.now()}`
-          );
+          // CRITICAL FIX: Use Gmail message ID directly (already attached in Step 1)
+          if (!email.gmailId) {
+            console.error('Missing Gmail ID for email:', email.subject);
+            continue;
+          }
           
-          if (!existingEmail) {
-            const emailData = {
-              userId,
-              gmailId: gmailMessages.find(msg => 
-                enhancedParser.getHeader(msg.payload?.headers || [], 'Subject') === email.subject &&
-                enhancedParser.getHeader(msg.payload?.headers || [], 'From')?.includes(email.fromEmail)
-              )?.id || `gmail_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-              subject: email.subject,
-              fromEmail: email.fromEmail,
-              fromName: email.fromName || null,
-              receivedAt: email.receivedAt,
-              content: email.content,
-              attachmentData: null, // TODO: Add attachment support
-              isTransaction: email.isTransaction,
-              extractedAmount: email.extractedAmount?.toString() || null,
-              extractedCurrency: email.extractedCurrency || null,
-              merchantName: email.merchantName || null,
-              subscriptionId: null,
-              processed: false
-            };
+          const gmailMessage = gmailMessageMap.get(email.gmailId);
+          if (!gmailMessage) {
+            console.error('Gmail message not found for ID:', email.gmailId);
+            continue;
+          }
+          
+          // Check if email already exists
+          const existingEmail = await storage.getEmailByGmailId(email.gmailId);
+          
+          // CRITICAL FIX: Always process attachments for each unique Gmail ID
+          // Even if email exists, update attachment data if not already processed
+          if (!existingEmail || !existingEmail.attachmentData) {
+            // Process attachments
+            let attachmentData = null;
+            if (gmailMessage.payload?.parts) {
+              const attachmentProcessingResult = await gmailService.processEmailAttachments(gmailMessage);
+              if (attachmentProcessingResult.attachments.length > 0) {
+                attachmentData = JSON.stringify(attachmentProcessingResult);
+                totalAttachments += attachmentProcessingResult.attachments.length;
+                console.log(`  📎 Processed ${attachmentProcessingResult.attachments.length} attachments for email: ${email.subject.substring(0, 50)}...`);
+              }
+            }
             
-            const saved = await storage.createEmail(emailData);
-            if (saved) {
-              savedEmails.push(saved);
+            if (!existingEmail) {
+              // Create new email
+              const emailData = {
+                userId,
+                gmailId: email.gmailId,
+                subject: email.subject,
+                fromEmail: email.fromEmail,
+                fromName: email.fromName || null,
+                receivedAt: email.receivedAt,
+                content: email.content,
+                attachmentData,
+                isTransaction: email.isTransaction,
+                extractedAmount: email.extractedAmount?.toString() || null,
+                extractedCurrency: email.extractedCurrency || null,
+                merchantName: email.merchantName || null,
+                subscriptionId: null,
+                processed: false
+              };
+              
+              const saved = await storage.createEmail(emailData);
+              if (saved) {
+                savedEmails.push(saved);
+              }
+            } else if (attachmentData) {
+              // Update existing email with attachment data
+              await storage.updateEmail(existingEmail.id, { attachmentData });
+              savedEmails.push({ ...existingEmail, attachmentData });
+            } else {
+              savedEmails.push(existingEmail);
             }
           } else {
             savedEmails.push(existingEmail);
           }
         } catch (error) {
-          console.error('Error saving email:', error);
+          console.error('Error processing email with attachments:', error);
         }
       }
+      
+      console.log(`✅ Processed ${savedEmails.length} emails with ${totalAttachments} total attachments`);
 
       // Step 4: LLM Analysis with Gemini
       let geminiResults;
