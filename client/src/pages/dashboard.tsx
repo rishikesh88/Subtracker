@@ -154,7 +154,7 @@ export default function Dashboard() {
   const clearDataMutation = useMutation({
     mutationFn: async () => {
       if (!currentUserId) throw new Error("No user ID");
-      const response = await apiRequest("DELETE", `/api/clear-data/${currentUserId}`);
+      const response = await apiRequest("DELETE", `/api/clear-data`);
       return response.json();
     },
     onSuccess: (data) => {
