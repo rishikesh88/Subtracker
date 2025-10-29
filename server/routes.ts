@@ -416,6 +416,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create a new subscription manually
+  app.post("/api/subscriptions", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      const subscriptionData = insertSubscriptionSchema.parse({
+        ...req.body,
+        userId,
+      });
+
+      const subscription = await storage.createSubscription(subscriptionData);
+      res.status(201).json(subscription);
+    } catch (error) {
+      console.error("Create subscription error:", error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid subscription data", details: (error as any).issues });
+      }
+      res.status(500).json({ message: "Failed to create subscription" });
+    }
+  });
+
+  // Update an existing subscription
+  app.patch("/api/subscriptions/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { id } = req.params;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      // Verify the subscription belongs to the user
+      const existingSubscription = await storage.getSubscription(id);
+      if (!existingSubscription) {
+        return res.status(404).json({ message: "Subscription not found" });
+      }
+      if (existingSubscription.userId !== userId) {
+        return res.status(403).json({ message: "Unauthorized to modify this subscription" });
+      }
+
+      const updates = updateSubscriptionSchema.parse(req.body);
+      const updatedSubscription = await storage.updateSubscription(id, updates);
+      
+      if (!updatedSubscription) {
+        return res.status(404).json({ message: "Subscription not found" });
+      }
+
+      res.json(updatedSubscription);
+    } catch (error) {
+      console.error("Update subscription error:", error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid subscription data", details: (error as any).issues });
+      }
+      res.status(500).json({ message: "Failed to update subscription" });
+    }
+  });
+
   // Get user settings (currency preference)
   app.get("/api/settings", isAuthenticated, async (req: any, res) => {
     try {

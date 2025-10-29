@@ -128,6 +128,15 @@ export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
   detectedAt: true,
 });
 
+export const updateSubscriptionSchema = createInsertSchema(subscriptions).pick({
+  serviceName: true,
+  amount: true,
+  currency: true,
+  frequency: true,
+  category: true,
+  status: true,
+}).partial();
+
 export const insertEmailSchema = createInsertSchema(emails).omit({
   id: true,
   analyzedAt: true,
@@ -178,6 +187,7 @@ export type User = typeof users.$inferSelect;
 export type SafeUser = z.infer<typeof safeUserSchema>;
 export type Subscription = typeof subscriptions.$inferSelect;
 export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
+export type UpdateSubscription = z.infer<typeof updateSubscriptionSchema>;
 export type SubscriptionSuggestion = typeof subscriptionSuggestions.$inferSelect;
 export type InsertSubscriptionSuggestion = z.infer<typeof insertSubscriptionSuggestionSchema>;
 export type Email = typeof emails.$inferSelect;
