@@ -72,11 +72,11 @@ export class GmailService {
 
     const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
     
-    // Use broader search to catch forwarded emails (6 months instead of 90 days)
-    const baseQuery = 'newer_than:180d';
+    // Fetch emails from past 90 days
+    const baseQuery = 'newer_than:90d';
     
     // Subscription-targeted query to catch more subscription emails  
-    const subscriptionQuery = 'newer_than:180d (receipt OR invoice OR subscription OR renewal OR billed OR payment OR statement OR plan OR membership OR trial OR bank OR card OR charged OR billing)';
+    const subscriptionQuery = 'newer_than:90d (receipt OR invoice OR subscription OR renewal OR billed OR payment OR statement OR plan OR membership OR trial OR bank OR card OR charged OR billing)';
     
     console.log(`🔍 Gmail API: Enhanced email fetching with subscription detection`);
     console.log(`📧 Base Query: ${baseQuery}`);
