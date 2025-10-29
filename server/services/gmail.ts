@@ -223,9 +223,10 @@ export class GmailService {
 
   private async fetchMetadataInBatches(gmail: any, messageIds: string[]): Promise<any[]> {
     const metadata: any[] = [];
-    const batchSize = 50; // Larger batches for metadata since it's lightweight
+    const batchSize = 5; // Balanced batch size for ~3.3 req/sec
+    const delayBetweenBatches = 1500; // 1.5 seconds between batches
     
-    console.log(`📥 Fetching metadata for ${messageIds.length} emails in batches of ${batchSize}`);
+    console.log(`📥 Fetching metadata for ${messageIds.length} emails in batches of ${batchSize} (rate-limited to ~3.3 req/sec)`);
 
     for (let i = 0; i < messageIds.length; i += batchSize) {
       const batch = messageIds.slice(i, i + batchSize);
@@ -233,27 +234,20 @@ export class GmailService {
       try {
         const batchMetadata = await Promise.all(
           batch.map(async (messageId: string) => {
-            try {
-              // Use 'metadata' format for lightweight fetch
-              const messageResponse = await gmail.users.messages.get({
-                userId: 'me',
-                id: messageId,
-                format: 'metadata',
-                metadataHeaders: ['From', 'Subject', 'Date']
-              });
-              return messageResponse.data;
-            } catch (error) {
-              console.error(`Error fetching metadata for ${messageId}:`, error);
-              return null;
-            }
+            return await this.fetchMetadataWithRetry(gmail, messageId);
           })
         );
 
         const validMetadata = batchMetadata.filter(msg => msg !== null);
         metadata.push(...validMetadata);
 
-        if ((i + batchSize) % 250 === 0 || i + batchSize >= messageIds.length) {
+        if ((i + batchSize) % 100 === 0 || i + batchSize >= messageIds.length) {
           console.log(`Fetched metadata: ${Math.min(i + batchSize, messageIds.length)}/${messageIds.length}`);
+        }
+        
+        // Rate limit delay between batches
+        if (i + batchSize < messageIds.length) {
+          await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
         }
       } catch (error) {
         console.error(`Error fetching metadata batch:`, error);
@@ -263,11 +257,57 @@ export class GmailService {
     return metadata;
   }
 
+  /**
+   * Fetch metadata for a single message with retry logic
+   */
+  private async fetchMetadataWithRetry(gmail: any, messageId: string, maxRetries: number = 3): Promise<any> {
+    let lastError: any = null;
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const messageResponse = await gmail.users.messages.get({
+          userId: 'me',
+          id: messageId,
+          format: 'metadata',
+          metadataHeaders: ['From', 'Subject', 'Date']
+        });
+        return messageResponse.data;
+      } catch (error: any) {
+        lastError = error;
+        
+        // Detect rate limit errors: 403, 429, or Google-specific error reasons
+        const errorReason = error?.errors?.[0]?.reason || '';
+        const isRateLimitError = 
+          error?.code === 403 || 
+          error?.status === 403 || 
+          error?.code === 429 || 
+          error?.status === 429 ||
+          errorReason === 'userRateLimitExceeded' ||
+          errorReason === 'rateLimitExceeded' ||
+          error?.message?.toLowerCase().includes('rate limit') ||
+          error?.message?.toLowerCase().includes('quota exceeded');
+        
+        if (isRateLimitError && attempt < maxRetries - 1) {
+          const delayMs = 2000 * Math.pow(2, attempt); // 2s, 4s, 8s
+          console.warn(`⏳ Rate limit hit for metadata ${messageId.substring(0, 10)}..., retrying in ${delayMs / 1000}s (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        } else if (!isRateLimitError) {
+          console.error(`Error fetching metadata ${messageId}:`, error?.message || error);
+          return null;
+        }
+      }
+    }
+    
+    console.error(`Failed to fetch metadata ${messageId} after ${maxRetries} attempts`);
+    return null;
+  }
+
   private async fetchMessagesInBatches(gmail: any, messageIds: string[]): Promise<any[]> {
     const messages: any[] = [];
-    const batchSize = 20; // Controlled concurrency to avoid rate limits
+    const batchSize = 5; // Reduced to avoid rate limits - Gmail API allows ~250 queries/min
+    const delayBetweenBatches = 2000; // 2 seconds between batches
     
-    console.log(`📥 Fetching ${messageIds.length} email details in batches of ${batchSize} (rate-limited)`);
+    console.log(`📥 Fetching ${messageIds.length} email details in batches of ${batchSize} (rate-limited to ~150 queries/min)`);
 
     for (let i = 0; i < messageIds.length; i += batchSize) {
       const batch = messageIds.slice(i, i + batchSize);
@@ -275,17 +315,7 @@ export class GmailService {
       try {
         const batchMessages = await Promise.all(
           batch.map(async (messageId: string) => {
-            try {
-              const messageResponse = await gmail.users.messages.get({
-                userId: 'me',
-                id: messageId,
-                format: 'full'
-              });
-              return messageResponse.data;
-            } catch (error) {
-              console.error(`Error fetching message ${messageId}:`, error);
-              return null;
-            }
+            return await this.fetchMessageWithRetry(gmail, messageId, 3);
           })
         );
 
@@ -294,13 +324,13 @@ export class GmailService {
         messages.push(...validMessages);
 
         // Progress logging
-        if ((i + batchSize) % 100 === 0 || i + batchSize >= messageIds.length) {
+        if ((i + batchSize) % 25 === 0 || i + batchSize >= messageIds.length) {
           console.log(`Processed ${Math.min(i + batchSize, messageIds.length)}/${messageIds.length} messages`);
         }
 
-        // Small delay to be respectful to Gmail API
+        // Rate limit: 2 second delay between batches to stay within Gmail API limits
         if (i + batchSize < messageIds.length) {
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
         }
       } catch (error) {
         console.error(`Error fetching batch starting at ${i}:`, error);
@@ -309,6 +339,53 @@ export class GmailService {
     }
 
     return messages;
+  }
+
+  /**
+   * Fetch a single message with exponential backoff retry for rate limit errors
+   */
+  private async fetchMessageWithRetry(gmail: any, messageId: string, maxRetries: number = 3): Promise<any> {
+    let lastError: any = null;
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const messageResponse = await gmail.users.messages.get({
+          userId: 'me',
+          id: messageId,
+          format: 'full'
+        });
+        return messageResponse.data;
+      } catch (error: any) {
+        lastError = error;
+        
+        // Detect rate limit errors: 403, 429, or Google-specific error reasons
+        const errorReason = error?.errors?.[0]?.reason || '';
+        const isRateLimitError = 
+          error?.code === 403 || 
+          error?.status === 403 || 
+          error?.code === 429 || 
+          error?.status === 429 ||
+          errorReason === 'userRateLimitExceeded' ||
+          errorReason === 'rateLimitExceeded' ||
+          error?.message?.toLowerCase().includes('rate limit') ||
+          error?.message?.toLowerCase().includes('quota exceeded');
+        
+        if (isRateLimitError && attempt < maxRetries - 1) {
+          // Exponential backoff: 3s, 6s, 12s
+          const delayMs = 3000 * Math.pow(2, attempt);
+          console.warn(`⏳ Rate limit hit for message ${messageId.substring(0, 10)}..., retrying in ${delayMs / 1000}s (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        } else if (!isRateLimitError) {
+          // For non-rate-limit errors, don't retry
+          console.error(`Error fetching message ${messageId}:`, error?.message || error);
+          return null;
+        }
+      }
+    }
+    
+    // All retries exhausted
+    console.error(`Failed to fetch message ${messageId} after ${maxRetries} attempts:`, lastError?.message || lastError);
+    return null;
   }
 
   async getUserInfo(accessToken: string) {
