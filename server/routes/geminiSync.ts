@@ -258,7 +258,7 @@ export function registerGeminiRoutes(app: Express) {
 
       // Phase 2c: Download and process attachments for approved emails only
       console.log(`\n📎 Phase 2c: Processing attachments for ${parsedEmails.length} approved emails...`);
-      const savedEmails = [];
+      const savedEmails: any[] = [];
       let totalAttachments = 0;
       
       // Initialize Gmail client for attachment processing
@@ -393,14 +393,73 @@ export function registerGeminiRoutes(app: Express) {
       }
       console.log(`✅ All ${savedEmails.length} emails marked as processed`);
       
-      // Step 6: Store suggestions for user review
-      const sessionId = `session_${userId}_${Date.now()}`;
-      suggestionSessions.set(sessionId, {
+      // Step 6: Save suggestions to database for user review
+      console.log(`💾 Saving ${geminiResults.subscriptions.length} suggestions to database...`);
+      
+      // Helper function to match emails to suggestions based on merchant/service name
+      const findMatchingEmails = (suggestion: any, emails: any[]): string[] => {
+        const searchTerms = [
+          suggestion.serviceName?.toLowerCase(),
+          suggestion.merchantName?.toLowerCase()
+        ].filter(Boolean);
+        
+        if (searchTerms.length === 0) return [];
+        
+        return emails
+          .filter(email => {
+            const emailText = [
+              email.subject?.toLowerCase(),
+              email.fromEmail?.toLowerCase(),
+              email.fromName?.toLowerCase()
+            ].join(' ');
+            
+            // Check if any search term appears in email metadata
+            return searchTerms.some(term => emailText.includes(term));
+          })
+          .map(email => email.gmailId)
+          .slice(0, 5); // Limit to 5 most relevant emails
+      };
+      
+      const suggestionInserts = geminiResults.subscriptions.map(suggestion => ({
         userId,
-        suggestions: geminiResults.subscriptions,
-        analysisDate: geminiResults.analysisDate,
-        emailsAnalyzed: savedEmails.length
-      });
+        serviceName: suggestion.serviceName,
+        serviceKey: generateServiceKey(suggestion.serviceName, suggestion.frequency),
+        merchantName: suggestion.merchantName || null,
+        amount: suggestion.amount.toString(),
+        currency: suggestion.currency || 'INR',
+        frequency: suggestion.frequency,
+        category: suggestion.category || null,
+        confidence: suggestion.confidence,
+        confidenceScore: suggestion.confidence === 'high' ? '0.85' : suggestion.confidence === 'medium' ? '0.65' : '0.45',
+        reasoning: suggestion.reasoning || null,
+        evidenceEmailIds: findMatchingEmails(suggestion, savedEmails),
+        occurrences: 1,
+        recurrenceType: suggestion.frequency,
+        recurrenceScore: suggestion.confidence === 'high' ? 90 : suggestion.confidence === 'medium' ? 70 : 50,
+        recurringKeywords: suggestion.recurringKeywords || [],
+        senderHistory: suggestion.senderHistory ? (typeof suggestion.senderHistory === 'string' ? suggestion.senderHistory : JSON.stringify(suggestion.senderHistory)) : null,
+        attachmentEvidence: suggestion.attachmentEvidence ? (typeof suggestion.attachmentEvidence === 'string' ? suggestion.attachmentEvidence : JSON.stringify(suggestion.attachmentEvidence)) : null,
+        validationChecks: suggestion.validationChecks ? (typeof suggestion.validationChecks === 'string' ? suggestion.validationChecks : JSON.stringify(suggestion.validationChecks)) : null,
+        nextBillingDate: suggestion.nextBillingDate ? new Date(suggestion.nextBillingDate) : null,
+        lastSeen: new Date(),
+        status: 'pending'
+      }));
+
+      let savedSuggestions = [];
+      try {
+        savedSuggestions = await storage.createSuggestionsBulk(suggestionInserts);
+        console.log(`✅ Saved ${savedSuggestions.length} suggestions to database`);
+      } catch (error) {
+        console.error('Failed to save suggestions to database:', error);
+        // Critical failure - without persisted suggestions, user can't review them
+        return res.status(500).json({
+          success: false,
+          message: "Email analysis completed but failed to save suggestions",
+          error: error instanceof Error ? error.message : 'Database save failed',
+          emailsProcessed: savedEmails.length,
+          suggestionsGenerated: 0
+        });
+      }
 
       // Update user's last sync timestamp
       await storage.updateUser(userId, { lastSync: new Date() });
@@ -411,7 +470,6 @@ export function registerGeminiRoutes(app: Express) {
         progress: 100,
         message: `Sync complete! Generated ${geminiResults.subscriptions.length} subscription suggestions`,
         details: { 
-          sessionId,
           total: geminiResults.subscriptions.length,
           confident: geminiResults.totalConfidentSubscriptions,
           emailsProcessed: savedEmails.length
@@ -421,7 +479,8 @@ export function registerGeminiRoutes(app: Express) {
       res.json({
         success: true,
         message: "Enhanced LLM sync completed - review suggestions",
-        sessionId,
+        suggestionsGenerated: savedSuggestions.length,
+        redirectToSuggestions: savedSuggestions.length > 0,
         emailsProcessed: savedEmails.length,
         candidateEmails: aiApprovedIds.length,
         totalEmails: emailMetadata.length,
