@@ -83,11 +83,11 @@ export function registerGeminiRoutes(app: Express) {
       // Get user's email sync days setting (default 90, max 180)
       const emailSyncDays = user.emailSyncDays || 90;
       
-      // Get emails from Gmail (past N days based on user setting)
+      // Get emails from Gmail (past N days based on user setting, max 5000)
       const gmailMessages = await gmailService.getEmails(
         accessToken,
         user.gmailRefreshToken!,
-        1000, // Limit for LLM processing
+        5000, // Backend limit - fetch up to 5000 emails for AI analysis
         async (newAccessToken: string) => {
           await storage.updateUser(userId, { gmailAccessToken: newAccessToken });
         },
@@ -186,6 +186,9 @@ export function registerGeminiRoutes(app: Express) {
       const savedEmails = [];
       let totalAttachments = 0;
       
+      // Initialize Gmail client for attachment processing
+      const gmail = gmailService.getGmailClient(accessToken, user.gmailRefreshToken!);
+      
       // Create a lookup map for Gmail messages by ID for O(1) access
       const gmailMessageMap = new Map(gmailMessages.map(msg => [msg.id, msg]));
       
@@ -209,10 +212,10 @@ export function registerGeminiRoutes(app: Express) {
           // CRITICAL FIX: Always process attachments for each unique Gmail ID
           // Even if email exists, update attachment data if not already processed
           if (!existingEmail || !existingEmail.attachmentData) {
-            // Process attachments
+            // Process attachments using the correct method signature
             let attachmentData = null;
             if (gmailMessage.payload?.parts) {
-              const attachmentProcessingResult = await gmailService.processEmailAttachments(gmailMessage);
+              const attachmentProcessingResult = await gmailService.processAttachments(gmail, email.gmailId, gmailMessage);
               if (attachmentProcessingResult.attachments.length > 0) {
                 attachmentData = JSON.stringify(attachmentProcessingResult);
                 totalAttachments += attachmentProcessingResult.attachments.length;

@@ -55,6 +55,14 @@ export class GmailService {
     return credentials;
   }
 
+  getGmailClient(accessToken: string, refreshToken: string) {
+    this.oauth2Client.setCredentials({
+      access_token: accessToken,
+      refresh_token: refreshToken
+    });
+    return google.gmail({ version: 'v1', auth: this.oauth2Client });
+  }
+
   async getEmails(accessToken: string, refreshToken: string, maxResults: number = 2000, onTokenRefresh?: (newAccessToken: string) => Promise<void>, days: number = 90) {
     this.oauth2Client.setCredentials({
       access_token: accessToken,
@@ -76,32 +84,20 @@ export class GmailService {
     // Validate and constrain days parameter (1-180 days)
     const emailSyncDays = Math.min(Math.max(days, 1), 180);
     
-    // Fetch emails from past N days (configurable, default 90)
-    const baseQuery = `newer_than:${emailSyncDays}d`;
+    // Fetch ALL emails from the time period - let AI do the filtering
+    const query = `newer_than:${emailSyncDays}d`;
     
-    // Subscription-targeted query to catch more subscription emails  
-    const subscriptionQuery = `newer_than:${emailSyncDays}d (receipt OR invoice OR subscription OR renewal OR billed OR payment OR statement OR plan OR membership OR trial OR bank OR card OR charged OR billing)`;
-    
-    console.log(`🔍 Gmail API: Enhanced email fetching with subscription detection`);
-    console.log(`📧 Base Query: ${baseQuery}`);
-    console.log(`🎯 Subscription Query: ${subscriptionQuery}`);
+    console.log(`🔍 Gmail API: Fetching ALL emails from past ${emailSyncDays} days`);
+    console.log(`📧 Query: ${query}`);
+    console.log(`📊 Max results: ${maxResults}`);
     console.log(`🔑 Access Token Present: ${!!accessToken}`);
     console.log(`🔄 Refresh Token Present: ${!!refreshToken}`);
 
     try {
-      // First: Get general emails (casting wider net)
-      console.log(`📬 Fetching general emails...`);
-      const generalIds = await this.getAllMessageIds(gmail, baseQuery, Math.floor(maxResults * 0.7));
-      console.log(`✅ General emails found: ${generalIds.length}`);
-      
-      // Second: Get subscription-targeted emails
-      console.log(`🎯 Fetching subscription-targeted emails...`);
-      const subscriptionIds = await this.getAllMessageIds(gmail, subscriptionQuery, Math.floor(maxResults * 0.3));
-      console.log(`✅ Subscription-targeted emails found: ${subscriptionIds.length}`);
-      
-      // Combine and deduplicate
-      const allMessageIds = Array.from(new Set([...generalIds, ...subscriptionIds]));
-      console.log(`📊 Total unique emails after deduplication: ${allMessageIds.length}`);
+      // Fetch ALL emails - no keyword filtering, AI will handle detection
+      console.log(`📬 Fetching all emails from the time period...`);
+      const allMessageIds = await this.getAllMessageIds(gmail, query, maxResults);
+      console.log(`✅ Total emails found: ${allMessageIds.length}`);
 
       if (allMessageIds.length === 0) {
         return [];
