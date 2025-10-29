@@ -51,6 +51,32 @@ The email sync system uses an optimized two-phase architecture to dramatically i
 - More accurate results through focused AI analysis on high-probability candidates
 - Graceful degradation with fallback mechanisms for parsing failures
 
+#### Gmail API Rate Limiting & Error Handling
+
+The system implements intelligent rate limiting to stay within Gmail API quotas (250 queries/minute):
+
+**Metadata Fetching (Phase 1):**
+- Batch size: 5 concurrent requests
+- Delay: 1.5 seconds between batches
+- Effective rate: ~3.3 requests/second
+- Estimated time for 5,000 emails: ~25 minutes
+
+**Full Message Fetching (Phase 2):**
+- Batch size: 5 concurrent requests
+- Delay: 2 seconds between batches
+- Effective rate: ~2.5 requests/second
+
+**Error Detection & Retry Logic:**
+- Detects 403, 429 status codes and Google error reasons (userRateLimitExceeded, rateLimitExceeded)
+- Exponential backoff on rate limit errors: 2s, 4s, 8s for metadata; 3s, 6s, 12s for full messages
+- Maximum 3 retry attempts per email
+- Individual failures don't crash the sync - failed emails are logged and skipped
+- Comprehensive error logging for debugging
+
+**Expected Sync Times:**
+- 2,000 emails: ~10-12 minutes total
+- 5,000 emails: ~30-35 minutes total (including Phase 1 screening and Phase 2 deep analysis)
+
 ### Database and Storage
 
 The application uses **Drizzle ORM** with **PostgreSQL** for data persistence, configured through **Neon Database** for serverless deployment. The database schema includes:
