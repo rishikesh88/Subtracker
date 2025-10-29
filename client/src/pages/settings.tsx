@@ -2,11 +2,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { User, LogOut, Mail, Unlink } from "lucide-react";
+import { User, LogOut, Mail, Unlink, Calendar, Save } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { SafeUser } from "@shared/schema";
+import { useState, useEffect } from "react";
 
 export default function Settings() {
   const { data: user } = useQuery<SafeUser>({ 
@@ -14,6 +17,15 @@ export default function Settings() {
   });
   
   const { toast } = useToast();
+  const [emailSyncDays, setEmailSyncDays] = useState<number>(90);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Initialize emailSyncDays from user data
+  useEffect(() => {
+    if (user?.emailSyncDays) {
+      setEmailSyncDays(user.emailSyncDays);
+    }
+  }, [user]);
 
   // Gmail disconnect mutation
   const disconnectGmailMutation = useMutation({
@@ -63,6 +75,52 @@ export default function Settings() {
 
   const handleConnectGmail = () => {
     connectGmailMutation.mutate();
+  };
+
+  // Update settings mutation
+  const updateSettingsMutation = useMutation({
+    mutationFn: async (settings: { emailSyncDays?: number }) => {
+      const response = await apiRequest('POST', '/api/settings/update', settings);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+      setHasUnsavedChanges(false);
+      toast({
+        title: "Settings Saved",
+        description: "Your preferences have been updated successfully.",
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Update Failed",
+        description: error?.message || "Failed to update settings. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSyncDaysChange = (value: string) => {
+    const numValue = parseInt(value);
+    if (!isNaN(numValue) && numValue >= 1 && numValue <= 180) {
+      setEmailSyncDays(numValue);
+      setHasUnsavedChanges(true);
+    } else if (value === '') {
+      setEmailSyncDays(90); // Reset to default if empty
+      setHasUnsavedChanges(true);
+    }
+  };
+
+  const handleSaveSettings = () => {
+    if (emailSyncDays < 1 || emailSyncDays > 180) {
+      toast({
+        title: "Invalid Value",
+        description: "Email sync days must be between 1 and 180.",
+        variant: "destructive",
+      });
+      return;
+    }
+    updateSettingsMutation.mutate({ emailSyncDays });
   };
   
   const handleLogout = () => {
@@ -218,7 +276,7 @@ export default function Settings() {
               Configure how subscriptions are detected and processed
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-medium">Currency</p>
@@ -227,6 +285,45 @@ export default function Settings() {
                 </p>
               </div>
               <Badge variant="outline">INR</Badge>
+            </div>
+
+            <div className="space-y-3 pt-4 border-t">
+              <div className="flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-muted-foreground" />
+                <Label htmlFor="emailSyncDays" className="font-medium">
+                  Email Sync Period
+                </Label>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <Input
+                    id="emailSyncDays"
+                    type="number"
+                    min="1"
+                    max="180"
+                    value={emailSyncDays}
+                    onChange={(e) => handleSyncDaysChange(e.target.value)}
+                    className="w-24"
+                    data-testid="email-sync-days-input"
+                  />
+                  <span className="text-sm text-muted-foreground">days (max 180)</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Number of days to fetch emails when syncing with Gmail. Default is 90 days.
+                </p>
+                {hasUnsavedChanges && (
+                  <Button
+                    size="sm"
+                    onClick={handleSaveSettings}
+                    disabled={updateSettingsMutation.isPending}
+                    className="mt-2"
+                    data-testid="save-settings-button"
+                  >
+                    <Save className="mr-2 h-3 w-3" />
+                    {updateSettingsMutation.isPending ? "Saving..." : "Save Changes"}
+                  </Button>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

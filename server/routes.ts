@@ -90,6 +90,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         gmailEmail: user.gmailEmail,
         lastSync: user.lastSync,
         preferredCurrency: user.preferredCurrency,
+        emailSyncDays: user.emailSyncDays,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       };
@@ -222,6 +223,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Gmail disconnect error:", error);
       res.status(500).json({ message: "Failed to disconnect Gmail" });
+    }
+  });
+
+  // Update user settings
+  app.post("/api/settings/update", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      // Validate request body
+      const validationResult = updateSettingsSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          message: "Invalid settings data",
+          errors: validationResult.error.errors 
+        });
+      }
+
+      const settings = validationResult.data;
+      
+      // Update user settings
+      const updatedUser = await storage.updateUser(userId, {
+        ...(settings.emailSyncDays !== undefined && { emailSyncDays: settings.emailSyncDays }),
+        ...(settings.preferredCurrency && { preferredCurrency: settings.preferredCurrency }),
+        updatedAt: new Date()
+      });
+
+      if (!updatedUser) {
+        return res.status(500).json({ message: "Failed to update settings" });
+      }
+
+      console.log("Settings updated successfully for user:", userId);
+      res.json({ 
+        message: "Settings updated successfully",
+        settings: {
+          emailSyncDays: updatedUser.emailSyncDays,
+          preferredCurrency: updatedUser.preferredCurrency
+        }
+      });
+    } catch (error) {
+      console.error("Settings update error:", error);
+      res.status(500).json({ message: "Failed to update settings" });
     }
   });
 
