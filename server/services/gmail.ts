@@ -55,7 +55,7 @@ export class GmailService {
     return credentials;
   }
 
-  async getEmails(accessToken: string, refreshToken: string, maxResults: number = 2000, onTokenRefresh?: (newAccessToken: string) => Promise<void>) {
+  async getEmails(accessToken: string, refreshToken: string, maxResults: number = 2000, onTokenRefresh?: (newAccessToken: string) => Promise<void>, days: number = 90) {
     this.oauth2Client.setCredentials({
       access_token: accessToken,
       refresh_token: refreshToken
@@ -73,11 +73,14 @@ export class GmailService {
 
     const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
     
-    // Fetch emails from past 90 days
-    const baseQuery = 'newer_than:90d';
+    // Validate and constrain days parameter (1-180 days)
+    const emailSyncDays = Math.min(Math.max(days, 1), 180);
+    
+    // Fetch emails from past N days (configurable, default 90)
+    const baseQuery = `newer_than:${emailSyncDays}d`;
     
     // Subscription-targeted query to catch more subscription emails  
-    const subscriptionQuery = 'newer_than:90d (receipt OR invoice OR subscription OR renewal OR billed OR payment OR statement OR plan OR membership OR trial OR bank OR card OR charged OR billing)';
+    const subscriptionQuery = `newer_than:${emailSyncDays}d (receipt OR invoice OR subscription OR renewal OR billed OR payment OR statement OR plan OR membership OR trial OR bank OR card OR charged OR billing)`;
     
     console.log(`🔍 Gmail API: Enhanced email fetching with subscription detection`);
     console.log(`📧 Base Query: ${baseQuery}`);

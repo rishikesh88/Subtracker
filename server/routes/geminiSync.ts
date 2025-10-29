@@ -80,17 +80,21 @@ export function registerGeminiRoutes(app: Express) {
         }
       }
       
-      // Get emails from Gmail (past 90 days)
+      // Get user's email sync days setting (default 90, max 180)
+      const emailSyncDays = user.emailSyncDays || 90;
+      
+      // Get emails from Gmail (past N days based on user setting)
       const gmailMessages = await gmailService.getEmails(
         accessToken,
         user.gmailRefreshToken!,
         1000, // Limit for LLM processing
         async (newAccessToken: string) => {
           await storage.updateUser(userId, { gmailAccessToken: newAccessToken });
-        }
+        },
+        emailSyncDays // Pass user's configured email sync days
       );
 
-      console.log(`📬 Gmail Fetch Complete: ${gmailMessages.length} emails (past 90 days)`);
+      console.log(`📬 Gmail Fetch Complete: ${gmailMessages.length} emails (past ${emailSyncDays} days)`);
       console.log(`🕰️ Estimated processing time: ${Math.ceil(gmailMessages.length / 50)} minutes for full analysis`);
       
       // Send Gmail fetch completion update
