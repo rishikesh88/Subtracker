@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Search, List, Grid3X3 } from "lucide-react";
+import { Search, List, Grid3X3, Pencil } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { type Subscription } from "@shared/schema";
+import { EditSubscriptionModal } from "./EditSubscriptionModal";
 
 interface SubscriptionListProps {
   subscriptions: Subscription[];
@@ -14,6 +15,8 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+  const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   const filteredSubscriptions = subscriptions.filter((subscription) => {
     const matchesSearch = subscription.serviceName
@@ -207,21 +210,34 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
                       </div>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p
-                      className={`text-lg font-semibold ${subscription.status === "cancelled" ? "text-muted-foreground line-through" : "text-foreground"}`}
-                      data-testid={`subscription-amount-${subscription.id}`}
+                  <div className="flex items-center space-x-4">
+                    <div className="text-right">
+                      <p
+                        className={`text-lg font-semibold ${subscription.status === "cancelled" ? "text-muted-foreground line-through" : "text-foreground"}`}
+                        data-testid={`subscription-amount-${subscription.id}`}
+                      >
+                        {formatCurrency(subscription.amount, subscription.currency)}
+                      </p>
+                      <p className="text-sm text-muted-foreground" data-testid={`subscription-next-billing-${subscription.id}`}>
+                        {subscription.status === "cancelled" 
+                          ? `Ended: ${formatDate(subscription.lastEmailDate)}`
+                          : `Next: ${formatDate(subscription.nextBillingDate)}`}
+                      </p>
+                      <p className="text-xs text-muted-foreground" data-testid={`subscription-last-email-${subscription.id}`}>
+                        Last email: {formatDate(subscription.lastEmailDate)}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setEditingSubscription(subscription);
+                        setIsEditModalOpen(true);
+                      }}
+                      data-testid={`button-edit-${subscription.id}`}
                     >
-                      {formatCurrency(subscription.amount, subscription.currency)}
-                    </p>
-                    <p className="text-sm text-muted-foreground" data-testid={`subscription-next-billing-${subscription.id}`}>
-                      {subscription.status === "cancelled" 
-                        ? `Ended: ${formatDate(subscription.lastEmailDate)}`
-                        : `Next: ${formatDate(subscription.nextBillingDate)}`}
-                    </p>
-                    <p className="text-xs text-muted-foreground" data-testid={`subscription-last-email-${subscription.id}`}>
-                      Last email: {formatDate(subscription.lastEmailDate)}
-                    </p>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -237,6 +253,12 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
           </div>
         )}
       </div>
+
+      <EditSubscriptionModal
+        subscription={editingSubscription}
+        open={isEditModalOpen}
+        onOpenChange={setIsEditModalOpen}
+      />
     </div>
   );
 }
