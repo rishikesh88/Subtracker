@@ -73,11 +73,20 @@ EMAILS TO ANALYZE:
 ${emailSummaries}
 
 TASK: Return ONLY the IDs (comma-separated) of emails that are likely:
-- Subscription renewals
-- Recurring payments/billings
-- Service invoices
-- Membership charges
-- Regular service fees
+- Subscription renewals or renewal reminders (e.g., "will be charged in 2 days", "renews on Oct 5")
+- Recurring payments/billings (completed or upcoming)
+- Service invoices (SaaS, streaming, cloud services)
+- Membership charges (active or upcoming)
+- Regular service fees (hosting, domains, SSL certificates)
+- Apple services (iCloud, Apple One, iTunes, App Store subscriptions)
+- Hosting/domain services (GoDaddy, Namecheap, web hosting renewals)
+
+IMPORTANT: Include BOTH completed transactions AND renewal reminders/notifications.
+Examples to INCLUDE:
+- "You will be charged ₹75 in 2 days for iCloud+"
+- "Your Apple One subscription renews on Oct 5 for ₹365"
+- "GoDaddy domain renewal - expires in 7 days"
+- "Your Netflix subscription has been renewed"
 
 Be CONSERVATIVE - only include emails with strong subscription indicators.
 Respond with ONLY the IDs, nothing else. Format: ID1,ID2,ID3
@@ -217,10 +226,23 @@ If NONE qualify, respond with: NONE`;
 
     const systemPrompt = `You are an expert subscription detection system. You MUST perform comprehensive validation on emails before suggesting subscriptions.
 
-VALIDATION REQUIREMENTS (ALL must pass):
-1. Subject Line: Must contain transaction/subscription indicators (invoice, receipt, payment, subscription, billing, charged)
-2. Content (Body/HTML): Must contain payment/billing details, amounts, merchant info
-3. Attachments: If present, PDF/images MUST contain billing info, amounts, or invoice details
+IMPORTANT: Detect BOTH completed transactions AND renewal reminders/notifications.
+
+VALIDATION REQUIREMENTS (flexible - at least ONE must pass):
+1. Subject Line: Contains transaction/subscription indicators (invoice, receipt, payment, subscription, billing, charged, renewal, "will be charged", "renews on")
+2. Content (Body/HTML): Contains payment/billing details, amounts, merchant info, renewal dates, upcoming charges
+3. Attachments: If present, PDF/images contain billing info, amounts, or invoice details
+
+RENEWAL REMINDER DETECTION (CRITICAL):
+- Phrases: "will be charged", "you will be charged in X days", "renews on", "automatically renew", "renewal reminder"
+- Amount position: Can appear anywhere in email (subject, body, snippet) - extract carefully
+- Future dates: "renews on Oct 5", "in 2 days", "next billing date"
+- Common services: Apple (iCloud+, Apple One, iTunes), Netflix, Spotify, Prime, hosting services
+
+HOSTING & DOMAIN DETECTION (CRITICAL):
+- Services: GoDaddy, Namecheap, Bluehost, HostGator, domain registrars
+- Keywords: "domain", "hosting", "SSL certificate", "web hosting", "expires", "renewal"
+- Patterns: Domain names (example.com), expiration dates, nameservers
 
 RECURRING DETECTION (identify ALL patterns):
 - Keywords: "monthly", "annual", "auto-renew", "recurring", "subscription", "membership", "plan"
@@ -238,14 +260,24 @@ For EACH subscription detected, you MUST provide:
 8. Pattern detected from sender's email history
 9. Detailed reasoning explaining why this is a subscription
 
-Confidence Levels (STRICT criteria):
-- HIGH: All 3 validation checks pass + Clear recurring indicators + Known subscription service
-- MEDIUM: 2/3 validation checks pass + Some recurring indicators
-- LOW: Only 1/3 validation check passes OR weak recurring evidence
+Confidence Levels (FLEXIBLE criteria):
+- HIGH: Strong evidence (amount + frequency clearly stated) + Known service (Apple, Netflix, GoDaddy, etc.)
+- MEDIUM: Clear amount and service name + Some recurring/renewal indicators
+- LOW: Weak evidence OR unclear amount OR one-time purchase possibility
 
-Focus on Indian services (Airtel, Jio, Netflix India, Hotstar, Paytm, PhonePe, Replit) and international services with INR billing.
+Focus on:
+- Indian services (Airtel, Jio, Netflix India, Hotstar, Paytm, PhonePe, Replit)
+- International services with INR billing (Apple, Netflix, Spotify, Adobe)
+- Hosting/domain services (GoDaddy, Namecheap, web hosting)
+- Apple ecosystem (iCloud+, Apple One, iTunes, App Store subscriptions)
 
-IMPORTANT: Only suggest subscriptions where you have strong evidence from the email content and attachments. Do not suggest if validation fails.`;
+CRITICAL EXAMPLES TO DETECT:
+✅ "You will be charged ₹75 for your 50 GB iCloud+ plan in 2 days" → DETECT as iCloud subscription
+✅ "Your Apple One subscription automatically renews on Oct 5 for ₹365/month" → DETECT as Apple One
+✅ "GoDaddy domain renewal - example.com expires in 7 days - ₹800/year" → DETECT as GoDaddy hosting
+✅ "Your Netflix subscription has been renewed - ₹649/month" → DETECT as Netflix
+
+IMPORTANT: Include renewal reminders AND completed transactions. Amount can appear ANYWHERE in the email - extract carefully from subject, body, or snippet.`;
 
     const response = await this.ai.models.generateContent({
       model: "gemini-2.5-pro",

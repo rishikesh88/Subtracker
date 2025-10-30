@@ -32,6 +32,16 @@ export class TransactionDetector {
     'teachable.com', 'podia.com', 'kajabi.com'
   ];
 
+  // Major subscription services (Apple, streaming, hosting, etc.)
+  private majorSubscriptionServices = [
+    'apple.com', 'icloud.com', 'insideapple.apple.com',
+    'netflix.com', 'spotify.com', 'amazon.com', 'prime.amazon.com',
+    'google.com', 'youtube.com', 'microsoft.com', 'office.com',
+    'adobe.com', 'dropbox.com', 'zoom.us',
+    'godaddy.com', 'namecheap.com', 'bluehost.com', 'hostgator.com',
+    'digitalocean.com', 'aws.amazon.com', 'cloudflare.com'
+  ];
+
   // Payment-related email patterns
   private paymentEmailPrefixes = [
     'billing', 'noreply', 'no-reply', 'receipts', 'invoices', 'payments',
@@ -43,14 +53,18 @@ export class TransactionDetector {
     payment: ['receipt', 'invoice', 'payment', 'charged', 'billed', 'paid', 'purchase'],
     subscription: ['subscription', 'membership', 'plan', 'renewal', 'auto-renew', 'renews'],
     confirmation: ['confirmed', 'successful', 'processed', 'completed', 'thank you'],
-    reference: ['order #', 'invoice #', 'receipt #', 'transaction', 'confirmation']
+    reference: ['order #', 'invoice #', 'receipt #', 'transaction', 'confirmation'],
+    renewal: ['will be charged', 'renewing', 'renews on', 'renews in', 'expires in', 'expiring', 'expiration'],
+    hosting: ['domain', 'hosting', 'ssl certificate', 'web hosting', 'server']
   };
 
   // Body content patterns
   private bodyKeywords = {
-    recurring: ['next billing', 'renews on', 'auto-renewal', 'recurring charge', 'billing cycle', 'subscription period'],
+    recurring: ['next billing', 'renews on', 'auto-renewal', 'recurring charge', 'billing cycle', 'subscription period', 'automatically renew', 'will renew'],
     payment: ['card ending', 'paypal account', 'bank account', 'payment method', 'total amount', 'amount due'],
-    service: ['manage subscription', 'view invoice', 'update payment', 'cancel anytime', 'billing details']
+    service: ['manage subscription', 'view invoice', 'update payment', 'cancel anytime', 'billing details'],
+    renewal: ['will be charged', 'you will be charged', 'upcoming charge', 'renewal date', 'renewal reminder', 'auto-renews'],
+    hosting: ['domain expires', 'hosting expires', 'ssl expires', 'domain renewal', 'hosting renewal', 'nameservers']
   };
 
   // Currency patterns
@@ -137,6 +151,15 @@ export class TransactionDetector {
       }
     }
 
+    // Check for major subscription services (40 points)
+    for (const service of this.majorSubscriptionServices) {
+      if (emailLower.includes(service)) {
+        score += 40;
+        reasons.push(`Major subscription service: ${service}`);
+        return { score, reasons };
+      }
+    }
+
     // Check for payment-related email prefixes (30 points)
     for (const prefix of this.paymentEmailPrefixes) {
       if (emailLower.startsWith(prefix + '@') || emailLower.startsWith(prefix + '.')) {
@@ -215,6 +238,24 @@ export class TransactionDetector {
       }
     }
 
+    // Renewal keywords (22 points)
+    for (const keyword of this.subjectKeywords.renewal) {
+      if (subjectLower.includes(keyword)) {
+        score += 22;
+        reasons.push(`Renewal keyword in subject: ${keyword}`);
+        break;
+      }
+    }
+
+    // Hosting keywords (18 points)
+    for (const keyword of this.subjectKeywords.hosting) {
+      if (subjectLower.includes(keyword)) {
+        score += 18;
+        reasons.push(`Hosting keyword in subject: ${keyword}`);
+        break;
+      }
+    }
+
     return { score: Math.min(score, 40), reasons }; // Cap at 40
   }
 
@@ -249,6 +290,24 @@ export class TransactionDetector {
       if (content.includes(keyword)) {
         score += 10;
         reasons.push(`Service management keywords found`);
+        break;
+      }
+    }
+
+    // Renewal language (15 points)
+    for (const keyword of this.bodyKeywords.renewal) {
+      if (content.includes(keyword)) {
+        score += 15;
+        reasons.push(`Renewal language detected: ${keyword}`);
+        break;
+      }
+    }
+
+    // Hosting language (12 points)
+    for (const keyword of this.bodyKeywords.hosting) {
+      if (content.includes(keyword)) {
+        score += 12;
+        reasons.push(`Hosting/domain language detected`);
         break;
       }
     }
