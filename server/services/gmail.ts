@@ -223,10 +223,10 @@ export class GmailService {
 
   private async fetchMetadataInBatches(gmail: any, messageIds: string[]): Promise<any[]> {
     const metadata: any[] = [];
-    const batchSize = 5; // Balanced batch size for ~3.3 req/sec
-    const delayBetweenBatches = 1500; // 1.5 seconds between batches
+    const batchSize = 8; // Optimized batch size for better throughput
+    const delayBetweenBatches = 2000; // 2 seconds between batches = 4 req/sec average
     
-    console.log(`📥 Fetching metadata for ${messageIds.length} emails in batches of ${batchSize} (rate-limited to ~3.3 req/sec)`);
+    console.log(`📥 Fetching metadata for ${messageIds.length} emails in batches of ${batchSize} (rate-limited to ~240 queries/min)`);
 
     for (let i = 0; i < messageIds.length; i += batchSize) {
       const batch = messageIds.slice(i, i + batchSize);
