@@ -177,7 +177,8 @@ If NONE qualify, respond with: NONE`;
     
     try {
       // Process emails in chunks to avoid token limits
-      const chunks = this.chunkEmails(emails, 10);
+      // Increased batch size from 10 to 25 for better efficiency with gemini-2.5-flash
+      const chunks = this.chunkEmails(emails, 25);
       const allSuggestions: SubscriptionSuggestion[] = [];
 
       for (let i = 0; i < chunks.length; i++) {

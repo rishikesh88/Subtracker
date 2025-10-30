@@ -304,10 +304,10 @@ export class GmailService {
 
   private async fetchMessagesInBatches(gmail: any, messageIds: string[]): Promise<any[]> {
     const messages: any[] = [];
-    const batchSize = 5; // Reduced to avoid rate limits - Gmail API allows ~250 queries/min
-    const delayBetweenBatches = 2000; // 2 seconds between batches
+    const batchSize = 8; // Optimized batch size for better throughput
+    const delayBetweenBatches = 2000; // 2 seconds between batches = 4 req/sec average
     
-    console.log(`📥 Fetching ${messageIds.length} email details in batches of ${batchSize} (rate-limited to ~150 queries/min)`);
+    console.log(`📥 Fetching ${messageIds.length} email details in batches of ${batchSize} (rate-limited to ~240 queries/min)`);
 
     for (let i = 0; i < messageIds.length; i += batchSize) {
       const batch = messageIds.slice(i, i + batchSize);
