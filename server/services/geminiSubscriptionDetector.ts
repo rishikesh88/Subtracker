@@ -280,7 +280,7 @@ CRITICAL EXAMPLES TO DETECT:
 IMPORTANT: Include renewal reminders AND completed transactions. Amount can appear ANYWHERE in the email - extract carefully from subject, body, or snippet.`;
 
     const response = await this.ai.models.generateContent({
-      model: "gemini-2.5-pro",
+      model: "gemini-2.5-flash",
       config: {
         systemInstruction: systemPrompt,
         responseMimeType: "application/json",
