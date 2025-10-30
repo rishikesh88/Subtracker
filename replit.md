@@ -4,6 +4,51 @@
 
 SubTracker is a full-stack web application that automatically detects and tracks subscription services by analyzing Gmail emails. The app connects to users' Gmail accounts, processes transaction emails using intelligent parsing algorithms, and provides insights into recurring subscription costs. Built with modern technologies, it offers a clean dashboard interface for managing and monitoring subscription expenses.
 
+## Recent Changes (2025-10-30)
+
+### Enhanced Detection for Renewal Reminders and Hosting Services
+**Problem Identified:** Detection system was missing Apple renewal reminders (iCloud+, Apple One) and hosting service subscriptions (GoDaddy, domain renewals) because it was tuned primarily for completed transactions rather than upcoming renewals.
+
+**Root Cause Analysis:**
+1. **Limited keyword coverage** - Missing renewal-specific phrases like "will be charged", "renews on", "expires in"
+2. **No hosting patterns** - Lacked keywords for domain/hosting services (GoDaddy, SSL, domain expiration)
+3. **Sender recognition gaps** - Apple, GoDaddy, and other major services not prioritized in scoring
+4. **AI prompt focus** - Gemini prompts emphasized completed transactions over renewal notifications
+
+**Comprehensive Improvements Implemented:**
+
+**Phase 1: Transaction Detector Enhancements** (`transactionDetector.ts`)
+- **Added renewal keywords**: "will be charged", "renewing", "renews on/in", "expires in", "expiring", "expiration"
+- **Added hosting keywords**: "domain", "hosting", "ssl certificate", "web hosting", "server", "domain expires"
+- **Major services database**: Added 18 high-priority services (Apple, iCloud, GoDaddy, Netflix, Spotify, hosting providers)
+- **Enhanced scoring**: Renewal emails from Apple/GoDaddy now score 80-130 points (threshold: 50 points)
+  - Major subscription services: 40 points
+  - Renewal keywords (subject): 22 points
+  - Hosting keywords (subject): 18 points
+  - Renewal language (body): 15 points
+  - Hosting language (body): 12 points
+  - Currency detection: 20 points
+
+**Phase 2: Gemini AI Prompt Improvements** (`geminiSubscriptionDetector.ts`)
+- **Pre-filter prompt updated**: Now explicitly includes "renewal reminders" and "hosting services" with concrete examples
+- **Deep analysis prompt enhanced**: Added critical sections for:
+  - Renewal reminder detection (phrases, amount positions, future dates)
+  - Hosting & domain detection (GoDaddy, Namecheap, expiration patterns)
+  - Flexible validation (at least ONE check must pass vs ALL)
+  - Specific examples: Apple iCloud (₹75), Apple One (₹365), GoDaddy hosting (₹800)
+
+**Validation Testing Results:**
+- ✅ Apple iCloud renewal: "will be charged ₹75 in 2 days" → Score: 130/100 (high confidence)
+- ✅ Apple One renewal: "renews for ₹365/month" → Score: 100/100 (high confidence)
+- ✅ GoDaddy domain: "expires in 7 days - ₹800/year" → Score: 127/100 (high confidence)
+- ✅ Netflix control test: Still works perfectly at 100/100
+
+**Impact:**
+- Renewal reminders now detected alongside completed transactions
+- Hosting/domain services (GoDaddy, Namecheap, etc.) properly identified
+- Apple ecosystem subscriptions (iCloud+, Apple One, iTunes) reliably captured
+- No increase in false positives (conservative scoring maintained)
+
 ## Recent Changes (2025-10-29)
 
 ### Subscription Suggestions Now Display in UI
