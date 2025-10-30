@@ -207,6 +207,31 @@ export default function Dashboard() {
     },
   });
 
+  // Email sync days change mutation
+  const changeSyncDaysMutation = useMutation({
+    mutationFn: async (newDays: number) => {
+      const response = await apiRequest("PATCH", "/api/settings", { 
+        emailSyncDays: newDays 
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Sync Range Updated",
+        description: `Email sync will now fetch emails from the past ${data.emailSyncDays} days`,
+      });
+      // Refresh user data to update preference
+      queryClient.invalidateQueries({ queryKey: [`/api/auth/user`] });
+    },
+    onError: () => {
+      toast({
+        title: "Sync Range Update Failed",
+        description: "Failed to update email sync range. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Enhanced sync emails mutation with suggestions and progress notifications
   const syncEmailsMutation = useMutation({
     mutationFn: async () => {
@@ -447,6 +472,26 @@ export default function Dashboard() {
                       </div>
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+              
+              {/* Email Sync Days Selector */}
+              <Select 
+                value={String(user?.emailSyncDays || 90)}
+                onValueChange={(value) => changeSyncDaysMutation.mutate(parseInt(value))}
+                disabled={changeSyncDaysMutation.isPending}
+              >
+                <SelectTrigger className="w-32 h-8" data-testid="sync-days-selector">
+                  <Mail className="w-3 h-3 mr-1" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent data-testid="sync-days-dropdown">
+                  <SelectItem value="90" data-testid="sync-days-option-90">
+                    90 days
+                  </SelectItem>
+                  <SelectItem value="180" data-testid="sync-days-option-180">
+                    180 days
+                  </SelectItem>
                 </SelectContent>
               </Select>
               
