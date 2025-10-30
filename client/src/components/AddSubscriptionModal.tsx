@@ -18,7 +18,6 @@ const addSubscriptionFormSchema = z.object({
   frequency: z.enum(["monthly", "yearly", "quarterly", "weekly"]),
   category: z.string().optional(),
   merchantName: z.string().optional(),
-  serviceKey: z.string().min(1),
 });
 
 type AddSubscriptionFormData = z.infer<typeof addSubscriptionFormSchema>;
@@ -41,7 +40,6 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
       frequency: "monthly",
       category: "",
       merchantName: "",
-      serviceKey: "",
     },
   });
 
@@ -52,6 +50,7 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
       
       const response = await apiRequest("POST", "/api/subscriptions", {
         ...data,
+        amount: data.amount.toString(),
         serviceKey,
         status: "active",
       });
@@ -203,14 +202,14 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
                 type="button" 
                 variant="outline" 
                 onClick={() => onOpenChange(false)}
-                data-testid="button-cancel"
+                data-testid="button-cancel-add"
               >
                 Cancel
               </Button>
               <Button 
                 type="submit" 
                 disabled={createMutation.isPending}
-                data-testid="button-add"
+                data-testid="button-add-subscription"
               >
                 {createMutation.isPending ? "Adding..." : "Add Subscription"}
               </Button>

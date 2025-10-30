@@ -62,7 +62,10 @@ export function EditSubscriptionModal({ subscription, open, onOpenChange }: Edit
 
   const updateMutation = useMutation({
     mutationFn: async (data: EditSubscriptionFormData) => {
-      const response = await apiRequest("PATCH", `/api/subscriptions/${subscription?.id}`, data);
+      const response = await apiRequest("PATCH", `/api/subscriptions/${subscription?.id}`, {
+        ...data,
+        amount: data.amount.toString(),
+      });
       return response.json();
     },
     onSuccess: () => {
