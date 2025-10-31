@@ -1,0 +1,152 @@
+﻿Merchant Name,Website Domain,Known Billing Email Domain (Estimate),Product / Subscription Name(s),Renewal Frequency,Region(s) Served / Domain Variants
+Gusto,gusto.com,billing@gusto.com,"Gusto Payroll, HR Platform",Monthly,US
+Rippling,rippling.com,billing@rippling.com,"Rippling HR Cloud, IT & Finance Cloud",Monthly,"US, Global"
+Deel,deel.com,billing@deel.com,"Deel Global Payroll, EOR",Monthly,Global
+Remote.com,remote.com,billing@remote.com,"Remote Payroll, Contractor Management",Monthly,Global
+BambooHR,bamboohr.com,billing@bamboohr.com,"BambooHR Essentials, Advantage",Monthly,Global
+Workable,workable.com,billing@workable.com,"Workable Hiring, Recruiting Software",Monthly,Global
+Lever,lever.co,billing@lever.co,LeverTRM,Annual,Global
+Greenhouse,greenhouse.io,billing@greenhouse.io,Greenhouse Recruiting,Annual,Global
+Expensify,expensify.com,billing@expensify.com,"Expensify Collect, Control",Monthly,Global
+Ramp,ramp.com,billing@ramp.com,Ramp Expense Management,Monthly,US
+Brex,brex.com,billing@brex.com,"Brex Empower, Brex Travel",Monthly,US
+Spendesk,spendesk.com,billing@spendesk.com,"Spendesk Pro, Premium",Monthly,EU
+Pleo,pleo.io,billing@pleo.io,Pleo Business Plan,Monthly,"EU, UK"
+Airbase,airbase.com,billing@airbase.com,Airbase Spend Management,Monthly,Global
+Procurify,procurify.com,billing@procurify.com,Procurify Spend Platform,Annual,Global
+Coupa,coupa.com,billing@coupa.com,Coupa Business Spend Mgmt,Annual,Global
+SEMrush,semrush.com,billing@semrush.com,"SEMrush Pro, Guru, Business",Monthly / Annual,Global
+Ahrefs,ahrefs.com,billing@ahrefs.com,"Ahrefs Webmaster, Standard, Advanced",Monthly,Global
+Moz,moz.com,billing@moz.com,"Moz Pro, Local SEO",Monthly,Global
+Hootsuite,hootsuite.com,billing@hootsuite.com,"Hootsuite Professional, Team",Monthly / Annual,Global
+Buffer,buffer.com,billing@buffer.com,"Buffer Essentials, Teams",Monthly / Annual,Global
+Later,later.com,billing@later.com,"Later Growth, Advanced",Monthly / Annual,Global
+ActiveCampaign,activecampaign.com,billing@activecampaign.com,"ActiveCampaign Plus, Pro",Monthly / Annual,Global
+MailerLite,mailerlite.com,billing@mailerlite.com,MailerLite Business Plans,Monthly / Annual,Global
+Constant Contact,constantcontact.com,billing@constantcontact.com,"Constant Contact Email, Marketing Plus",Monthly / Annual,Global
+1Password,1password.com,billing@1password.com,"1Password Business, Families",Monthly / Annual,Global
+LastPass,lastpass.com,billing@lastpass.com,"LastPass Teams, Business",Monthly / Annual,Global
+JumpCloud,jumpcloud.com,billing@jumpcloud.com,JumpCloud Directory Platform,Monthly,Global
+OneLogin,onelogin.com,billing@onelogin.com,OneLogin Workforce Identity,Monthly / Annual,Global
+Duo Security,duo.com,billing@duo.com,"Duo MFA, Access, Beyond",Monthly / Annual,Global
+Expensify,expensify.com,billing@expensify.com,"Expensify Business, Corporate",Monthly,Global
+Vercel,vercel.com,billing@vercel.com,"Vercel Hobby, Pro, Enterprise",Monthly / Usage-based,Global
+Netlify,netlify.com,billing@netlify.com,"Netlify Starter, Pro, Business",Monthly / Usage-based,Global
+Supabase,supabase.com,billing@supabase.com,"Supabase Pro, Team",Monthly / Usage-based,Global
+Render,render.com,billing@render.com,"Render Starter, Pro",Usage-based / Monthly,Global
+Fly.io,fly.io,billing@fly.io,"Fly Machines, Apps",Usage-based,Global
+Hasura,hasura.io,billing@hasura.io,"Hasura Cloud, Enterprise",Monthly / Annual,Global
+PostHog,posthog.com,billing@posthog.com,"PostHog Cloud, Enterprise",Usage-based / Monthly,Global
+Snyk,snyk.io,billing@snyk.io,Snyk Developer Security,Monthly,Global
+Mixpanel,mixpanel.com,billing@mixpanel.com,"Mixpanel Growth, Enterprise",Monthly,Global
+Amplitude,amplitude.com,billing@amplitude.com,"Amplitude Growth, Enterprise",Monthly,Global
+Hotjar,hotjar.com,billing@hotjar.com,"Hotjar Observe, Ask",Monthly,Global
+FullStory,fullstory.com,billing@fullstory.com,FullStory Business,Monthly,Global
+ChartMogul,chartmogul.com,billing@chartmogul.com,ChartMogul Growth Analytics,Monthly,Global
+Fivetran,fivetran.com,billing@fivetran.com,"Fivetran Starter, Enterprise",Usage-based / Monthly,Global
+Census,getcensus.com,billing@getcensus.com,Census Reverse ETL,Usage-based,Global
+Grammarly,grammarly.com,billing@grammarly.com,"Grammarly Premium, Business",Monthly / Annual,Global
+ChatGPT,openai.com,billing@openai.com,"ChatGPT Plus, ChatGPT Team",Monthly,Global
+Midjourney,midjourney.com,billing@midjourney.com,"Midjourney Basic, Standard, Pro",Monthly,Global
+Canva Pro,canva.com,billing@canva.com,"Canva Pro, Teams",Monthly / Annual,Global
+Notion AI,notion.so,billing@notion.so,Notion Plus + AI,Monthly / Annual,Global
+Adobe,adobe.com,billing@adobe.com,"Creative Cloud, Acrobat DC",Monthly / Annual,Global
+Microsoft,microsoft.com,billing@microsoft.com,"Microsoft 365, Azure",Monthly / Annual,Global
+Salesforce,salesforce.com,payment@salesforce.com,"Sales Cloud, Service Cloud",Annual,Global
+Google,google.com,noreply@google.com,"Google Workspace, GCP",Monthly / Annual,Global
+Zoom,zoom.us,billing@zoom.us,"Zoom Pro, Zoom One",Monthly / Annual,Global
+Slack,slack.com,receipts@slack.com,"Slack Pro, Slack Business+",Monthly / Annual,Global
+Dropbox,dropbox.com,no-reply@dropbox.com,"Dropbox Plus, Business",Monthly / Annual,Global
+Asana,asana.com,billing@asana.com,"Asana Premium, Business",Monthly / Annual,Global
+Atlassian,atlassian.com,noreply@billing.atlassian.com,"Jira, Confluence, Trello",Monthly / Annual,Global
+Box,box.com,no-reply@box.com,"Box Business, Enterprise",Monthly / Annual,Global
+DocuSign,docusign.com,billing@docusign.com,"DocuSign Standard, Pro",Monthly / Annual,Global
+GitHub,github.com,noreply@github.com,"GitHub Pro, Enterprise Cloud",Monthly / Annual,Global
+GitLab,gitlab.com,support@gitlab.com,"GitLab Premium, Ultimate",Monthly / Annual,Global
+Notion,notion.so,billing@notion.so,"Notion Plus, Business",Monthly / Annual,Global
+Figma,figma.com,billing@figma.com,"Figma Professional, Org",Monthly / Annual,Global
+Lucidchart,lucidchart.com,billing@lucidchart.com,"Lucidchart Team, Enterprise",Monthly / Annual,Global
+Canva,canva.com,billing@canva.com,"Canva Pro, Teams",Monthly / Annual,Global
+Mailchimp,mailchimp.com,billing@mailchimp.com,"Essentials, Standard, Premium",Monthly,Global
+HubSpot,hubspot.com,billing@hubspot.com,"Marketing Hub, Sales Hub",Monthly / Annual,Global
+Zendesk,zendesk.com,billing@zendesk.com,"Zendesk Support, Suite",Monthly / Annual,Global
+Intercom,intercom.com,billing@intercom.io,"Intercom Starter, Pro",Monthly,Global
+QuickBooks,quickbooks.intuit.com,billing@intuit.com,QuickBooks Online,Monthly / Annual,Global
+FreshBooks,freshbooks.com,billing@freshbooks.com,"FreshBooks Lite, Plus",Monthly / Annual,"US, CA, UK"
+Xero,xero.com,billing@xero.com,"Xero Standard, Premium",Monthly,Global
+Stripe,stripe.com,receipts+{account}@stripe.com,"Stripe Payments, Billing",Usage-based / Monthly,Global
+PayPal,paypal.com,service@paypal.com,PayPal Business,Usage-based,Global
+Square,squareup.com,billing@squareup.com,"Square POS, Invoices",Usage-based,"US, CA, AU, JP"
+Paddle,paddle.com,no-reply@paddle.com,Merchant-of-record platform,Monthly,Global
+FastSpring,fastspring.com,mailer@fastspring.com,Subscription billing,Monthly,Global
+DigitalOcean,digitalocean.com,no-reply@digitalocean.com,"Droplets, App Platform",Usage-based / Monthly,Global
+Linode,linode.com,billing@linode.com,"Compute, Block Storage",Usage-based,Global
+Cloudflare,cloudflare.com,billing@cloudflare.com,"Cloudflare Pro, Biz",Monthly,Global
+New Relic,newrelic.com,billing@newrelic.com,New Relic One,Usage-based / Monthly,Global
+Datadog,datadoghq.com,billing@datadoghq.com,"APM, Logs, Synthetics",Usage-based / Monthly,Global
+PagerDuty,pagerduty.com,billing@pagerduty.com,Digital Ops Plan,Monthly,Global
+Sentry,sentry.io,billing@sentry.io,"Sentry Team, Business",Monthly,Global
+Trello,trello.com,billing@trello.com,Trello Premium,Monthly / Annual,Global
+Wix,wix.com,billing@wix.com,Website Premium Plans,Monthly / Annual,Global
+Shopify,shopify.com,billing@shopify.com,"Shopify Basic, Plus",Monthly,Global
+Netflix,netflix.com,billing@netflix.com,"Netflix Standard, Premium",Monthly,Global
+Spotify,spotify.com,no-reply@spotify.com,Spotify Premium,Monthly,Global
+YouTube,youtube.com,noreply@youtube.com,YouTube Premium,Monthly,Global
+Disney+,disneyplus.com,noreply@disneyplus.com,Disney+ Subscription,Monthly / Annual,Global
+AWS,aws.amazon.com,no-reply@amazon.com,"EC2, S3, RDS",Usage-based,Global
+GCP,cloud.google.com,billing-noreply@google.com,"Compute, BigQuery",Usage-based,Global
+Oracle Cloud,oracle.com,billing@oracle.com,OCI Services,Usage-based / Monthly,Global
+SAP,sap.com,billing@sap.com,SAP S/4HANA Cloud,Annual,Global
+CleverTap,clevertap.com,billing@clevertap.com,CleverTap Essentials,Monthly,Global
+Zoho,zoho.com,support@zohoaccounts.com,"Zoho CRM, Zoho Books",Monthly,Global
+Calendly,calendly.com,billing@calendly.com,Calendly Premium,Monthly / Annual,Global
+Asana,asana.com,billing@asana.com,"Asana Premium, Business, Enterprise",Monthly / Annual,Global
+Monday.com,monday.com,billing@monday.com,"monday.com Basic, Standard, Pro, Enterprise",Monthly / Annual,Global
+Miro,miro.com,billing@miro.com,"Miro Team, Business, Enterprise",Monthly / Annual,Global
+HubSpot,hubspot.com,billing@hubspot.com,"Marketing Hub, Sales Hub, Service Hub, CMS Hub",Monthly / Annual,Global
+ServiceNow,servicenow.com,billing@servicenow.com,"ITSM, CSM, HRSD",Annual,Global
+Workday,workday.com,billing@workday.com,"HCM, Financials, Payroll",Annual,Global
+DocuSign,docusign.com,billing@docusign.com,"DocuSign eSignature, CLM",Monthly / Annual,Global
+Zendesk,zendesk.com,billing@zendesk.com,"Support, Chat, Talk, Suite",Monthly / Annual,Global
+Atlassian,atlassian.com,billing@atlassian.com,"Jira, Confluence, Trello, Service Mgmt",Monthly / Annual,Global
+Dropbox Business,dropbox.com,billing@dropbox.com,"Dropbox Standard, Advanced, Enterprise",Monthly / Annual,Global
+GitHub,github.com,billing@github.com,"GitHub Pro, Team, Enterprise",Monthly / Annual,Global
+GitLab,gitlab.com,billing@gitlab.com,"GitLab Premium, Ultimate",Monthly / Annual,Global
+JetBrains,jetbrains.com,billing@jetbrains.com,JetBrains Toolbox Subscription,Monthly / Annual,Global
+CircleCI,circleci.com,billing@circleci.com,CircleCI Cloud Plans,Monthly / Annual,Global
+Docker,docker.com,billing@docker.com,"Docker Pro, Team, Business",Monthly / Annual,Global
+Postman,postman.com,billing@postman.com,"Postman Team, Business, Enterprise",Monthly / Annual,Global
+JFrog,jfrog.com,billing@jfrog.com,"Artifactory, Xray, Pipelines",Monthly / Annual,Global
+Sentry,sentry.io,billing@sentry.io,"Sentry Team, Business",Monthly / Annual,Global
+New Relic,newrelic.com,billing@newrelic.com,New Relic One,Usage-based,Global
+Datadog,datadoghq.com,billing@datadoghq.com,"Infrastructure, APM, Logs",Usage-based,Global
+DigitalOcean,digitalocean.com,billing@digitalocean.com,"Droplets, App Platform",Monthly / Usage,Global
+Linode,linode.com,billing@linode.com,"Linode Compute, Storage",Monthly,Global
+Heroku,heroku.com,billing@heroku.com,"Dynos, Add-ons",Monthly,Global
+Oracle Cloud,cloud.oracle.com,billing@oracle.com,"OCI Compute, Database",Usage-based,Global
+Alibaba Cloud,alibabacloud.com,billing@alibabacloud.com,"ECS, RDS, OSS",Usage-based,Global (APAC)
+OVHcloud,ovhcloud.com,billing@ovh.com,"Public Cloud, VPS",Monthly,Global (EU focus)
+Cloudflare,cloudflare.com,billing@cloudflare.com,"CDN, Workers, Zero Trust",Monthly / Annual,Global
+Akamai,akamai.com,billing@akamai.com,"CDN, Edge Compute",Usage-based,Global
+Snowflake,snowflake.com,billing@snowflake.com,"Data Cloud, Warehousing",Usage-based,Global
+Databricks,databricks.com,billing@databricks.com,Databricks Lakehouse Platform,Usage-based,Global
+LinkedIn Learning,linkedin.com/learning,billing@linkedin.com,LinkedIn Learning,Monthly / Annual,Global
+Pluralsight,pluralsight.com,billing@pluralsight.com,"Skills, Flow",Monthly / Annual,Global
+O’Reilly Online,oreilly.com,billing@oreilly.com,O’Reilly Learning Platform,Annual,Global
+Soundtrack (Spotify),soundtrackyourbrand.com,billing@soundtrackyourbrand.com,Soundtrack Unlimited,Monthly,Global
+Stripe,stripe.com,billing@stripe.com,"Payments, Billing, Connect",Usage-based,Global
+PayPal,paypal.com,service@paypal.com,"PayPal Business, Braintree",Usage-based,Global
+Braintree,braintreepayments.com,billing@braintreepayments.com,Payment Gateway,Usage-based,Global
+Square,squareup.com,billing@squareup.com,"POS, Invoices, Payroll",Usage-based,Global
+Adyen,adyen.com,billing@adyen.com,Payments Platform,Usage-based,Global
+QuickBooks Online,quickbooks.intuit.com,billing@intuit.com,QuickBooks Online Plans,Monthly / Annual,Global
+Xero,xero.com,billing@xero.com,Xero Plans,Monthly,Global
+Bill.com,bill.com,billing@bill.com,"Accounts Payable, AR Automation",Monthly / Annual,Global
+Authorize.Net,authorize.net,billing@authorize.net,Payment Gateway,Monthly + Transaction,"US, CA, AU"
+Chargebee,chargebee.com,billing@chargebee.com,Subscription Billing,Monthly,Global
+Recurly,recurly.com,billing@recurly.com,Subscription Management,Monthly,Global
+Zuora,zuora.com,billing@zuora.com,"Billing, Revenue, Payments",Monthly / Annual,Global
+Paddle,paddle.com,billing@paddle.com,Merchant of Record Platform,Transaction-based,Global
+FastSpring,fastspring.com,billing@fastspring.com,Subscription Billing,Transaction-based,Global
+Chargify,chargify.com,billing@chargify.com,Recurring Billing,Monthly,Global
+Aria Systems,ariasystems.com,billing@ariasystems.com,Subscription Billing,Monthly / Annual,Global
