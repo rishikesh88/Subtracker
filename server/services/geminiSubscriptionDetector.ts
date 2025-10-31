@@ -145,12 +145,13 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
             return false;
           });
           
-          // Critical: If no valid IDs after filtering, reject chunk (conservative)
+          // Critical: If no valid IDs after filtering, approve all as fallback
           if (validIds.length === 0 && approvedIdsFromAI.length > 0) {
             console.error(`  Chunk ${i + 1}: All AI-returned IDs were invalid (not in candidate set)`);
             console.error(`  Raw response: ${rawResponse.substring(0, 200)}...`);
-            console.warn(`  REJECTING CHUNK: Gemini returned non-matching IDs - skipping ${chunk.length} candidates`);
-            // Conservative: reject rather than approve all - prevents false positives
+            console.warn(`  FALLBACK: Approving all ${chunk.length} candidates from this chunk (ensures maximum detection)`);
+            // Fail-safe: approve all chunk candidates to avoid missing subscriptions
+            approvedIds.push(...chunk.map(c => c.id));
           } else {
             approvedIds.push(...validIds);
             console.log(`  Chunk ${i + 1}: Approved ${validIds.length}/${chunk.length} emails (${Math.round((validIds.length / chunk.length) * 100)}% pass rate)`);
@@ -159,9 +160,10 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
         } catch (parseError) {
           console.error(`  Chunk ${i + 1}: JSON parsing failed:`, parseError);
           console.error(`  Raw response: ${rawResponse.substring(0, 200)}...`);
-          console.warn(`  REJECTING CHUNK: Gemini returned invalid format - skipping ${chunk.length} candidates`);
-          // Conservative fallback: reject chunk rather than approve all (prevents flooding deep analysis)
-          // User's priority is accuracy over volume, so this is safer
+          console.warn(`  FALLBACK: Approving all ${chunk.length} candidates from this chunk (ensures maximum detection)`);
+          // Fail-safe: approve all chunk candidates to avoid missing subscriptions
+          // User priority is maximum detection with accuracy, so when structured parsing fails, include all
+          approvedIds.push(...chunk.map(c => c.id));
         }
 
         if (onProgress) {
@@ -179,11 +181,10 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
 
     } catch (error) {
       console.error('AI pre-filter catastrophic failure:', error);
-      console.warn('Rejecting all candidates due to pre-filter system error');
-      // Conservative fallback: reject all rather than approve all
-      // This prevents flooding deep analysis with potentially irrelevant emails
-      // Better to miss some subscriptions than waste API quota on non-subscriptions
-      return [];
+      console.warn('Approving all candidates due to pre-filter system error (ensures maximum detection)');
+      // Fail-safe fallback: approve all candidates to avoid missing subscriptions
+      // User priority is maximum detection, so when pre-filter fails completely, pass all candidates to deep analysis
+      return candidates.map(c => c.id);
     }
   }
 
