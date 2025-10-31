@@ -17,6 +17,33 @@ interface LLMSuggestionSession {
 
 const suggestionSessions = new Map<string, LLMSuggestionSession>();
 
+// Helper function to safely parse dates from Gemini responses
+function parseValidDate(dateValue: any): Date | null {
+  if (!dateValue) return null;
+  
+  try {
+    const parsed = new Date(dateValue);
+    // Check if date is valid (not NaN) and not too far in past/future
+    if (isNaN(parsed.getTime())) {
+      return null;
+    }
+    // Reject dates before 2000 or more than 10 years in future
+    const minDate = new Date('2000-01-01');
+    const maxDate = new Date();
+    maxDate.setFullYear(maxDate.getFullYear() + 10);
+    
+    if (parsed < minDate || parsed > maxDate) {
+      console.warn(`Date out of reasonable range, ignoring: ${dateValue}`);
+      return null;
+    }
+    
+    return parsed;
+  } catch (error) {
+    console.warn(`Failed to parse date: ${dateValue}`, error);
+    return null;
+  }
+}
+
 export function registerGeminiRoutes(app: Express) {
   // Get progress notification function from parent scope
   const sendProgressUpdate = (globalThis as any).sendProgressUpdate || (() => {});
@@ -439,7 +466,7 @@ export function registerGeminiRoutes(app: Express) {
         senderHistory: suggestion.senderHistory ? (typeof suggestion.senderHistory === 'string' ? suggestion.senderHistory : JSON.stringify(suggestion.senderHistory)) : null,
         attachmentEvidence: suggestion.attachmentEvidence ? (typeof suggestion.attachmentEvidence === 'string' ? suggestion.attachmentEvidence : JSON.stringify(suggestion.attachmentEvidence)) : null,
         validationChecks: suggestion.validationChecks ? (typeof suggestion.validationChecks === 'string' ? suggestion.validationChecks : JSON.stringify(suggestion.validationChecks)) : null,
-        nextBillingDate: suggestion.nextBillingDate ? new Date(suggestion.nextBillingDate) : null,
+        nextBillingDate: parseValidDate(suggestion.nextBillingDate),
         lastSeen: new Date(),
         status: 'pending'
       }));
@@ -562,7 +589,7 @@ export function registerGeminiRoutes(app: Express) {
               category: suggestion.category,
               status: 'active',
               merchantEmail: null,
-              nextBillingDate: suggestion.nextBillingDate ? new Date(suggestion.nextBillingDate) : null,
+              nextBillingDate: parseValidDate(suggestion.nextBillingDate),
               lastEmailDate: null,
               detectedAt: new Date()
             };

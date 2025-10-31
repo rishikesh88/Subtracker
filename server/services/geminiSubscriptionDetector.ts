@@ -72,7 +72,7 @@ export class GeminiSubscriptionDetector {
 EMAILS TO ANALYZE:
 ${emailSummaries}
 
-TASK: Return ONLY the IDs (comma-separated) of emails that are likely:
+TASK: Identify emails that are likely:
 - Subscription renewals or renewal reminders (e.g., "will be charged in 2 days", "renews on Oct 5")
 - Recurring payments/billings (completed or upcoming)
 - Service invoices (SaaS, streaming, cloud services)
@@ -89,9 +89,15 @@ Examples to INCLUDE:
 - "Your Netflix subscription has been renewed"
 
 Be CONSERVATIVE - only include emails with strong subscription indicators.
-Respond with ONLY the IDs, nothing else. Format: ID1,ID2,ID3
 
-If NONE qualify, respond with: NONE`;
+CRITICAL OUTPUT FORMAT REQUIREMENT:
+You MUST respond with ONLY a valid JSON object in this exact format:
+{"approved_ids": ["ID1", "ID2", "ID3"]}
+
+Use the FULL Gmail ID from each email line (e.g., "ID:18f3c2a4b5e6d789" → use "18f3c2a4b5e6d789").
+If NONE qualify, respond with: {"approved_ids": []}
+
+NO other text, explanations, or formatting. ONLY the JSON object.`;
 
         const result = await this.ai.models.generateContent({
           model: "gemini-2.5-flash",
@@ -102,23 +108,36 @@ If NONE qualify, respond with: NONE`;
         // Validate candidate IDs for cross-checking
         const candidateIdSet = new Set(chunk.map(c => c.id));
         
-        // Handle NONE case (no qualified emails) - flexible prefix matching
-        // Catches: "NONE", "None", "none", "NONE.", "None – no matches", etc.
-        const normalizedResponse = rawResponse.toUpperCase().trim();
-        if (!rawResponse || normalizedResponse.startsWith('NONE')) {
-          console.log(`  Chunk ${i + 1}: AI returned NONE - no qualified emails`);
-          continue;
-        }
-        
-        // Parse IDs from response - flexible extraction
+        // Parse JSON response
         try {
-          // Extract all potential IDs using regex and multiple delimiters
-          // Gmail IDs are typically alphanumeric strings (16+ chars)
-          const idPattern = /[a-zA-Z0-9_-]{16,}/g;
-          const potentialIds = rawResponse.match(idPattern) || [];
+          // Clean up response - remove markdown code blocks if present
+          let cleanedResponse = rawResponse;
+          if (rawResponse.includes('```')) {
+            // Extract JSON from markdown code blocks: ```json {...} ```
+            const jsonMatch = rawResponse.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+            if (jsonMatch) {
+              cleanedResponse = jsonMatch[1];
+            }
+          }
+          
+          // Parse JSON
+          const parsed = JSON.parse(cleanedResponse);
+          
+          // Validate structure
+          if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.approved_ids)) {
+            throw new Error('Invalid JSON structure - missing approved_ids array');
+          }
+          
+          const approvedIdsFromAI = parsed.approved_ids;
+          
+          // Handle empty array (no qualified emails)
+          if (approvedIdsFromAI.length === 0) {
+            console.log(`  Chunk ${i + 1}: AI returned 0 approved emails`);
+            continue;
+          }
           
           // Validate and filter IDs against candidate set
-          const parsedIds = potentialIds.filter((id: string) => {
+          const validIds = approvedIdsFromAI.filter((id: string) => {
             if (candidateIdSet.has(id)) {
               return true;
             }
@@ -126,22 +145,23 @@ If NONE qualify, respond with: NONE`;
             return false;
           });
           
-          // Critical: If parsing yields zero valid IDs, trigger fallback
-          if (parsedIds.length === 0) {
-            console.error(`  Chunk ${i + 1}: Parsing failed - no valid IDs extracted from response`);
+          // Critical: If no valid IDs after filtering, reject chunk (conservative)
+          if (validIds.length === 0 && approvedIdsFromAI.length > 0) {
+            console.error(`  Chunk ${i + 1}: All AI-returned IDs were invalid (not in candidate set)`);
             console.error(`  Raw response: ${rawResponse.substring(0, 200)}...`);
-            console.warn(`  FALLBACK: Including all ${chunk.length} candidates from this chunk`);
-            approvedIds.push(...chunk.map(c => c.id));
+            console.warn(`  REJECTING CHUNK: Gemini returned non-matching IDs - skipping ${chunk.length} candidates`);
+            // Conservative: reject rather than approve all - prevents false positives
           } else {
-            approvedIds.push(...parsedIds);
-            console.log(`  Chunk ${i + 1}: Approved ${parsedIds.length}/${chunk.length} emails (${Math.round((parsedIds.length / chunk.length) * 100)}% pass rate)`);
+            approvedIds.push(...validIds);
+            console.log(`  Chunk ${i + 1}: Approved ${validIds.length}/${chunk.length} emails (${Math.round((validIds.length / chunk.length) * 100)}% pass rate)`);
           }
+          
         } catch (parseError) {
-          console.error(`  Chunk ${i + 1}: Exception during parsing:`, parseError);
+          console.error(`  Chunk ${i + 1}: JSON parsing failed:`, parseError);
           console.error(`  Raw response: ${rawResponse.substring(0, 200)}...`);
-          console.warn(`  FALLBACK: Including all ${chunk.length} candidates from this chunk`);
-          // Fail-safe: include all chunk candidates if parsing fails
-          approvedIds.push(...chunk.map(c => c.id));
+          console.warn(`  REJECTING CHUNK: Gemini returned invalid format - skipping ${chunk.length} candidates`);
+          // Conservative fallback: reject chunk rather than approve all (prevents flooding deep analysis)
+          // User's priority is accuracy over volume, so this is safer
         }
 
         if (onProgress) {
@@ -158,9 +178,12 @@ If NONE qualify, respond with: NONE`;
       return approvedIds;
 
     } catch (error) {
-      console.error('AI pre-filter failed, falling back to all candidates:', error);
-      // Fallback: return all candidate IDs if AI fails
-      return candidates.map(c => c.id);
+      console.error('AI pre-filter catastrophic failure:', error);
+      console.warn('Rejecting all candidates due to pre-filter system error');
+      // Conservative fallback: reject all rather than approve all
+      // This prevents flooding deep analysis with potentially irrelevant emails
+      // Better to miss some subscriptions than waste API quota on non-subscriptions
+      return [];
     }
   }
 
