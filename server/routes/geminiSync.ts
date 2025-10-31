@@ -104,7 +104,6 @@ export function registerGeminiRoutes(app: Express) {
       const emailMetadata = await gmailService.getEmailMetadata(
         accessToken,
         user.gmailRefreshToken!,
-        5000, // Backend limit
         async (newAccessToken: string) => {
           await storage.updateUser(userId, { gmailAccessToken: newAccessToken });
         },
