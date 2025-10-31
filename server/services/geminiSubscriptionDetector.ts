@@ -56,7 +56,7 @@ export class GeminiSubscriptionDetector {
     console.log(`🤖 AI Pre-filter: Analyzing ${candidates.length} candidates...`);
 
     try {
-      const chunks = this.chunkArray(candidates, 100); // Larger chunks for lightweight analysis
+      const chunks = this.chunkArray(candidates, 200); // Optimized larger chunks for efficient pre-filtering
       const approvedIds: string[] = [];
 
       for (let i = 0; i < chunks.length; i++) {

@@ -63,7 +63,7 @@ export class GmailService {
     return google.gmail({ version: 'v1', auth: this.oauth2Client });
   }
 
-  async getEmails(accessToken: string, refreshToken: string, maxResults: number = 2000, onTokenRefresh?: (newAccessToken: string) => Promise<void>, days: number = 90) {
+  async getEmails(accessToken: string, refreshToken: string, onTokenRefresh?: (newAccessToken: string) => Promise<void>, days: number = 90) {
     this.oauth2Client.setCredentials({
       access_token: accessToken,
       refresh_token: refreshToken
@@ -87,16 +87,15 @@ export class GmailService {
     // Fetch ALL emails from the time period - let AI do the filtering
     const query = `newer_than:${emailSyncDays}d`;
     
-    console.log(`🔍 Gmail API: Fetching ALL emails from past ${emailSyncDays} days`);
+    console.log(`🔍 Gmail API: Fetching ALL emails from past ${emailSyncDays} days (no email cap)`);
     console.log(`📧 Query: ${query}`);
-    console.log(`📊 Max results: ${maxResults}`);
     console.log(`🔑 Access Token Present: ${!!accessToken}`);
     console.log(`🔄 Refresh Token Present: ${!!refreshToken}`);
 
     try {
       // Fetch ALL emails - no keyword filtering, AI will handle detection
       console.log(`📬 Fetching all emails from the time period...`);
-      const allMessageIds = await this.getAllMessageIds(gmail, query, maxResults);
+      const allMessageIds = await this.getAllMessageIds(gmail, query);
       console.log(`✅ Total emails found: ${allMessageIds.length}`);
 
       if (allMessageIds.length === 0) {
@@ -115,7 +114,7 @@ export class GmailService {
     }
   }
 
-  private async getAllMessageIds(gmail: any, query: string, maxResults: number): Promise<string[]> {
+  private async getAllMessageIds(gmail: any, query: string): Promise<string[]> {
     const allIds: string[] = [];
     let nextPageToken: string | undefined;
     let totalFetched = 0;
@@ -127,7 +126,7 @@ export class GmailService {
         const listResponse = await gmail.users.messages.list({
           userId: 'me',
           q: query,
-          maxResults: Math.min(500, maxResults - totalFetched),
+          maxResults: 500, // Gmail API max per page
           pageToken: nextPageToken,
           includeSpamTrash: false  // Exclude spam and trash for cleaner results
         });
@@ -146,18 +145,13 @@ export class GmailService {
         nextPageToken = listResponse.data.nextPageToken;
         console.log(`🔄 Next page token: ${nextPageToken ? 'Present' : 'None'}`);
         
-        // Stop if we've reached our limit
-        if (totalFetched >= maxResults) {
-          console.log(`🛑 Reached maxResults limit of ${maxResults}`);
-          break;
-        }
       } catch (error) {
         console.error(`❌ Gmail API Error for query "${query}":`, error);
         throw error;
       }
     } while (nextPageToken);
 
-    console.log(`✅ Final result: ${allIds.length} message IDs collected`);
+    console.log(`✅ Final result: ${allIds.length} message IDs collected (no cap - date range only)`);
     return allIds;
   }
 
@@ -165,7 +159,7 @@ export class GmailService {
    * Fetch lightweight email metadata (subject, sender, snippet only)
    * Much faster than full fetch - for Phase 1 screening
    */
-  async getEmailMetadata(accessToken: string, refreshToken: string, maxResults: number = 5000, onTokenRefresh?: (newAccessToken: string) => Promise<void>, days: number = 90) {
+  async getEmailMetadata(accessToken: string, refreshToken: string, onTokenRefresh?: (newAccessToken: string) => Promise<void>, days: number = 90) {
     this.oauth2Client.setCredentials({
       access_token: accessToken,
       refresh_token: refreshToken
@@ -183,10 +177,10 @@ export class GmailService {
     const emailSyncDays = Math.min(Math.max(days, 1), 180);
     const query = `newer_than:${emailSyncDays}d`;
     
-    console.log(`🔍 Phase 1: Fetching lightweight email metadata (${maxResults} max)`);
+    console.log(`🔍 Phase 1: Fetching lightweight email metadata from past ${emailSyncDays} days (no email cap)`);
 
     try {
-      const allMessageIds = await this.getAllMessageIds(gmail, query, maxResults);
+      const allMessageIds = await this.getAllMessageIds(gmail, query);
       console.log(`✅ Found ${allMessageIds.length} email IDs`);
 
       if (allMessageIds.length === 0) {
@@ -223,27 +217,32 @@ export class GmailService {
 
   private async fetchMetadataInBatches(gmail: any, messageIds: string[]): Promise<any[]> {
     const metadata: any[] = [];
-    const batchSize = 8; // Optimized batch size for better throughput
-    const delayBetweenBatches = 2000; // 2 seconds between batches = 4 req/sec average
+    const batchSize = 50; // Aggressive concurrent batch size for maximum throughput
+    const delayBetweenBatches = 12000; // 12 seconds = ~4 req/sec average (50 requests / 12 sec)
     
-    console.log(`📥 Fetching metadata for ${messageIds.length} emails in batches of ${batchSize} (rate-limited to ~240 queries/min)`);
+    console.log(`📥 Fetching metadata for ${messageIds.length} emails in batches of ${batchSize} (aggressive batching ~4 req/sec)`);
 
     for (let i = 0; i < messageIds.length; i += batchSize) {
       const batch = messageIds.slice(i, i + batchSize);
       
       try {
-        const batchMetadata = await Promise.all(
+        // Use Promise.allSettled for better error resilience
+        const batchResults = await Promise.allSettled(
           batch.map(async (messageId: string) => {
             return await this.fetchMetadataWithRetry(gmail, messageId);
           })
         );
 
-        const validMetadata = batchMetadata.filter(msg => msg !== null);
+        // Extract successful results
+        const validMetadata = batchResults
+          .filter((result): result is PromiseFulfilledResult<any> => result.status === 'fulfilled' && result.value !== null)
+          .map(result => result.value);
+        
         metadata.push(...validMetadata);
 
-        if ((i + batchSize) % 100 === 0 || i + batchSize >= messageIds.length) {
-          console.log(`Fetched metadata: ${Math.min(i + batchSize, messageIds.length)}/${messageIds.length}`);
-        }
+        // Progress logging every batch
+        console.log(`📊 Metadata progress: ${Math.min(i + batchSize, messageIds.length)}/${messageIds.length} (${Math.round((i + batchSize) / messageIds.length * 100)}%)`);
+
         
         // Rate limit delay between batches
         if (i + batchSize < messageIds.length) {
@@ -304,29 +303,32 @@ export class GmailService {
 
   private async fetchMessagesInBatches(gmail: any, messageIds: string[]): Promise<any[]> {
     const messages: any[] = [];
-    const batchSize = 8; // Optimized batch size for better throughput
-    const delayBetweenBatches = 2000; // 2 seconds between batches = 4 req/sec average
+    const batchSize = 50; // Aggressive concurrent batch size for maximum throughput
+    const delayBetweenBatches = 12000; // 12 seconds = ~4 req/sec average (50 requests / 12 sec)
     
-    console.log(`📥 Fetching ${messageIds.length} email details in batches of ${batchSize} (rate-limited to ~240 queries/min)`);
+    console.log(`📥 Fetching ${messageIds.length} email details in batches of ${batchSize} (aggressive batching ~4 req/sec)`);
 
     for (let i = 0; i < messageIds.length; i += batchSize) {
       const batch = messageIds.slice(i, i + batchSize);
       
       try {
-        const batchMessages = await Promise.all(
+        // Use Promise.allSettled for better error resilience
+        const batchResults = await Promise.allSettled(
           batch.map(async (messageId: string) => {
             return await this.fetchMessageWithRetry(gmail, messageId, 3);
           })
         );
 
-        // Filter out failed requests
-        const validMessages = batchMessages.filter(msg => msg !== null);
+        // Extract successful results
+        const validMessages = batchResults
+          .filter((result): result is PromiseFulfilledResult<any> => result.status === 'fulfilled' && result.value !== null)
+          .map(result => result.value);
+        
         messages.push(...validMessages);
 
-        // Progress logging
-        if ((i + batchSize) % 25 === 0 || i + batchSize >= messageIds.length) {
-          console.log(`Processed ${Math.min(i + batchSize, messageIds.length)}/${messageIds.length} messages`);
-        }
+        // Progress logging every batch
+        console.log(`📊 Full message progress: ${Math.min(i + batchSize, messageIds.length)}/${messageIds.length} (${Math.round((i + batchSize) / messageIds.length * 100)}%)`);
+
 
         // Rate limit: 2 second delay between batches to stay within Gmail API limits
         if (i + batchSize < messageIds.length) {

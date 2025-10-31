@@ -3,6 +3,8 @@
  * Multi-parameter scoring system to identify transaction/subscription emails
  */
 
+import { getMerchantDatabase } from './merchantDatabase';
+
 interface EmailMetadata {
   id?: string; // Gmail message ID (optional for filtering)
   subject: string;
@@ -132,6 +134,20 @@ export class TransactionDetector {
     const reasons: string[] = [];
     const emailLower = email.toLowerCase();
     const nameLower = name.toLowerCase();
+
+    // PRIORITY 1: Check merchant database (80 points - strongest signal)
+    try {
+      const merchantDB = getMerchantDatabase();
+      const knownMerchant = merchantDB.isKnownMerchant(emailLower);
+      if (knownMerchant) {
+        score += 80;
+        reasons.push(`Verified merchant: ${knownMerchant.name}`);
+        return { score, reasons };
+      }
+    } catch (error) {
+      // Non-fatal: continue with other detection if merchant DB fails
+      console.warn('Merchant database lookup failed, continuing with fallback detection');
+    }
 
     // Check for known payment processors (50 points - very strong signal)
     for (const domain of this.paymentProcessors) {
