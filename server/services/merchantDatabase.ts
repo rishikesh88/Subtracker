@@ -22,7 +22,7 @@ export class MerchantDatabase {
 
   private loadMerchants() {
     try {
-      const csvPath = join(__dirname, '../data/merchants.csv');
+      const csvPath = join(import.meta.dirname, '../data/merchants.csv');
       const csvContent = readFileSync(csvPath, 'utf-8');
       
       const lines = csvContent.split('\n').slice(1); // Skip header
