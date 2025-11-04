@@ -2,7 +2,18 @@
 
 ## Overview
 
-SubTracker is a full-stack web application designed to automatically detect and track subscription services by analyzing user Gmail accounts. It processes transaction emails using intelligent parsing algorithms and provides a clean dashboard for managing and monitoring recurring subscription costs. The project aims to offer deep insights into spending patterns, providing a clear overview of financial commitments from various subscription services, with ambitions for market potential as a leading personal finance tool.
+SubTracker is a full-stack web application designed to automatically detect and track subscription services by analyzing user email accounts (Gmail and Outlook). It processes transaction emails using intelligent parsing algorithms and provides a clean dashboard for managing and monitoring recurring subscription costs. The project aims to offer deep insights into spending patterns, providing a clear overview of financial commitments from various subscription services, with ambitions for market potential as a leading personal finance tool.
+
+## Recent Changes
+
+### Multi-Account Support (November 2025)
+- **Phase 1 Complete**: Implemented multi-account email support infrastructure
+  - Created `email_accounts` table to manage multiple email accounts per user (Gmail and Outlook)
+  - Updated `subscriptions` and `emails` tables with nullable `emailAccountId` foreign keys for backward compatibility
+  - Built Account Management UI with connect/disconnect functionality for Gmail and Outlook
+  - Added account filtering to subscription list view with provider badges
+  - Implemented multi-account sync coordinator service architecture
+  - Created API routes for account management and multi-account syncing
 
 ## User Preferences
 
