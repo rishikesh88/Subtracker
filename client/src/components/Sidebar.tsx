@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { BarChart3, List, Mail, Settings, RefreshCw, User, LogOut } from "lucide-react";
+import { BarChart3, List, Mail, Settings, RefreshCw, User, LogOut, Inbox } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -42,6 +42,7 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
   const navigation = [
     { name: "Dashboard", href: "/", icon: BarChart3 },
     { name: "Subscriptions", href: "/subscriptions", icon: List },
+    { name: "Accounts", href: "/accounts", icon: Mail },
     { name: "Settings", href: "/settings", icon: Settings },
   ];
 
