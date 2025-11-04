@@ -73,22 +73,16 @@ export default function AccountsPage() {
 
   const connectGmailMutation = useMutation({
     mutationFn: async () => {
-      console.log('🔵 Gmail mutation triggered - making API request...');
-      const response = await apiRequest('/api/email-accounts/connect/gmail', {
-        method: 'POST',
-      });
-      console.log('🔵 Gmail API response received:', response.status);
+      const response = await apiRequest('POST', '/api/email-accounts/connect/gmail');
       const data = await response.json();
-      console.log('🔵 Gmail response data:', data);
       return data;
     },
     onSuccess: (data) => {
-      console.log('✅ Gmail mutation success, redirecting to:', data.authUrl);
       // Redirect to Gmail OAuth URL
       window.location.href = data.authUrl;
     },
     onError: (error) => {
-      console.error('❌ Gmail mutation error:', error);
+      console.error('Gmail connection error:', error);
       toast({
         title: "Connection Failed",
         description: "Failed to initiate Gmail connection. Please try again.",
@@ -99,9 +93,7 @@ export default function AccountsPage() {
 
   const connectOutlookMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest('/api/email-accounts/connect/outlook', {
-        method: 'POST',
-      });
+      const response = await apiRequest('POST', '/api/email-accounts/connect/outlook');
       return response.json();
     },
     onSuccess: () => {
@@ -111,7 +103,8 @@ export default function AccountsPage() {
         description: "Outlook account connected successfully!",
       });
     },
-    onError: () => {
+    onError: (error) => {
+      console.error('Outlook connection error:', error);
       toast({
         title: "Connection Failed",
         description: "Failed to connect Outlook account. Please try again.",
@@ -122,9 +115,7 @@ export default function AccountsPage() {
 
   const disconnectMutation = useMutation({
     mutationFn: async (accountId: string) => {
-      await apiRequest(`/api/email-accounts/${accountId}/disconnect`, {
-        method: 'POST',
-      });
+      await apiRequest('POST', `/api/email-accounts/${accountId}/disconnect`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/email-accounts'] });
@@ -144,9 +135,7 @@ export default function AccountsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (accountId: string) => {
-      await apiRequest(`/api/email-accounts/${accountId}`, {
-        method: 'DELETE',
-      });
+      await apiRequest('DELETE', `/api/email-accounts/${accountId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/email-accounts'] });
@@ -168,9 +157,7 @@ export default function AccountsPage() {
 
   const syncAccountMutation = useMutation({
     mutationFn: async (accountId: string) => {
-      const response = await apiRequest(`/api/sync-account/${accountId}`, {
-        method: 'POST',
-      });
+      const response = await apiRequest('POST', `/api/sync-account/${accountId}`);
       return response.json();
     },
     onSuccess: (data, accountId) => {
@@ -192,9 +179,7 @@ export default function AccountsPage() {
 
   const syncAllMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest('/api/sync-all-accounts', {
-        method: 'POST',
-      });
+      const response = await apiRequest('POST', '/api/sync-all-accounts');
       return response.json();
     },
     onSuccess: (data) => {
@@ -269,11 +254,7 @@ export default function AccountsPage() {
 
   const updateNameMutation = useMutation({
     mutationFn: async ({ accountId, accountName }: { accountId: string; accountName: string }) => {
-      const response = await apiRequest(`/api/email-accounts/${accountId}/name`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accountName }),
-      });
+      const response = await apiRequest('PATCH', `/api/email-accounts/${accountId}/name`, { accountName });
       return response.json();
     },
     onSuccess: () => {
@@ -376,10 +357,7 @@ export default function AccountsPage() {
           </CardHeader>
           <CardContent className="flex flex-wrap gap-4">
             <Button
-              onClick={() => {
-                console.log('🔴 Gmail button clicked! Pending:', connectGmailMutation.isPending, 'Connected:', gmailConnected);
-                connectGmailMutation.mutate();
-              }}
+              onClick={() => connectGmailMutation.mutate()}
               disabled={connectGmailMutation.isPending || gmailConnected}
               className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600 text-white"
               data-testid="button-connect-gmail"
