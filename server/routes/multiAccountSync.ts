@@ -323,13 +323,14 @@ async function syncGmailAccount(
 
   // Apply transaction detection
   const candidates = extractedMetadata.filter(email => {
-    const score = transactionDetector.scoreEmail(
-      email.subject,
-      email.fromEmail,
-      email.fromName,
-      email.snippet
-    );
-    return score.isTransaction;
+    const result = transactionDetector.detect({
+      subject: email.subject,
+      fromEmail: email.fromEmail,
+      fromName: email.fromName,
+      snippet: email.snippet,
+      bodyPreview: email.bodyPreview
+    });
+    return result.isCandidate;
   });
 
   console.log(`✅ Found ${candidates.length} transaction candidates`);
@@ -383,13 +384,14 @@ async function syncOutlookAccount(
 
   // Apply transaction detection
   const candidates = emailMetadata.filter(email => {
-    const score = transactionDetector.scoreEmail(
-      email.subject,
-      email.from.email,
-      email.from.name,
-      email.snippet
-    );
-    return score.isTransaction;
+    const result = transactionDetector.detect({
+      subject: email.subject,
+      fromEmail: email.from.email,
+      fromName: email.from.name,
+      snippet: email.snippet,
+      bodyPreview: email.snippet
+    });
+    return result.isCandidate;
   });
 
   console.log(`✅ Found ${candidates.length} transaction candidates from Outlook`);
