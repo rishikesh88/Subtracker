@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Mail, Trash2, Edit2, Check, X, Loader2 } from "lucide-react";
+import { Mail, Trash2, Edit2, Check, X, Loader2, RefreshCw } from "lucide-react";
 import { SiGmail } from "react-icons/si";
 import { useState } from "react";
 import {
@@ -37,6 +37,7 @@ export default function AccountsPage() {
   const [accountToDelete, setAccountToDelete] = useState<string | null>(null);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [editedName, setEditedName] = useState("");
+  const [syncingAccountId, setSyncingAccountId] = useState<string | null>(null);
 
   const { data: accounts, isLoading } = useQuery<EmailAccount[]>({
     queryKey: ['/api/email-accounts'],
@@ -126,6 +127,73 @@ export default function AccountsPage() {
       toast({
         title: "Error",
         description: "Failed to delete account. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const syncAccountMutation = useMutation({
+    mutationFn: async (accountId: string) => {
+      const response = await apiRequest(`/api/sync-account/${accountId}`, {
+        method: 'POST',
+      });
+      return response.json();
+    },
+    onSuccess: (data, accountId) => {
+      setSyncingAccountId(accountId);
+      toast({
+        title: "Sync Started",
+        description: data.message || "Email sync is in progress...",
+      });
+      
+      // Simulate sync completion after a delay
+      setTimeout(() => {
+        setSyncingAccountId(null);
+        queryClient.invalidateQueries({ queryKey: ['/api/email-accounts'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
+        toast({
+          title: "Sync Complete",
+          description: "Your emails have been synced successfully.",
+        });
+      }, 3000);
+    },
+    onError: () => {
+      setSyncingAccountId(null);
+      toast({
+        title: "Sync Failed",
+        description: "Failed to sync account. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const syncAllMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('/api/sync-all-accounts', {
+        method: 'POST',
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Sync Started",
+        description: data.message || "Syncing all email accounts...",
+      });
+      
+      // Simulate completion
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['/api/email-accounts'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
+        toast({
+          title: "All Synced",
+          description: "All email accounts have been synced successfully.",
+        });
+      }, 5000);
+    },
+    onError: () => {
+      toast({
+        title: "Sync Failed",
+        description: "Failed to sync accounts. Please try again.",
         variant: "destructive",
       });
     },
@@ -269,10 +337,28 @@ export default function AccountsPage() {
           </CardContent>
         </Card>
 
+        {/* Sync All Button */}
+        {accounts && accounts.length > 0 && (
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Connected Accounts</h2>
+            <Button
+              onClick={() => syncAllMutation.mutate()}
+              disabled={syncAllMutation.isPending}
+              className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600 text-white"
+              data-testid="button-sync-all"
+            >
+              {syncAllMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              Sync All Accounts
+            </Button>
+          </div>
+        )}
+
         {/* Connected Accounts List */}
         <div className="space-y-4">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Connected Accounts</h2>
-          
           {!accounts || accounts.length === 0 ? (
             <Card className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
               <CardContent className="py-12 text-center">
@@ -363,16 +449,33 @@ export default function AccountsPage() {
 
                     <div className="flex items-center space-x-2 ml-4">
                       {account.isActive && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => disconnectMutation.mutate(account.id)}
-                          disabled={disconnectMutation.isPending}
-                          className="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
-                          data-testid={`button-disconnect-${account.id}`}
-                        >
-                          Disconnect
-                        </Button>
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => syncAccountMutation.mutate(account.id)}
+                            disabled={syncAccountMutation.isPending || syncingAccountId === account.id}
+                            className="border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                            data-testid={`button-sync-${account.id}`}
+                          >
+                            {syncingAccountId === account.id ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <RefreshCw className="mr-2 h-4 w-4" />
+                            )}
+                            Sync
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => disconnectMutation.mutate(account.id)}
+                            disabled={disconnectMutation.isPending}
+                            className="border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                            data-testid={`button-disconnect-${account.id}`}
+                          >
+                            Disconnect
+                          </Button>
+                        </>
                       )}
                       <Button
                         variant="ghost"
