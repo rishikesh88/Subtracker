@@ -10,6 +10,7 @@ import { insertEmailSchema, insertUserSchema, updateSettingsSchema, insertSubscr
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { registerGeminiRoutes } from "./routes/geminiSync";
+import { registerEmailAccountRoutes } from "./routes/emailAccounts";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { generateServiceKey } from "./utils/serviceKey";
 
@@ -68,6 +69,9 @@ export function sendProgressUpdate(userId: string, data: {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup Replit Auth
   await setupAuth(app);
+
+  // Register email account management routes
+  registerEmailAccountRoutes(app);
 
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
