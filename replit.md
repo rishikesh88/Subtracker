@@ -7,13 +7,18 @@ SubTracker is a full-stack web application designed to automatically detect and 
 ## Recent Changes
 
 ### Multi-Account Support (November 2025)
-- **Phase 1 Complete**: Implemented multi-account email support infrastructure
+- **Complete**: Implemented full multi-account email support with real-time sync progress tracking
   - Created `email_accounts` table to manage multiple email accounts per user (Gmail and Outlook)
   - Updated `subscriptions` and `emails` tables with nullable `emailAccountId` foreign keys for backward compatibility
   - Built Account Management UI with connect/disconnect functionality for Gmail and Outlook
   - Added account filtering to subscription list view with provider badges
-  - Implemented multi-account sync coordinator service architecture
-  - Created API routes for account management and multi-account syncing
+  - Implemented multi-account sync coordinator with proper SSE event taxonomy:
+    - Single account sync: emits terminal 'complete'/'error' events
+    - Multi-account batch sync: emits per-account 'account_complete'/'account_error' + final terminal 'complete'/'error'
+  - Created real-time progress tracking via Server-Sent Events (SSE) with automatic reconnection
+  - Added individual account sync buttons and "Sync All Accounts" functionality
+  - Integrated existing Gemini detection pipeline per account with proper batch context awareness
+  - OAuth callbacks properly create email_accounts entries and redirect to accounts page
 
 ## User Preferences
 
