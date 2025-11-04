@@ -73,7 +73,7 @@ export default function AccountsPage() {
 
   const connectGmailMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest('POST', '/api/email-accounts/connect/gmail');
+      const response = await apiRequest('GET', '/api/auth/google');
       const data = await response.json();
       return data;
     },
