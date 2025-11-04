@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Mail, Trash2, Edit2, Check, X, Loader2 } from "lucide-react";
-import { SiGmail, SiMicrosoftoutlook } from "react-icons/si";
+import { SiGmail } from "react-icons/si";
 import { useState } from "react";
 import {
   AlertDialog,
@@ -188,9 +188,9 @@ export default function AccountsPage() {
   const getProviderIcon = (provider: string) => {
     switch (provider) {
       case 'gmail':
-        return <SiGmail className="h-5 w-5" />;
+        return <SiGmail className="h-5 w-5 text-red-600 dark:text-red-400" />;
       case 'outlook':
-        return <SiMicrosoftoutlook className="h-5 w-5 text-blue-500 dark:text-blue-400" />;
+        return <Mail className="h-5 w-5 text-blue-600 dark:text-blue-400" />;
       default:
         return <Mail className="h-5 w-5" />;
     }
@@ -262,7 +262,7 @@ export default function AccountsPage() {
               {connectOutlookMutation.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
-                <SiMicrosoftoutlook className="mr-2 h-4 w-4" />
+                <Mail className="mr-2 h-4 w-4" />
               )}
               {outlookConnected ? 'Outlook Connected' : 'Connect Outlook'}
             </Button>
