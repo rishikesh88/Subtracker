@@ -73,16 +73,22 @@ export default function AccountsPage() {
 
   const connectGmailMutation = useMutation({
     mutationFn: async () => {
+      console.log('🔵 Gmail mutation triggered - making API request...');
       const response = await apiRequest('/api/email-accounts/connect/gmail', {
         method: 'POST',
       });
-      return response.json();
+      console.log('🔵 Gmail API response received:', response.status);
+      const data = await response.json();
+      console.log('🔵 Gmail response data:', data);
+      return data;
     },
     onSuccess: (data) => {
+      console.log('✅ Gmail mutation success, redirecting to:', data.authUrl);
       // Redirect to Gmail OAuth URL
       window.location.href = data.authUrl;
     },
-    onError: () => {
+    onError: (error) => {
+      console.error('❌ Gmail mutation error:', error);
       toast({
         title: "Connection Failed",
         description: "Failed to initiate Gmail connection. Please try again.",
@@ -370,7 +376,10 @@ export default function AccountsPage() {
           </CardHeader>
           <CardContent className="flex flex-wrap gap-4">
             <Button
-              onClick={() => connectGmailMutation.mutate()}
+              onClick={() => {
+                console.log('🔴 Gmail button clicked! Pending:', connectGmailMutation.isPending, 'Connected:', gmailConnected);
+                connectGmailMutation.mutate();
+              }}
               disabled={connectGmailMutation.isPending || gmailConnected}
               className="bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600 text-white"
               data-testid="button-connect-gmail"
