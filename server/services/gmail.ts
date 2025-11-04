@@ -18,7 +18,7 @@ export class GmailService {
       replitDomain = `https://${domains[0]}`;
     }
     
-    const finalRedirectUri = process.env.GOOGLE_REDIRECT_URI || `${replitDomain}/api/auth/google/callback`;
+    const finalRedirectUri = process.env.GOOGLE_REDIRECT_URI || `${replitDomain}/api/email-accounts/callback/gmail`;
     
     this.oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,

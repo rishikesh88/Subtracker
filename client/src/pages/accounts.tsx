@@ -45,6 +45,32 @@ export default function AccountsPage() {
     queryKey: ['/api/email-accounts'],
   });
 
+  // Handle OAuth callback
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const gmailConnected = urlParams.get('gmailConnected');
+    const error = urlParams.get('error');
+
+    if (gmailConnected === 'true') {
+      toast({
+        title: "Gmail Connected!",
+        description: "Your Gmail account has been successfully connected.",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/email-accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
+      // Clean up URL
+      window.history.replaceState({}, '', '/accounts');
+    } else if (error) {
+      toast({
+        title: "Connection Failed",
+        description: decodeURIComponent(error),
+        variant: "destructive",
+      });
+      // Clean up URL
+      window.history.replaceState({}, '', '/accounts');
+    }
+  }, [toast]);
+
   const connectGmailMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest('/api/email-accounts/connect/gmail', {

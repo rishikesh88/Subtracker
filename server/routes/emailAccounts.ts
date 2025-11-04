@@ -127,10 +127,10 @@ export function registerEmailAccountRoutes(app: Express) {
         });
       }
 
-      res.redirect('/?gmailConnected=true');
+      res.redirect('/accounts?gmailConnected=true');
     } catch (error) {
       console.error("Gmail OAuth callback error:", error);
-      res.redirect(`/?error=${encodeURIComponent('Failed to connect Gmail account')}`);
+      res.redirect(`/accounts?error=${encodeURIComponent('Failed to connect Gmail account')}`);
     }
   });
 
