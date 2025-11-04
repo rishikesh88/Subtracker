@@ -42,25 +42,38 @@ export function registerMultiAccountSyncRoutes(app: Express) {
         details: { provider: account.provider, email: account.email }
       });
 
-      // Trigger async sync process
-      syncSingleAccount(userId, account.id, emailSyncDays, sendProgressUpdate)
-        .then(result => {
+      // Trigger async sync process (wrapping for single-account flow)
+      const singleAccountWrapper = async () => {
+        try {
+          // Pass isBatchContext=false to indicate standalone single-account sync
+          const result = await syncSingleAccount(userId, account.id, emailSyncDays, sendProgressUpdate, false);
           console.log(`✅ Sync completed for ${account.email}:`, result);
+          
           // Update last sync time
-          storage.updateEmailAccount(account.id, {
+          await storage.updateEmailAccount(account.id, {
             lastSync: new Date(),
             updatedAt: new Date()
           }).catch(err => console.error('Failed to update lastSync:', err));
-        })
-        .catch(error => {
+          
+          // Send terminal completion event for single-account sync
+          sendProgressUpdate(userId, {
+            stage: 'complete',
+            progress: 100,
+            message: `Successfully synced ${account.email}`,
+            details: result
+          });
+        } catch (error) {
           console.error(`❌ Sync failed for ${account.email}:`, error);
           sendProgressUpdate(userId, {
             stage: 'error',
             progress: 100,
-            message: `Sync failed for ${account.email}: ${error.message}`,
-            error: error.message
+            message: `Sync failed for ${account.email}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            error: error instanceof Error ? error.message : 'Unknown error'
           });
-        });
+        }
+      };
+      
+      singleAccountWrapper();
       
       // Return immediately to avoid timeout
       res.json({
@@ -112,6 +125,12 @@ export function registerMultiAccountSyncRoutes(app: Express) {
         })
         .catch(error => {
           console.error(`❌ Multi-account sync failed:`, error);
+          sendProgressUpdate(userId, {
+            stage: 'error',
+            progress: 100,
+            message: `Multi-account sync failed: ${error.message}`,
+            error: error.message
+          });
         });
 
       // Return immediately
@@ -139,7 +158,8 @@ async function syncSingleAccount(
   userId: string,
   accountId: string,
   emailSyncDays: number,
-  sendProgressUpdate: Function
+  sendProgressUpdate: Function,
+  isBatchContext: boolean = false
 ) {
   const account = await storage.getEmailAccount(accountId);
   if (!account) throw new Error("Account not found");
@@ -183,7 +203,8 @@ async function syncMultipleAccounts(
     });
 
     try {
-      const result = await syncSingleAccount(userId, accountId, emailSyncDays, sendProgressUpdate);
+      // Pass isBatchContext=true to suppress terminal events from individual account sync
+      const result = await syncSingleAccount(userId, accountId, emailSyncDays, sendProgressUpdate, true);
       results.push({ accountId, success: true, ...result });
       
       // Update last sync time
@@ -191,12 +212,28 @@ async function syncMultipleAccounts(
         lastSync: new Date(),
         updatedAt: new Date()
       });
+      
+      // Send per-account completion (not terminal)
+      sendProgressUpdate(userId, {
+        stage: 'account_complete',
+        progress: Math.round(((i + 1) / accountIds.length) * 100),
+        message: `Completed ${account.email} (${i + 1}/${accountIds.length})`,
+        details: { accountId, email: account.email, ...result }
+      });
     } catch (error) {
       console.error(`Failed to sync ${account.email}:`, error);
       results.push({
         accountId,
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      
+      // Send per-account error (not terminal)
+      sendProgressUpdate(userId, {
+        stage: 'account_error',
+        progress: Math.round(((i + 1) / accountIds.length) * 100),
+        message: `Failed to sync ${account.email}`,
+        details: { accountId, email: account.email, error: error instanceof Error ? error.message : 'Unknown error' }
       });
     }
   }

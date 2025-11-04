@@ -245,28 +245,65 @@ export default function Dashboard() {
         title: "Sync Started",
         description: data.message || "Syncing all email accounts...",
       });
-      
-      // Simulate completion
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['/api/email-accounts'] });
-        queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
-        queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
-        setSyncProgressOpen(false);
-        toast({
-          title: "All Synced",
-          description: "All email accounts have been synced successfully.",
-        });
-      }, 5000);
     },
     onError: () => {
       setSyncProgressOpen(false);
       toast({
         title: "Sync Failed",
-        description: "Failed to sync accounts. Please try again.",
+        description: "Failed to start sync. Please try again.",
         variant: "destructive",
       });
     },
   });
+
+  // Listen to SSE events for sync progress
+  useEffect(() => {
+    if (!currentUserId) return;
+
+    const eventSource = new EventSource(`/api/sync-progress/${currentUserId}`);
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        // Handle terminal completion/error events
+        if (data.stage === 'complete') {
+          queryClient.invalidateQueries({ queryKey: ['/api/email-accounts'] });
+          queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
+          queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
+          setSyncProgressOpen(false);
+          toast({
+            title: "Sync Complete",
+            description: data.message || "All accounts synced successfully.",
+          });
+        } else if (data.stage === 'error') {
+          setSyncProgressOpen(false);
+          toast({
+            title: "Sync Error",
+            description: data.message || "An error occurred during sync.",
+            variant: "destructive",
+          });
+        } else if (data.stage === 'account_complete') {
+          // Per-account completion - show progress
+          console.log('Account synced:', data.message);
+        } else if (data.stage === 'account_error') {
+          // Per-account error - log but continue batch
+          console.log('Account sync failed:', data.message);
+        }
+      } catch (error) {
+        console.error('Error parsing SSE message:', error);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('SSE connection error, will auto-retry:', error);
+      // Don't close - let browser auto-reconnect
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [currentUserId, toast]);
 
   // Legacy single-account sync (keeping for backward compatibility)
   const syncEmailsMutation = useMutation({

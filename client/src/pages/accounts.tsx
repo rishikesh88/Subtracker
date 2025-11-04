@@ -6,7 +6,8 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Mail, Trash2, Edit2, Check, X, Loader2, RefreshCw } from "lucide-react";
 import { SiGmail } from "react-icons/si";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/hooks/useAuth";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +34,7 @@ interface EmailAccount {
 
 export default function AccountsPage() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [accountToDelete, setAccountToDelete] = useState<string | null>(null);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
@@ -145,23 +147,12 @@ export default function AccountsPage() {
         title: "Sync Started",
         description: data.message || "Email sync is in progress...",
       });
-      
-      // Simulate sync completion after a delay
-      setTimeout(() => {
-        setSyncingAccountId(null);
-        queryClient.invalidateQueries({ queryKey: ['/api/email-accounts'] });
-        queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
-        toast({
-          title: "Sync Complete",
-          description: "Your emails have been synced successfully.",
-        });
-      }, 3000);
     },
     onError: () => {
       setSyncingAccountId(null);
       toast({
         title: "Sync Failed",
-        description: "Failed to sync account. Please try again.",
+        description: "Failed to start sync. Please try again.",
         variant: "destructive",
       });
     },
@@ -179,25 +170,70 @@ export default function AccountsPage() {
         title: "Sync Started",
         description: data.message || "Syncing all email accounts...",
       });
-      
-      // Simulate completion
-      setTimeout(() => {
-        queryClient.invalidateQueries({ queryKey: ['/api/email-accounts'] });
-        queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
-        toast({
-          title: "All Synced",
-          description: "All email accounts have been synced successfully.",
-        });
-      }, 5000);
     },
     onError: () => {
       toast({
         title: "Sync Failed",
-        description: "Failed to sync accounts. Please try again.",
+        description: "Failed to start sync. Please try again.",
         variant: "destructive",
       });
     },
   });
+
+  // Listen to SSE events for sync progress
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const eventSource = new EventSource(`/api/sync-progress/${user.id}`);
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        // Handle terminal completion/error events
+        if (data.stage === 'complete') {
+          setSyncingAccountId(null);
+          queryClient.invalidateQueries({ queryKey: ['/api/email-accounts'] });
+          queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
+          toast({
+            title: "Sync Complete",
+            description: data.message || "Email sync completed successfully.",
+          });
+        } else if (data.stage === 'error') {
+          setSyncingAccountId(null);
+          toast({
+            title: "Sync Error",
+            description: data.message || "An error occurred during sync.",
+            variant: "destructive",
+          });
+        } else if (data.stage === 'account_complete') {
+          // Per-account completion - show progress but don't close
+          toast({
+            title: "Account Synced",
+            description: data.message,
+          });
+        } else if (data.stage === 'account_error') {
+          // Per-account error - show notification but continue batch
+          toast({
+            title: "Account Sync Failed",
+            description: data.message,
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        console.error('Error parsing SSE message:', error);
+      }
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('SSE connection error, will auto-retry:', error);
+      // Don't close - let browser auto-reconnect
+    };
+
+    return () => {
+      eventSource.close();
+    };
+  }, [user?.id, toast]);
 
   const updateNameMutation = useMutation({
     mutationFn: async ({ accountId, accountName }: { accountId: string; accountName: string }) => {
