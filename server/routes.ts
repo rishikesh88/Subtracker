@@ -165,31 +165,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error("User not found");
       }
 
-      // Update user with Gmail tokens and expiry
+      // Fetch user's email from Google
+      const oauth2Client = new google.auth.OAuth2();
+      oauth2Client.setCredentials({
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token
+      });
+      
+      const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+      const userInfo = await oauth2.userinfo.get();
+      const gmailEmail = userInfo.data.email || user.email || 'unknown@gmail.com';
+
+      // Create email account entry
+      const existingAccount = await storage.getEmailAccountByProviderEmail(userId, 'gmail', gmailEmail);
+      
+      if (existingAccount) {
+        // Update existing account
+        await storage.updateEmailAccount(existingAccount.id, {
+          accessToken: tokens.access_token || null,
+          refreshToken: tokens.refresh_token || existingAccount.refreshToken,
+          tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+          isActive: true,
+          updatedAt: new Date()
+        });
+        console.log("Gmail account updated:", gmailEmail);
+      } else {
+        // Create new account
+        await storage.createEmailAccount({
+          userId,
+          provider: 'gmail',
+          email: gmailEmail,
+          accountName: `Gmail - ${gmailEmail}`,
+          accessToken: tokens.access_token || null,
+          refreshToken: tokens.refresh_token || null,
+          tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+          isActive: true,
+          lastSync: null
+        });
+        console.log("Gmail account created:", gmailEmail);
+      }
+
+      // Also update legacy user fields for backward compatibility
       const updateData: any = {
         gmailAccessToken: tokens.access_token || null,
         gmailTokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
         gmailConnected: true,
-        gmailEmail: tokens.scope?.includes('email') ? user.email : null,
+        gmailEmail: gmailEmail,
         lastSync: new Date(),
         updatedAt: new Date()
       };
       
-      // Only update refresh token if Google provides a new one
       if (tokens.refresh_token) {
         updateData.gmailRefreshToken = tokens.refresh_token;
       }
       
-      const updatedUser = await storage.updateUser(user.id, updateData);
-
-      if (!updatedUser) {
-        throw new Error("Failed to update user with Gmail tokens");
-      }
+      await storage.updateUser(user.id, updateData);
 
       console.log("Gmail connected successfully for user:", user.id);
 
-      // Redirect back to dashboard with success flag
-      const redirectUrl = `/?gmailConnected=true&userId=${encodeURIComponent(user.id)}`;
+      // Redirect to accounts page instead of dashboard
+      const redirectUrl = `/accounts?gmailConnected=true`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error("OAuth callback error:", error);

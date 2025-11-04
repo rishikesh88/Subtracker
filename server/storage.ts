@@ -18,6 +18,7 @@ export interface IStorage {
   getEmailAccounts(userId: string): Promise<EmailAccount[]>;
   getEmailAccount(id: string): Promise<EmailAccount | undefined>;
   getEmailAccountByEmail(userId: string, email: string, provider: string): Promise<EmailAccount | undefined>;
+  getEmailAccountByProviderEmail(userId: string, provider: string, email: string): Promise<EmailAccount | undefined>;
   createEmailAccount(account: InsertEmailAccount): Promise<EmailAccount>;
   updateEmailAccount(id: string, updates: Partial<UpdateEmailAccount>): Promise<EmailAccount | undefined>;
   deleteEmailAccount(id: string): Promise<boolean>;
@@ -222,6 +223,26 @@ export class DatabaseStorage implements IStorage {
       return result[0] || undefined;
     } catch (error) {
       console.error('Error getting email account by email:', error);
+      throw error;
+    }
+  }
+
+  async getEmailAccountByProviderEmail(userId: string, provider: string, email: string): Promise<EmailAccount | undefined> {
+    try {
+      const result = await this.db
+        .select()
+        .from(emailAccounts)
+        .where(
+          and(
+            eq(emailAccounts.userId, userId),
+            eq(emailAccounts.provider, provider),
+            eq(emailAccounts.email, email)
+          )
+        )
+        .limit(1);
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error getting email account by provider and email:', error);
       throw error;
     }
   }
