@@ -232,7 +232,43 @@ export default function Dashboard() {
     },
   });
 
-  // Enhanced sync emails mutation with suggestions and progress notifications
+  // Multi-account sync mutation
+  const syncAllAccountsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('/api/sync-all-accounts', {
+        method: 'POST',
+      });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Sync Started",
+        description: data.message || "Syncing all email accounts...",
+      });
+      
+      // Simulate completion
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ['/api/email-accounts'] });
+        queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
+        queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
+        setSyncProgressOpen(false);
+        toast({
+          title: "All Synced",
+          description: "All email accounts have been synced successfully.",
+        });
+      }, 5000);
+    },
+    onError: () => {
+      setSyncProgressOpen(false);
+      toast({
+        title: "Sync Failed",
+        description: "Failed to sync accounts. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Legacy single-account sync (keeping for backward compatibility)
   const syncEmailsMutation = useMutation({
     mutationFn: async () => {
       if (!currentUserId) throw new Error("No user ID");
@@ -389,16 +425,19 @@ export default function Dashboard() {
               ) : (
                 <div className="flex gap-2">
                   <Button
-                    onClick={handleSyncEmails}
-                    disabled={syncEmailsMutation.isPending}
-                    data-testid="sync-emails"
+                    onClick={() => {
+                      setSyncProgressOpen(true);
+                      syncAllAccountsMutation.mutate();
+                    }}
+                    disabled={syncAllAccountsMutation.isPending}
+                    data-testid="sync-all-accounts"
                   >
-                    {syncEmailsMutation.isPending ? (
+                    {syncAllAccountsMutation.isPending ? (
                       <RefreshCw className="w-4 h-4 animate-spin mr-2" />
                     ) : (
                       <RefreshCw className="w-4 h-4 mr-2" />
                     )}
-                    Sync Emails
+                    Sync All Accounts
                   </Button>
                   <Button
                     variant="outline"
