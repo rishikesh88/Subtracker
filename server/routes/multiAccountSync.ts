@@ -343,23 +343,138 @@ async function syncGmailAccount(
     };
   }
 
-  // AI pre-screening (simplified for now - skip to save time/cost)
-  // In production, you'd call geminiDetector.preFilterCandidates here
+  // Phase 1.5: AI Pre-filtering
+  console.log(`🤖 Phase 1.5: AI Pre-screening ${candidates.length} candidates...`);
   
-  // For now, just process top candidates directly
-  const topCandidates = candidates.slice(0, Math.min(20, candidates.length));
-
   sendProgressUpdate(userId, {
-    stage: 'processing',
-    progress: 50,
-    message: `Processing ${topCandidates.length} candidate emails...`
+    stage: 'ai_prefilter',
+    progress: 40,
+    message: `AI pre-filtering ${candidates.length} candidates...`
   });
 
-  // Placeholder: Return success with candidate count
+  const aiApprovedIds = await geminiDetector.prefilterCandidates(
+    candidates.map(c => ({ ...c, id: c.id! })),
+    (progress) => {
+      sendProgressUpdate(userId, {
+        stage: 'ai_progress',
+        progress: 40 + Math.round(progress * 0.15),
+        message: `AI screening: ${Math.round(progress)}%`
+      });
+    }
+  );
+
+  console.log(`✅ AI approved ${aiApprovedIds.length}/${candidates.length} emails for deep processing`);
+
+  if (aiApprovedIds.length === 0) {
+    return {
+      emailsProcessed: candidates.length,
+      suggestionsGenerated: 0,
+      message: `Screened ${candidates.length} emails, none approved by AI`
+    };
+  }
+
+  // Phase 2: Deep Processing - Fetch full email content
+  console.log(`📥 Phase 2: Fetching full content for ${aiApprovedIds.length} approved emails...`);
+  
+  sendProgressUpdate(userId, {
+    stage: 'deep_processing',
+    progress: 55,
+    message: `Fetching full content for ${aiApprovedIds.length} emails...`
+  });
+
+  const fullEmails = await gmailService.getEmailsByIds(
+    accessToken,
+    account.refreshToken,
+    aiApprovedIds
+  );
+
+  console.log(`✅ Fetched full content for ${fullEmails.length} emails`);
+
+  // Parse emails for Gemini analysis - use Email schema shape
+  const parsedEmails = fullEmails.map((msg: any) => {
+    const headers = msg.payload?.headers || [];
+    const subject = headers.find((h: any) => h.name === 'Subject')?.value || '';
+    const from = headers.find((h: any) => h.name === 'From')?.value || '';
+    const date = headers.find((h: any) => h.name === 'Date')?.value || '';
+    
+    const emailMatch = from.match(/<(.+?)>/);
+    const fromEmail = emailMatch ? emailMatch[1] : from;
+    const fromName = from.replace(/<.+?>/, '').trim();
+    
+    // Extract body content
+    let content = '';
+    const getBody = (part: any): string => {
+      if (part.mimeType === 'text/plain' && part.body?.data) {
+        return Buffer.from(part.body.data, 'base64').toString('utf-8');
+      }
+      if (part.parts) {
+        return part.parts.map(getBody).join('\n');
+      }
+      return '';
+    };
+    content = getBody(msg.payload);
+
+    return {
+      id: msg.id || '',
+      subject,
+      fromEmail,
+      fromName,
+      receivedAt: new Date(date),
+      content,
+      snippet: msg.snippet || ''
+    };
+  });
+
+  // Phase 2b: Gemini Deep Analysis
+  console.log(`🤖 Phase 2: Running Gemini deep analysis on ${parsedEmails.length} emails...`);
+  
+  sendProgressUpdate(userId, {
+    stage: 'gemini_analysis',
+    progress: 70,
+    message: `Analyzing ${parsedEmails.length} emails with AI...`
+  });
+
+  const geminiResult = await geminiDetector.analyzeEmailsForSubscriptions(parsedEmails);
+  
+  console.log(`✅ Gemini analysis complete: ${geminiResult.subscriptions.length} subscriptions found`);
+
+  // Save subscription suggestions to database
+  let savedCount = 0;
+  for (const sub of geminiResult.subscriptions) {
+    try {
+      await storage.createSubscriptionSuggestion({
+        userId,
+        emailAccountId: account.id,
+        serviceName: sub.serviceName,
+        merchantName: sub.merchantName,
+        amount: sub.amount.toString(),
+        currency: sub.currency,
+        billingCycle: sub.frequency,
+        category: sub.category,
+        confidence: sub.confidence,
+        reasoning: sub.reasoning,
+        nextBillingDate: sub.nextBillingDate ? new Date(sub.nextBillingDate) : null,
+        isActive: sub.isActive,
+        status: 'pending'
+      });
+      savedCount++;
+    } catch (error) {
+      console.error('Failed to save subscription suggestion:', error);
+    }
+  }
+
+  console.log(`✅ Saved ${savedCount} subscription suggestions to database`);
+
+  sendProgressUpdate(userId, {
+    stage: 'complete',
+    progress: 100,
+    message: `Found ${savedCount} subscriptions from ${account.email}`
+  });
+
   return {
-    emailsProcessed: topCandidates.length,
-    suggestionsGenerated: 0,
-    message: `Processed ${topCandidates.length} emails from ${account.email}`
+    emailsProcessed: parsedEmails.length,
+    suggestionsGenerated: savedCount,
+    message: `Found ${savedCount} subscriptions from ${account.email}`
   };
 }
 
@@ -396,15 +511,126 @@ async function syncOutlookAccount(
 
   console.log(`✅ Found ${candidates.length} transaction candidates from Outlook`);
 
+  if (candidates.length === 0) {
+    return {
+      emailsProcessed: 0,
+      suggestionsGenerated: 0,
+      message: "No transaction emails found"
+    };
+  }
+
+  // Phase 1.5: AI Pre-filtering
+  console.log(`🤖 Phase 1.5: AI Pre-screening ${candidates.length} Outlook candidates...`);
+  
   sendProgressUpdate(userId, {
-    stage: 'processing',
-    progress: 50,
-    message: `Processing ${candidates.length} candidate emails...`
+    stage: 'ai_prefilter',
+    progress: 40,
+    message: `AI pre-filtering ${candidates.length} candidates...`
+  });
+
+  // Map Outlook emails to match expected format
+  const candidatesForAI = candidates.map(email => ({
+    id: email.id,
+    subject: email.subject,
+    fromEmail: email.from.email,
+    fromName: email.from.name,
+    snippet: email.snippet
+  }));
+
+  const aiApprovedIds = await geminiDetector.prefilterCandidates(
+    candidatesForAI,
+    (progress) => {
+      sendProgressUpdate(userId, {
+        stage: 'ai_progress',
+        progress: 40 + Math.round(progress * 0.15),
+        message: `AI screening: ${Math.round(progress)}%`
+      });
+    }
+  );
+
+  console.log(`✅ AI approved ${aiApprovedIds.length}/${candidates.length} Outlook emails for deep processing`);
+
+  if (aiApprovedIds.length === 0) {
+    return {
+      emailsProcessed: candidates.length,
+      suggestionsGenerated: 0,
+      message: `Screened ${candidates.length} emails, none approved by AI`
+    };
+  }
+
+  // Phase 2: Deep Processing - Fetch full email content
+  console.log(`📥 Phase 2: Fetching full content for ${aiApprovedIds.length} approved Outlook emails...`);
+  
+  sendProgressUpdate(userId, {
+    stage: 'deep_processing',
+    progress: 55,
+    message: `Fetching full content for ${aiApprovedIds.length} emails...`
+  });
+
+  const fullEmails = await outlookService.getEmailsById(aiApprovedIds);
+
+  console.log(`✅ Fetched full content for ${fullEmails.length} Outlook emails`);
+
+  // Parse emails for Gemini analysis - use Email schema shape
+  const parsedEmails = fullEmails.map((msg: any) => ({
+    id: msg.id || '',
+    subject: msg.subject,
+    fromEmail: msg.from.email,
+    fromName: msg.from.name,
+    receivedAt: msg.receivedAt,
+    content: msg.content,
+    snippet: msg.content.substring(0, 200)
+  }));
+
+  // Phase 2b: Gemini Deep Analysis
+  console.log(`🤖 Phase 2: Running Gemini deep analysis on ${parsedEmails.length} Outlook emails...`);
+  
+  sendProgressUpdate(userId, {
+    stage: 'gemini_analysis',
+    progress: 70,
+    message: `Analyzing ${parsedEmails.length} emails with AI...`
+  });
+
+  const geminiResult = await geminiDetector.analyzeEmailsForSubscriptions(parsedEmails);
+  
+  console.log(`✅ Gemini analysis complete: ${geminiResult.subscriptions.length} subscriptions found from Outlook`);
+
+  // Save subscription suggestions to database
+  let savedCount = 0;
+  for (const sub of geminiResult.subscriptions) {
+    try {
+      await storage.createSubscriptionSuggestion({
+        userId,
+        emailAccountId: account.id,
+        serviceName: sub.serviceName,
+        merchantName: sub.merchantName,
+        amount: sub.amount.toString(),
+        currency: sub.currency,
+        billingCycle: sub.frequency,
+        category: sub.category,
+        confidence: sub.confidence,
+        reasoning: sub.reasoning,
+        nextBillingDate: sub.nextBillingDate ? new Date(sub.nextBillingDate) : null,
+        isActive: sub.isActive,
+        status: 'pending'
+      });
+      savedCount++;
+    } catch (error) {
+      console.error('Failed to save Outlook subscription suggestion:', error);
+    }
+  }
+
+  console.log(`✅ Saved ${savedCount} Outlook subscription suggestions to database`);
+
+  sendProgressUpdate(userId, {
+    stage: 'complete',
+    progress: 100,
+    message: `Found ${savedCount} subscriptions from ${account.email}`
   });
 
   return {
-    emailsProcessed: candidates.length,
-    suggestionsGenerated: 0,
-    message: `Processed ${candidates.length} emails from ${account.email}`
+    emailsProcessed: parsedEmails.length,
+    suggestionsGenerated: savedCount,
+    message: `Found ${savedCount} subscriptions from ${account.email}`
   };
 }
