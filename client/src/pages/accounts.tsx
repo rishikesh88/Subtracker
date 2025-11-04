@@ -334,8 +334,9 @@ export default function AccountsPage() {
     );
   }
 
-  const gmailConnected = accounts?.some(a => a.provider === 'gmail' && a.isActive) || false;
-  const outlookConnected = accounts?.some(a => a.provider === 'outlook' && a.isActive) || false;
+  // Don't disable buttons - allow multiple accounts of the same provider
+  const gmailConnected = false;
+  const outlookConnected = false;
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">

@@ -14,6 +14,7 @@ import { registerEmailAccountRoutes } from "./routes/emailAccounts";
 import { registerMultiAccountSyncRoutes } from "./routes/multiAccountSync";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { generateServiceKey } from "./utils/serviceKey";
+import { google } from "googleapis";
 
 // Request validation schemas
 const approveSuggestionsSchema = z.object({
