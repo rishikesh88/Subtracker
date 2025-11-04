@@ -11,6 +11,7 @@ import { randomBytes } from "crypto";
 import { z } from "zod";
 import { registerGeminiRoutes } from "./routes/geminiSync";
 import { registerEmailAccountRoutes } from "./routes/emailAccounts";
+import { registerMultiAccountSyncRoutes } from "./routes/multiAccountSync";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { generateServiceKey } from "./utils/serviceKey";
 
@@ -72,6 +73,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Register email account management routes
   registerEmailAccountRoutes(app);
+  
+  // Register multi-account sync routes
+  registerMultiAccountSyncRoutes(app);
 
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
