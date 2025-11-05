@@ -136,9 +136,7 @@ export default function Dashboard() {
   // Multi-account sync mutation
   const syncAllAccountsMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest('/api/sync-all-accounts', {
-        method: 'POST',
-      });
+      const response = await apiRequest('POST', '/api/sync-all-accounts');
       return response.json();
     },
     onSuccess: (data) => {
