@@ -177,35 +177,38 @@ async function syncSingleAccount(
   throw new Error(`Unsupported provider: ${account.provider}`);
 }
 
-// Helper function to sync multiple accounts
+// Helper function to sync multiple accounts (PARALLEL)
 async function syncMultipleAccounts(
   userId: string,
   accountIds: string[],
   emailSyncDays: number,
   sendProgressUpdate: Function
 ) {
-  const results = [];
+  console.log(`🚀 Starting PARALLEL sync for ${accountIds.length} accounts`);
   
-  for (let i = 0; i < accountIds.length; i++) {
-    const accountId = accountIds[i];
+  // Track completion count for progress updates
+  let completedCount = 0;
+  const totalAccounts = accountIds.length;
+  
+  // Sync all accounts in parallel using Promise.allSettled
+  const syncPromises = accountIds.map(async (accountId, index) => {
     const account = await storage.getEmailAccount(accountId);
     
     if (!account) {
       console.error(`Account ${accountId} not found, skipping`);
-      continue;
+      return { accountId, success: false, error: 'Account not found' };
     }
 
     sendProgressUpdate(userId, {
       stage: 'account_sync',
-      progress: Math.round((i / accountIds.length) * 100),
-      message: `Syncing ${account.email} (${i + 1}/${accountIds.length})...`,
+      progress: Math.round((completedCount / totalAccounts) * 100),
+      message: `Syncing ${account.email}...`,
       details: { provider: account.provider, email: account.email }
     });
 
     try {
       // Pass isBatchContext=true to suppress terminal events from individual account sync
       const result = await syncSingleAccount(userId, accountId, emailSyncDays, sendProgressUpdate, true);
-      results.push({ accountId, success: true, ...result });
       
       // Update last sync time
       await storage.updateEmailAccount(accountId, {
@@ -213,35 +216,56 @@ async function syncMultipleAccounts(
         updatedAt: new Date()
       });
       
+      // Increment completion count
+      completedCount++;
+      
       // Send per-account completion (not terminal)
       sendProgressUpdate(userId, {
         stage: 'account_complete',
-        progress: Math.round(((i + 1) / accountIds.length) * 100),
-        message: `Completed ${account.email} (${i + 1}/${accountIds.length})`,
+        progress: Math.round((completedCount / totalAccounts) * 100),
+        message: `Completed ${account.email} (${completedCount}/${totalAccounts})`,
         details: { accountId, email: account.email, ...result }
       });
+      
+      return { accountId, success: true, email: account.email, ...result };
     } catch (error) {
       console.error(`Failed to sync ${account.email}:`, error);
-      results.push({
-        accountId,
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      
+      // Increment completion count even on error
+      completedCount++;
       
       // Send per-account error (not terminal)
       sendProgressUpdate(userId, {
         stage: 'account_error',
-        progress: Math.round(((i + 1) / accountIds.length) * 100),
+        progress: Math.round((completedCount / totalAccounts) * 100),
         message: `Failed to sync ${account.email}`,
         details: { accountId, email: account.email, error: error instanceof Error ? error.message : 'Unknown error' }
       });
+      
+      return {
+        accountId,
+        email: account.email,
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
     }
-  }
+  });
+
+  // Wait for all accounts to complete (parallel execution)
+  const settledResults = await Promise.allSettled(syncPromises);
+  
+  // Extract results from settled promises
+  const results = settledResults.map(result => 
+    result.status === 'fulfilled' ? result.value : { success: false, error: 'Promise rejected' }
+  );
+
+  const successCount = results.filter(r => r.success).length;
+  console.log(`✅ PARALLEL sync complete: ${successCount}/${totalAccounts} accounts successful`);
 
   sendProgressUpdate(userId, {
     stage: 'complete',
     progress: 100,
-    message: `Synced ${results.filter(r => r.success).length}/${accountIds.length} accounts successfully`,
+    message: `Synced ${successCount}/${totalAccounts} accounts successfully`,
     details: { results }
   });
 
@@ -442,20 +466,32 @@ async function syncGmailAccount(
   let savedCount = 0;
   for (const sub of geminiResult.subscriptions) {
     try {
-      await storage.createSubscriptionSuggestion({
+      // Generate serviceKey for deduplication (normalized service name + frequency)
+      const serviceKey = `${sub.serviceName.toLowerCase().replace(/\s+/g, '_')}_${sub.frequency}`;
+      
+      // Convert confidence text to numeric score
+      const confidenceScore = sub.confidence === 'high' ? 0.90 : sub.confidence === 'medium' ? 0.70 : 0.50;
+      
+      await storage.createSuggestion({
         userId,
         emailAccountId: account.id,
         serviceName: sub.serviceName,
+        serviceKey,
         merchantName: sub.merchantName,
         amount: sub.amount.toString(),
         currency: sub.currency,
-        billingCycle: sub.frequency,
+        frequency: sub.frequency,
         category: sub.category,
         confidence: sub.confidence,
+        confidenceScore: confidenceScore.toString(),
         reasoning: sub.reasoning,
         nextBillingDate: sub.nextBillingDate ? new Date(sub.nextBillingDate) : null,
-        isActive: sub.isActive,
-        status: 'pending'
+        lastSeen: new Date(),
+        status: 'pending',
+        recurringKeywords: sub.recurringKeywords || [],
+        validationChecks: sub.validationChecks ? JSON.stringify(sub.validationChecks) : null,
+        attachmentEvidence: sub.attachmentEvidence || null,
+        senderHistory: sub.senderHistory || null
       });
       savedCount++;
     } catch (error) {
@@ -599,20 +635,32 @@ async function syncOutlookAccount(
   let savedCount = 0;
   for (const sub of geminiResult.subscriptions) {
     try {
-      await storage.createSubscriptionSuggestion({
+      // Generate serviceKey for deduplication (normalized service name + frequency)
+      const serviceKey = `${sub.serviceName.toLowerCase().replace(/\s+/g, '_')}_${sub.frequency}`;
+      
+      // Convert confidence text to numeric score
+      const confidenceScore = sub.confidence === 'high' ? 0.90 : sub.confidence === 'medium' ? 0.70 : 0.50;
+      
+      await storage.createSuggestion({
         userId,
         emailAccountId: account.id,
         serviceName: sub.serviceName,
+        serviceKey,
         merchantName: sub.merchantName,
         amount: sub.amount.toString(),
         currency: sub.currency,
-        billingCycle: sub.frequency,
+        frequency: sub.frequency,
         category: sub.category,
         confidence: sub.confidence,
+        confidenceScore: confidenceScore.toString(),
         reasoning: sub.reasoning,
         nextBillingDate: sub.nextBillingDate ? new Date(sub.nextBillingDate) : null,
-        isActive: sub.isActive,
-        status: 'pending'
+        lastSeen: new Date(),
+        status: 'pending',
+        recurringKeywords: sub.recurringKeywords || [],
+        validationChecks: sub.validationChecks ? JSON.stringify(sub.validationChecks) : null,
+        attachmentEvidence: sub.attachmentEvidence || null,
+        senderHistory: sub.senderHistory || null
       });
       savedCount++;
     } catch (error) {
