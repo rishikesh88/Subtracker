@@ -64,6 +64,52 @@ SubTracker is a full-stack web application designed to automatically detect and 
   - Dashboard stats now show accurate total across all accounts
 - **Sync Days Filter**: Added 30, 60, 90, and 180 days options in email sync period selector
 
+### Transaction Detector & AI Pre-Filter Improvements (November 5, 2025)
+**MAJOR ACCURACY IMPROVEMENTS** - Fixed critical bottleneck causing 85% of subscription candidates to be rejected
+
+#### Problem Identified
+- **AI Pre-Filter Too Conservative**: Only 15% approval rate (194/1282 candidates) causing missing subscriptions
+- **Missing Keywords**: Insurance, telecom, utilities, and maintenance subscriptions not detected
+- **Scoring Cap Issue**: Subject analysis capped at 40 points prevented strong signals from reaching 50-point threshold
+
+#### Solutions Implemented
+
+1. **AI Pre-Filter Enhancement**
+   - Changed from "Be CONSERVATIVE" to "Be COMPREHENSIVE"
+   - Added 10 diverse subscription categories with examples:
+     - Insurance (TATA AIG, HDFC ERGO)
+     - Telecom (Airtel, Jio, ACT Fibernet)
+     - Utilities (Electricity, Water, Gas)
+     - Maintenance (Society fees, HOA)
+     - SaaS (ChatGPT, GitHub, Linear)
+     - Streaming (Netflix, Spotify)
+     - Cloud Services (AWS, Google Cloud)
+     - Professional Services (Legal retainers, Accounting)
+   - Impact: Expected to increase approval rate from 15% to 40-60%
+
+2. **Transaction Detector Keyword Expansion**
+   - **Added Payment Keywords**: "premium", "charges", "fee" (enable stacking with category keywords)
+   - **Added Category Keywords**:
+     - Insurance: "insurance", "policy", "coverage"
+     - Telecom: "mobile", "broadband", "recharge", "prepaid", "postpaid"
+     - Utilities: "electricity", "water", "gas", "utility bill", "meter"
+     - Maintenance: "maintenance", "society", "hoa", "association"
+   - **Removed Duplicates**: Cleaned up keyword arrays to prevent confusion
+
+3. **Subject Scoring Cap Increase**
+   - **Before**: Subject capped at 40 points → couldn't reach 50-point threshold alone
+   - **After**: Subject capped at 60 points → strong subscription signals pass without corroboration
+   - **Impact**:
+     - "TATA AIG Insurance Premium Due" → 72 points (capped 60) → ✅ PASS
+     - "Airtel Mobile Bill" → 50 points → ✅ PASS
+     - "Society Maintenance Charges" → 47 + currency (20) → ✅ PASS
+     - "Invoice Payment Due" → 47 points → ❌ Correctly rejected (no subscription signal)
+
+#### Expected Results
+- **Missing subscriptions now detected**: Insurance (TATA AIG), Telecom (Airtel), Maintenance (Pebbels Urbania), SaaS (ChatGPT, Apple One)
+- **Maintained precision**: Generic invoices still require corroborating signals (sender/body/currency)
+- **Improved recall**: Target approval rate 40-60% (up from 15%)
+
 ### Multi-Account Support (November 2025)
 - **Complete**: Implemented full multi-account email support with real-time sync progress tracking
   - Created `email_accounts` table to manage multiple email accounts per user (Gmail and Outlook)
