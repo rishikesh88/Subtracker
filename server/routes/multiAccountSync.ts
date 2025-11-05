@@ -6,6 +6,7 @@ import { outlookService } from "../services/outlook";
 import { GeminiSubscriptionDetector } from "../services/geminiSubscriptionDetector";
 import { TransactionDetector } from "../services/transactionDetector";
 import { parseFlexibleDate } from "../utils/dateParser";
+import { createRobustServiceKey } from "../utils/normalizeServiceKey";
 import { subscriptionSuggestions } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 import { drizzle } from 'drizzle-orm/neon-http';
@@ -481,13 +482,15 @@ async function syncGmailAccount(
     try {
       // Validate amount - skip if ₹0 or missing
       if (!sub.amount || sub.amount === 0) {
-        console.warn(`⚠️ Skipping ${sub.serviceName}: Amount is ₹0 or missing`);
+        console.warn(`⚠️ Skipping ${sub.serviceName}: Amount is ₹0 or missing (merchant: ${sub.merchantName})`);
+        console.warn(`  This email will be reprocessed on next sync. Consider manual review.`);
         skippedCount++;
         continue;
       }
       
-      // Generate serviceKey for deduplication (normalized service name + frequency)
-      const serviceKey = `${sub.serviceName.toLowerCase().replace(/\s+/g, '_')}_${sub.frequency}`;
+      // Generate robust serviceKey for deduplication (normalized merchant + service + frequency)
+      // This handles AI variations in service naming between syncs
+      const serviceKey = createRobustServiceKey(sub.serviceName, sub.merchantName, sub.frequency);
       
       // Convert confidence text to numeric score
       const confidenceScore = sub.confidence === 'high' ? 0.90 : sub.confidence === 'medium' ? 0.70 : 0.50;
@@ -500,8 +503,9 @@ async function syncGmailAccount(
       
       console.log(`💾 Processing ${sub.serviceName} (${sub.currency} ${sub.amount})...`);
       
-      // Check if suggestion already exists (database deduplication)
-      const existing = await db
+      // Check if suggestion already exists (database deduplication with backward compatibility)
+      // First try with new robust key format
+      let existing = await db
         .select()
         .from(subscriptionSuggestions)
         .where(
@@ -512,6 +516,51 @@ async function syncGmailAccount(
           )
         )
         .limit(1);
+      
+      // Backward compatibility: Client-side matching by stable fields
+      // (merchantName + frequency, using same normalization as robust key)
+      if (existing.length === 0) {
+        // Fetch all pending suggestions for this user with matching frequency
+        const candidates = await db
+          .select()
+          .from(subscriptionSuggestions)
+          .where(
+            and(
+              eq(subscriptionSuggestions.userId, userId),
+              eq(subscriptionSuggestions.frequency, sub.frequency),
+              eq(subscriptionSuggestions.status, 'pending')
+            )
+          );
+        
+        // Normalize incoming merchant name
+        const incomingNormalized = sub.merchantName
+          .toLowerCase()
+          .replace(/[^\w\s]/g, '')
+          .replace(/\s+/g, '_')
+          .trim();
+        
+        // Client-side matching with same normalization logic
+        const match = candidates.find(candidate => {
+          const candidateNormalized = (candidate.merchantName || '')
+            .toLowerCase()
+            .replace(/[^\w\s]/g, '')
+            .replace(/\s+/g, '_')
+            .trim();
+          return candidateNormalized === incomingNormalized;
+        });
+        
+        if (match) {
+          existing = [match];
+          console.log(`🔄 Migrating suggestion for "${sub.merchantName}" (${sub.frequency}) from legacy key "${match.serviceKey}" to new key "${serviceKey}"`);
+          await db
+            .update(subscriptionSuggestions)
+            .set({ 
+              serviceKey,
+              serviceName: sub.serviceName // Also update service name to latest AI output
+            })
+            .where(eq(subscriptionSuggestions.id, match.id));
+        }
+      }
       
       if (existing.length > 0) {
         // Update existing suggestion: increment occurrences, update lastSeen
@@ -710,13 +759,15 @@ async function syncOutlookAccount(
     try {
       // Validate amount - skip if ₹0 or missing
       if (!sub.amount || sub.amount === 0) {
-        console.warn(`⚠️ Skipping ${sub.serviceName}: Amount is ₹0 or missing`);
+        console.warn(`⚠️ Skipping ${sub.serviceName}: Amount is ₹0 or missing (merchant: ${sub.merchantName})`);
+        console.warn(`  This email will be reprocessed on next sync. Consider manual review.`);
         skippedCount++;
         continue;
       }
       
-      // Generate serviceKey for deduplication (normalized service name + frequency)
-      const serviceKey = `${sub.serviceName.toLowerCase().replace(/\s+/g, '_')}_${sub.frequency}`;
+      // Generate robust serviceKey for deduplication (normalized merchant + service + frequency)
+      // This handles AI variations in service naming between syncs
+      const serviceKey = createRobustServiceKey(sub.serviceName, sub.merchantName, sub.frequency);
       
       // Convert confidence text to numeric score
       const confidenceScore = sub.confidence === 'high' ? 0.90 : sub.confidence === 'medium' ? 0.70 : 0.50;
@@ -729,8 +780,9 @@ async function syncOutlookAccount(
       
       console.log(`💾 Processing ${sub.serviceName} (${sub.currency} ${sub.amount})...`);
       
-      // Check if suggestion already exists (database deduplication)
-      const existing = await db
+      // Check if suggestion already exists (database deduplication with backward compatibility)
+      // First try with new robust key format
+      let existing = await db
         .select()
         .from(subscriptionSuggestions)
         .where(
@@ -741,6 +793,51 @@ async function syncOutlookAccount(
           )
         )
         .limit(1);
+      
+      // Backward compatibility: Client-side matching by stable fields
+      // (merchantName + frequency, using same normalization as robust key)
+      if (existing.length === 0) {
+        // Fetch all pending suggestions for this user with matching frequency
+        const candidates = await db
+          .select()
+          .from(subscriptionSuggestions)
+          .where(
+            and(
+              eq(subscriptionSuggestions.userId, userId),
+              eq(subscriptionSuggestions.frequency, sub.frequency),
+              eq(subscriptionSuggestions.status, 'pending')
+            )
+          );
+        
+        // Normalize incoming merchant name
+        const incomingNormalized = sub.merchantName
+          .toLowerCase()
+          .replace(/[^\w\s]/g, '')
+          .replace(/\s+/g, '_')
+          .trim();
+        
+        // Client-side matching with same normalization logic
+        const match = candidates.find(candidate => {
+          const candidateNormalized = (candidate.merchantName || '')
+            .toLowerCase()
+            .replace(/[^\w\s]/g, '')
+            .replace(/\s+/g, '_')
+            .trim();
+          return candidateNormalized === incomingNormalized;
+        });
+        
+        if (match) {
+          existing = [match];
+          console.log(`🔄 Migrating suggestion for "${sub.merchantName}" (${sub.frequency}) from legacy key "${match.serviceKey}" to new key "${serviceKey}"`);
+          await db
+            .update(subscriptionSuggestions)
+            .set({ 
+              serviceKey,
+              serviceName: sub.serviceName // Also update service name to latest AI output
+            })
+            .where(eq(subscriptionSuggestions.id, match.id));
+        }
+      }
       
       if (existing.length > 0) {
         // Update existing suggestion: increment occurrences, update lastSeen

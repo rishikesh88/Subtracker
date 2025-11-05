@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { Email, Subscription } from "@shared/schema";
+import { createRobustServiceKey } from "../utils/normalizeServiceKey";
 
 // Reference to blueprint for Gemini integration
 // DON'T DELETE THIS COMMENT
@@ -402,8 +403,9 @@ IMPORTANT:
     const seen = new Map<string, SubscriptionSuggestion>();
     
     for (const suggestion of suggestions) {
-      // Use serviceKey format: serviceName_frequency (consistent with database deduplication)
-      const key = `${suggestion.serviceName.toLowerCase().replace(/\s+/g, '_')}_${suggestion.frequency}`;
+      // Use robust serviceKey: normalized merchant + service + frequency (consistent with database deduplication)
+      // This handles AI variations in naming between runs
+      const key = createRobustServiceKey(suggestion.serviceName, suggestion.merchantName, suggestion.frequency);
       
       const existing = seen.get(key);
       // If duplicate found within batch, keep the one with higher confidence
@@ -437,7 +439,7 @@ IMPORTANT:
       userId,
       merchantName: suggestion.merchantName,
       serviceName: suggestion.serviceName,
-      serviceKey: `${suggestion.merchantName.toLowerCase()}_${suggestion.frequency}`.replace(/\s+/g, '_'),
+      serviceKey: createRobustServiceKey(suggestion.serviceName, suggestion.merchantName, suggestion.frequency),
       amount: suggestion.amount.toString(),
       currency: suggestion.currency,
       frequency: suggestion.frequency,

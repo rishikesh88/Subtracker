@@ -6,18 +6,42 @@ SubTracker is a full-stack web application designed to automatically detect and 
 
 ## Recent Changes
 
-### Parallel Multi-Account Sync & Subscription Saving Fix (November 5, 2025)
-- **Critical Bug Fix**: Fixed subscription suggestion persistence failure
-  - **Issue**: Calling non-existent `storage.createSubscriptionSuggestion()` method caused TypeError
-  - **Fix**: Changed to `storage.createSuggestion()` with correct parameter mapping
-  - Fixed parameter names to match `subscription_suggestions` schema:
-    - `billingCycle` → `frequency`
-    - Removed `isActive` (not in schema)
-    - Added required `serviceKey` for deduplication (normalized service name + frequency)
-    - Added required `confidenceScore` (numeric: 0.90/0.70/0.50 for high/medium/low confidence)
-    - Added required `lastSeen` timestamp
-    - Added optional fields: `recurringKeywords`, `validationChecks`, `attachmentEvidence`, `senderHistory`
-  - Applied fixes to both Gmail and Outlook sync functions
+### Subscription Detection Pipeline Fixes (November 5, 2025)
+**COMPREHENSIVE AI PIPELINE FIXES** - Resolved critical issues causing crashes, missing data, and duplicates
+#### 1. **Fixed Date Parsing Crashes** (RangeError: Invalid time value)
+- **Problem**: Invalid date strings from AI (e.g., "Oct 5", "in 2 days") caused database save crashes
+- **Solution**: Created robust `parseFlexibleDate()` utility
+  - Handles ISO dates, relative dates ("in 2 days"), partial dates ("Oct 5")
+  - Returns `null` for invalid dates instead of crashing
+  - Adds year inference for partial dates
+- **Impact**: No more RangeError crashes during sync
+
+#### 2. **Fixed Missing Amounts** (₹0.00 in suggestions)
+- **Problem**: Gemini not extracting amounts from renewal reminder emails
+- **Solution**: 
+  - Enhanced AI prompt with "CRITICAL: AMOUNT EXTRACTION IS MANDATORY" section
+  - Added validation to skip subscriptions with amount=0 or missing
+  - Improved examples showing where amounts appear (subject, body, snippet)
+- **Impact**: Subscriptions now have valid amounts, ₹0 suggestions rejected
+- **Known limitation**: Emails with missing amounts will retry on next sync (creates log noise only)
+
+#### 3. **Fixed Database Deduplication** (Repeated suggestions)
+- **Problem**: No check against existing suggestions - every sync created duplicates
+- **Solution**: Implemented database-level deduplication
+  - Query existing suggestions by `serviceKey` before saving
+  - If exists: Update (increment `occurrences`, update `lastSeen`, upgrade confidence)
+  - If new: Create suggestion
+  - Separate counters track: new / updated / skipped
+- **Impact**: No more duplicate suggestions for same service within same account
+
+#### 4. **Robust ServiceKey Normalization**
+- **Problem**: AI variations in naming (casing, spacing, punctuation) created different keys
+- **Solution**: Created `createRobustServiceKey()` using merchant + service + frequency
+  - Normalization: lowercase, remove special chars, collapse whitespace
+  - Applied consistently everywhere (Gemini dedup, database dedup, conversion)
+- **Impact**: AI variations no longer create duplicate keys
+- **Example**: "Netflix Premium", "netflix premium", "Netflix  Premium" → all same key
+- **Known limitation**: First sync after deployment may create some duplicates for existing legacy data with significant merchant name variations (e.g., "Netflix Inc." vs "Netflix"). Subsequent syncs will not create duplicates.
 
 - **Performance Enhancement**: Implemented parallel multi-account syncing
   - **Before**: Accounts synced sequentially (one after another)
