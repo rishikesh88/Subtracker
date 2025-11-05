@@ -171,6 +171,7 @@ export default function Dashboard() {
           queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
           queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
           setSyncProgressOpen(false);
+          setSuggestionsModalOpen(true);
           toast({
             title: "Sync Complete",
             description: data.message || "All accounts synced successfully.",
