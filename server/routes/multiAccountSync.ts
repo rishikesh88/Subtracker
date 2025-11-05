@@ -5,6 +5,10 @@ import { GmailService } from "../services/gmail";
 import { outlookService } from "../services/outlook";
 import { GeminiSubscriptionDetector } from "../services/geminiSubscriptionDetector";
 import { TransactionDetector } from "../services/transactionDetector";
+import { parseFlexibleDate } from "../utils/dateParser";
+import { db } from "../db";
+import { subscriptionSuggestions } from "@shared/schema";
+import { eq, and } from "drizzle-orm";
 
 export function registerMultiAccountSyncRoutes(app: Express) {
   // Get progress notification function from parent scope
@@ -463,52 +467,103 @@ async function syncGmailAccount(
   console.log(`✅ Gemini analysis complete: ${geminiResult.subscriptions.length} subscriptions found`);
   console.log(`📊 Gemini subscriptions:`, JSON.stringify(geminiResult.subscriptions, null, 2));
 
-  // Save subscription suggestions to database
+  // Save subscription suggestions to database with deduplication
   let savedCount = 0;
+  let updatedCount = 0;
+  let skippedCount = 0;
+  
   for (const sub of geminiResult.subscriptions) {
     try {
+      // Validate amount - skip if ₹0 or missing
+      if (!sub.amount || sub.amount === 0) {
+        console.warn(`⚠️ Skipping ${sub.serviceName}: Amount is ₹0 or missing`);
+        skippedCount++;
+        continue;
+      }
+      
       // Generate serviceKey for deduplication (normalized service name + frequency)
       const serviceKey = `${sub.serviceName.toLowerCase().replace(/\s+/g, '_')}_${sub.frequency}`;
       
       // Convert confidence text to numeric score
       const confidenceScore = sub.confidence === 'high' ? 0.90 : sub.confidence === 'medium' ? 0.70 : 0.50;
       
-      console.log(`💾 Attempting to save suggestion for ${sub.serviceName}...`);
+      // Parse next billing date safely
+      const nextBillingDate = parseFlexibleDate(sub.nextBillingDate);
+      if (sub.nextBillingDate && !nextBillingDate) {
+        console.warn(`⚠️ Could not parse billing date "${sub.nextBillingDate}" for ${sub.serviceName}`);
+      }
       
-      await storage.createSuggestion({
-        userId,
-        emailAccountId: account.id,
-        serviceName: sub.serviceName,
-        serviceKey,
-        merchantName: sub.merchantName,
-        amount: sub.amount.toString(),
-        currency: sub.currency,
-        frequency: sub.frequency,
-        category: sub.category,
-        confidence: sub.confidence,
-        confidenceScore: confidenceScore.toString(),
-        reasoning: sub.reasoning,
-        nextBillingDate: sub.nextBillingDate ? new Date(sub.nextBillingDate) : null,
-        lastSeen: new Date(),
-        status: 'pending',
-        recurringKeywords: sub.recurringKeywords || [],
-        validationChecks: sub.validationChecks ? JSON.stringify(sub.validationChecks) : null,
-        attachmentEvidence: sub.attachmentEvidence || null,
-        senderHistory: sub.senderHistory || null
-      });
-      savedCount++;
-      console.log(`✅ Successfully saved suggestion for ${sub.serviceName}`);
+      console.log(`💾 Processing ${sub.serviceName} (${sub.currency} ${sub.amount})...`);
+      
+      // Check if suggestion already exists (database deduplication)
+      const existing = await db
+        .select()
+        .from(subscriptionSuggestions)
+        .where(
+          and(
+            eq(subscriptionSuggestions.userId, userId),
+            eq(subscriptionSuggestions.serviceKey, serviceKey),
+            eq(subscriptionSuggestions.status, 'pending')
+          )
+        )
+        .limit(1);
+      
+      if (existing.length > 0) {
+        // Update existing suggestion: increment occurrences, update lastSeen
+        await db
+          .update(subscriptionSuggestions)
+          .set({
+            occurrences: (existing[0].occurrences || 1) + 1,
+            lastSeen: new Date(),
+            // Update to higher confidence if new detection is more confident
+            ...(confidenceScore > parseFloat(existing[0].confidenceScore) ? {
+              confidence: sub.confidence,
+              confidenceScore: confidenceScore.toString(),
+              reasoning: sub.reasoning
+            } : {})
+          })
+          .where(eq(subscriptionSuggestions.id, existing[0].id));
+        
+        updatedCount++;
+        console.log(`🔄 Updated existing suggestion for ${sub.serviceName} (occurrences: ${existing[0].occurrences + 1})`);
+      } else {
+        // Create new suggestion
+        await storage.createSuggestion({
+          userId,
+          emailAccountId: account.id,
+          serviceName: sub.serviceName,
+          serviceKey,
+          merchantName: sub.merchantName,
+          amount: sub.amount.toString(),
+          currency: sub.currency,
+          frequency: sub.frequency,
+          category: sub.category,
+          confidence: sub.confidence,
+          confidenceScore: confidenceScore.toString(),
+          reasoning: sub.reasoning,
+          nextBillingDate,
+          lastSeen: new Date(),
+          status: 'pending',
+          recurringKeywords: sub.recurringKeywords || [],
+          validationChecks: sub.validationChecks ? JSON.stringify(sub.validationChecks) : null,
+          attachmentEvidence: sub.attachmentEvidence || null,
+          senderHistory: sub.senderHistory || null
+        });
+        savedCount++;
+        console.log(`✅ Created new suggestion for ${sub.serviceName}`);
+      }
     } catch (error) {
-      console.error(`❌ Failed to save subscription suggestion for ${sub.serviceName}:`, error);
+      console.error(`❌ Failed to process subscription suggestion for ${sub.serviceName}:`, error);
       console.error('Error details:', {
         name: error instanceof Error ? error.name : 'Unknown',
         message: error instanceof Error ? error.message : JSON.stringify(error),
         stack: error instanceof Error ? error.stack : undefined
       });
+      skippedCount++;
     }
   }
 
-  console.log(`✅ Saved ${savedCount}/${geminiResult.subscriptions.length} subscription suggestions to database`);
+  console.log(`✅ Gmail suggestions processed: ${savedCount} new, ${updatedCount} updated, ${skippedCount} skipped (total: ${geminiResult.subscriptions.length})`);
 
   sendProgressUpdate(userId, {
     stage: 'complete',
@@ -641,52 +696,103 @@ async function syncOutlookAccount(
   console.log(`✅ Gemini analysis complete: ${geminiResult.subscriptions.length} subscriptions found from Outlook`);
   console.log(`📊 Outlook Gemini subscriptions:`, JSON.stringify(geminiResult.subscriptions, null, 2));
 
-  // Save subscription suggestions to database
+  // Save subscription suggestions to database with deduplication
   let savedCount = 0;
+  let updatedCount = 0;
+  let skippedCount = 0;
+  
   for (const sub of geminiResult.subscriptions) {
     try {
+      // Validate amount - skip if ₹0 or missing
+      if (!sub.amount || sub.amount === 0) {
+        console.warn(`⚠️ Skipping ${sub.serviceName}: Amount is ₹0 or missing`);
+        skippedCount++;
+        continue;
+      }
+      
       // Generate serviceKey for deduplication (normalized service name + frequency)
       const serviceKey = `${sub.serviceName.toLowerCase().replace(/\s+/g, '_')}_${sub.frequency}`;
       
       // Convert confidence text to numeric score
       const confidenceScore = sub.confidence === 'high' ? 0.90 : sub.confidence === 'medium' ? 0.70 : 0.50;
       
-      console.log(`💾 Attempting to save Outlook suggestion for ${sub.serviceName}...`);
+      // Parse next billing date safely
+      const nextBillingDate = parseFlexibleDate(sub.nextBillingDate);
+      if (sub.nextBillingDate && !nextBillingDate) {
+        console.warn(`⚠️ Could not parse billing date "${sub.nextBillingDate}" for ${sub.serviceName}`);
+      }
       
-      await storage.createSuggestion({
-        userId,
-        emailAccountId: account.id,
-        serviceName: sub.serviceName,
-        serviceKey,
-        merchantName: sub.merchantName,
-        amount: sub.amount.toString(),
-        currency: sub.currency,
-        frequency: sub.frequency,
-        category: sub.category,
-        confidence: sub.confidence,
-        confidenceScore: confidenceScore.toString(),
-        reasoning: sub.reasoning,
-        nextBillingDate: sub.nextBillingDate ? new Date(sub.nextBillingDate) : null,
-        lastSeen: new Date(),
-        status: 'pending',
-        recurringKeywords: sub.recurringKeywords || [],
-        validationChecks: sub.validationChecks ? JSON.stringify(sub.validationChecks) : null,
-        attachmentEvidence: sub.attachmentEvidence || null,
-        senderHistory: sub.senderHistory || null
-      });
-      savedCount++;
-      console.log(`✅ Successfully saved Outlook suggestion for ${sub.serviceName}`);
+      console.log(`💾 Processing ${sub.serviceName} (${sub.currency} ${sub.amount})...`);
+      
+      // Check if suggestion already exists (database deduplication)
+      const existing = await db
+        .select()
+        .from(subscriptionSuggestions)
+        .where(
+          and(
+            eq(subscriptionSuggestions.userId, userId),
+            eq(subscriptionSuggestions.serviceKey, serviceKey),
+            eq(subscriptionSuggestions.status, 'pending')
+          )
+        )
+        .limit(1);
+      
+      if (existing.length > 0) {
+        // Update existing suggestion: increment occurrences, update lastSeen
+        await db
+          .update(subscriptionSuggestions)
+          .set({
+            occurrences: (existing[0].occurrences || 1) + 1,
+            lastSeen: new Date(),
+            // Update to higher confidence if new detection is more confident
+            ...(confidenceScore > parseFloat(existing[0].confidenceScore) ? {
+              confidence: sub.confidence,
+              confidenceScore: confidenceScore.toString(),
+              reasoning: sub.reasoning
+            } : {})
+          })
+          .where(eq(subscriptionSuggestions.id, existing[0].id));
+        
+        updatedCount++;
+        console.log(`🔄 Updated existing suggestion for ${sub.serviceName} (occurrences: ${existing[0].occurrences + 1})`);
+      } else {
+        // Create new suggestion
+        await storage.createSuggestion({
+          userId,
+          emailAccountId: account.id,
+          serviceName: sub.serviceName,
+          serviceKey,
+          merchantName: sub.merchantName,
+          amount: sub.amount.toString(),
+          currency: sub.currency,
+          frequency: sub.frequency,
+          category: sub.category,
+          confidence: sub.confidence,
+          confidenceScore: confidenceScore.toString(),
+          reasoning: sub.reasoning,
+          nextBillingDate,
+          lastSeen: new Date(),
+          status: 'pending',
+          recurringKeywords: sub.recurringKeywords || [],
+          validationChecks: sub.validationChecks ? JSON.stringify(sub.validationChecks) : null,
+          attachmentEvidence: sub.attachmentEvidence || null,
+          senderHistory: sub.senderHistory || null
+        });
+        savedCount++;
+        console.log(`✅ Created new suggestion for ${sub.serviceName}`);
+      }
     } catch (error) {
-      console.error(`❌ Failed to save Outlook subscription suggestion for ${sub.serviceName}:`, error);
-      console.error('Outlook Error details:', {
+      console.error(`❌ Failed to process Outlook subscription suggestion for ${sub.serviceName}:`, error);
+      console.error('Error details:', {
         name: error instanceof Error ? error.name : 'Unknown',
         message: error instanceof Error ? error.message : JSON.stringify(error),
         stack: error instanceof Error ? error.stack : undefined
       });
+      skippedCount++;
     }
   }
 
-  console.log(`✅ Saved ${savedCount}/${geminiResult.subscriptions.length} Outlook subscription suggestions to database`);
+  console.log(`✅ Outlook suggestions processed: ${savedCount} new, ${updatedCount} updated, ${skippedCount} skipped (total: ${geminiResult.subscriptions.length})`);
 
   sendProgressUpdate(userId, {
     stage: 'complete',
