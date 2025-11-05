@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useEffect } from "react";
-import { RefreshCw, Mail, User, Globe, Plus } from "lucide-react";
+import { RefreshCw, Mail, User, Globe, Plus, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -13,6 +13,7 @@ import { AddSubscriptionModal } from "@/components/AddSubscriptionModal";
 import { SyncProgressModal } from "@/components/SyncProgressModal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type Subscription } from "@shared/schema";
+import { Link } from "wouter";
 
 // Supported currencies
 const supportedCurrencies = [
@@ -30,57 +31,11 @@ export default function Dashboard() {
   const [syncProgressOpen, setSyncProgressOpen] = useState(false);
   const [addSubscriptionModalOpen, setAddSubscriptionModalOpen] = useState(false);
 
-  // Handle Gmail OAuth callback
-  useEffect(() => {
-    const handleGmailCallback = async () => {
-      try {
-        const urlParams = new URLSearchParams(window.location.search);
-        const gmailConnected = urlParams.get('gmailConnected');
-
-        console.log("Gmail OAuth callback, gmailConnected:", gmailConnected);
-
-        // If returning from Gmail OAuth, handle the connection result
-        if (gmailConnected === 'true' && currentUserId) {
-            toast({
-              title: "Gmail Connected!",
-              description: "Successfully connected your Gmail account. Starting email sync...",
-              variant: "default",
-            });
-
-            // Clear URL parameters
-            window.history.replaceState({}, document.title, window.location.pathname);
-            
-            // Refresh user data
-            queryClient.invalidateQueries({ queryKey: [`/api/auth/user`] });
-            
-            // Automatically trigger email sync with progress modal after a delay
-            setTimeout(() => {
-              setSyncProgressOpen(true);
-              syncEmailsMutation.mutate();
-            }, 1500);
-        } else if (gmailConnected === 'false') {
-          const error = urlParams.get('error');
-          toast({
-            title: "Gmail Connection Failed",
-            description: error || "Failed to connect Gmail account",
-            variant: "destructive",
-          });
-          
-          // Clear URL parameters
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
-      } catch (error) {
-        console.error("Initialization error:", error);
-        toast({
-          title: "Initialization Error",
-          description: "Failed to initialize application. Please refresh the page.",
-          variant: "destructive",
-        });
-      }
-    };
-
-    handleGmailCallback();
-  }, [currentUserId, toast]);
+  // Fetch email accounts to check if any are connected
+  const { data: emailAccounts = [] } = useQuery<Array<{ id: string; provider: string; email: string }>>({
+    queryKey: ['/api/email-accounts'],
+    enabled: !!currentUserId,
+  });
 
   // User data is available from useAuth hook
 
@@ -97,60 +52,6 @@ export default function Dashboard() {
   });
 
 
-  // Gmail auth mutation
-  const gmailAuthMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("GET", "/api/auth/google");
-      const data = await response.json();
-      return data;
-    },
-    onSuccess: (data) => {
-      // Redirect to Gmail OAuth in same window (so we can handle the callback)
-      window.location.href = data.authUrl;
-      toast({
-        title: "Gmail Authentication",
-        description: "Please complete the authentication in the popup window",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to initiate Gmail authentication",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Function to trigger enhanced email sync with suggestions
-  const triggerEmailSync = async (userId: string) => {
-    try {
-      const response = await apiRequest("POST", "/api/sync-enhanced", { userId });
-      const data = await response.json();
-      
-      toast({
-        title: "Email Analysis Complete",
-        description: `Generated ${data.suggestionsGenerated || 0} subscription suggestions for your review`,
-      });
-      
-      // Open suggestions modal if suggestions were generated
-      if (data.redirectToSuggestions && data.suggestionsGenerated > 0) {
-        setSuggestionsModalOpen(true);
-      }
-      
-      // Refresh all data after sync  
-      queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
-      queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${userId}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${userId}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${userId}`] });
-    } catch (error) {
-      console.error("Email sync error:", error);
-      toast({
-        title: "Sync Failed",
-        description: "Failed to sync emails. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
 
   // Clear all data mutation
   const clearDataMutation = useMutation({
@@ -305,50 +206,6 @@ export default function Dashboard() {
     };
   }, [currentUserId, toast]);
 
-  // Legacy single-account sync (keeping for backward compatibility)
-  const syncEmailsMutation = useMutation({
-    mutationFn: async () => {
-      if (!currentUserId) throw new Error("No user ID");
-      
-      const response = await apiRequest("POST", "/api/sync-emails-llm");
-      return response.json();
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "Email Analysis Complete",
-        description: `Generated ${data.suggestionsGenerated || 0} subscription suggestions for your review`,
-      });
-      
-      // Open suggestions modal if suggestions were generated
-      if (data.redirectToSuggestions && data.suggestionsGenerated > 0) {
-        setSuggestionsModalOpen(true);
-      }
-      
-      // Invalidate and refetch all data
-      queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
-      queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${currentUserId}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/emails`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/users/${currentUserId}`] });
-    },
-    onError: (error: any) => {
-      // Handle 410 response from disabled legacy endpoint
-      if (error.status === 410) {
-        toast({
-          title: "Please Use Enhanced Sync",
-          description: "Subscription detection has been upgraded. Use the Sync Emails button for the new experience.",
-          variant: "default",
-        });
-        return;
-      }
-      
-      toast({
-        title: "Sync Failed",
-        description: error.message || "Failed to sync emails",
-        variant: "destructive",
-      });
-    },
-  });
 
   // Cleanup duplicates mutation
   const cleanupDuplicatesMutation = useMutation({
@@ -374,23 +231,6 @@ export default function Dashboard() {
     },
   });
 
-  const handleConnectGmail = () => {
-    gmailAuthMutation.mutate();
-  };
-
-  const handleSyncEmails = () => {
-    if (!user || !user.gmailConnected) {
-      toast({
-        title: "Gmail Not Connected",
-        description: "Please connect your Gmail account first",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    setSyncProgressOpen(true);
-    syncEmailsMutation.mutate();
-  };
   
   const handleSyncComplete = () => {
     // Refresh all data after sync
@@ -423,7 +263,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen flex bg-background">
-      <Sidebar user={user} isGmailConnected={user?.gmailConnected || false} />
+      <Sidebar user={user} isGmailConnected={emailAccounts.length > 0} />
       
       <div className="flex-1 flex flex-col">
         {/* Header */}
@@ -436,20 +276,14 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex items-center space-x-4">
-              {!user || !user.gmailConnected ? (
+              {emailAccounts.length === 0 ? (
                 <div className="flex gap-2">
-                  <Button
-                    onClick={handleConnectGmail}
-                    disabled={gmailAuthMutation.isPending}
-                    data-testid="connect-gmail"
-                  >
-                    {gmailAuthMutation.isPending ? (
-                      <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-                    ) : (
-                      <Mail className="w-4 h-4 mr-2" />
-                    )}
-                    Connect Gmail
-                  </Button>
+                  <Link href="/accounts">
+                    <Button variant="default" data-testid="manage-accounts">
+                      <Settings className="w-4 h-4 mr-2" />
+                      Manage Accounts
+                    </Button>
+                  </Link>
                   <Button
                     variant="default"
                     onClick={() => setAddSubscriptionModalOpen(true)}
