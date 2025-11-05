@@ -56,6 +56,14 @@ SubTracker is a full-stack web application designed to automatically detect and 
   - Detailed error information with stack traces
   - Success/failure ratios for debugging
 
+#### 5. **UI/UX Improvements** (November 5, 2025)
+- **Auto-open Suggestions Modal**: After sync completion, suggestions modal automatically opens for user review
+- **Emails Analyzed Tracking**: 
+  - Added `emailsAnalyzed` counter to `email_accounts` table
+  - Incremented during each sync to track total emails processed per account
+  - Dashboard stats now show accurate total across all accounts
+- **Sync Days Filter**: Added 30, 60, 90, and 180 days options in email sync period selector
+
 ### Multi-Account Support (November 2025)
 - **Complete**: Implemented full multi-account email support with real-time sync progress tracking
   - Created `email_accounts` table to manage multiple email accounts per user (Gmail and Outlook)
