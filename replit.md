@@ -30,6 +30,12 @@ Preferred communication style: Simple, everyday language.
 
 The client-side is built with React and TypeScript, using Radix UI primitives and shadcn/ui components for a consistent design system, styled with TailwindCSS. State management is handled through TanStack Query for server state and React hooks for local state. Wouter is used for lightweight client-side navigation. The frontend follows a modular component structure with reusable UI components and custom hooks, implementing a theme-aware approach for light and dark modes.
 
+**Key Pages:**
+- **Dashboard**: Subscription overview, stats, and sync controls
+- **Accounts Page**: Central hub for managing multiple Gmail and Outlook accounts with connect/disconnect/sync functionality
+- **Settings Page**: User profile, email sync period configuration, and detection preferences
+- **Suggestions Page**: Review and approve AI-detected subscription suggestions
+
 ### Backend Architecture
 
 The server-side uses Express.js with TypeScript, following a service-oriented pattern. Key services include:
