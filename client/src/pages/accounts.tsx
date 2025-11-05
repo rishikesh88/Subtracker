@@ -8,6 +8,7 @@ import { Mail, Trash2, Edit2, Check, X, Loader2, RefreshCw } from "lucide-react"
 import { SiGmail } from "react-icons/si";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { Sidebar } from "@/components/Sidebar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -328,8 +329,8 @@ export default function AccountsPage() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400 dark:text-gray-500" />
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
       </div>
     );
   }
@@ -339,16 +340,26 @@ export default function AccountsPage() {
   const outlookConnected = false;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="container mx-auto py-8 px-4 max-w-4xl">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Email Accounts</h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            Connect and manage your email accounts for subscription tracking
-          </p>
-        </div>
+    <div className="min-h-screen flex bg-background">
+      <Sidebar user={user} isGmailConnected={accounts && accounts.length > 0} />
+      
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <header className="bg-card border-b border-border px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-foreground">Email Accounts</h2>
+              <p className="text-sm text-muted-foreground">
+                Connect and manage your email accounts for subscription tracking
+              </p>
+            </div>
+          </div>
+        </header>
 
-        {/* Connect New Account Section */}
+        {/* Main Content */}
+        <main className="flex-1 p-6 bg-background overflow-auto">
+          <div className="max-w-4xl mx-auto">
+            {/* Connect New Account Section */}
         <Card className="mb-8 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
           <CardHeader>
             <CardTitle className="text-gray-900 dark:text-white">Connect New Account</CardTitle>
@@ -543,29 +554,28 @@ export default function AccountsPage() {
               </Card>
             ))
           )}
-        </div>
+            </div>
+          </div>
+        </main>
       </div>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
+        <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-gray-900 dark:text-white">Delete Email Account</AlertDialogTitle>
-            <AlertDialogDescription className="text-gray-600 dark:text-gray-400">
+            <AlertDialogTitle>Delete Email Account</AlertDialogTitle>
+            <AlertDialogDescription>
               Are you sure you want to delete this email account? This will also remove all associated
               subscriptions and emails. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel 
-              className="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-600"
-              data-testid="button-cancel-delete"
-            >
+            <AlertDialogCancel data-testid="button-cancel-delete">
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={confirmDelete}
-              className="bg-red-600 hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-600 text-white"
+              className="bg-destructive hover:bg-destructive/90"
               data-testid="button-confirm-delete"
             >
               Delete
