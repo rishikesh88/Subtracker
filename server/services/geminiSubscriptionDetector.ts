@@ -251,6 +251,17 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
 
     const systemPrompt = `You are an expert subscription detection system. You MUST perform comprehensive validation on emails before suggesting subscriptions.
 
+CRITICAL: AMOUNT EXTRACTION IS MANDATORY
+- NEVER return a subscription with amount=0 or amount=null
+- Search EVERYWHERE: subject line, email body, snippet, content preview
+- Extract amounts in ANY format: ₹75, Rs. 75, INR 75, $10, 10.99 USD
+- Common patterns: "charged ₹X", "renews for ₹X", "₹X/month", "amount: ₹X"
+- If you CANNOT find a valid amount, DO NOT suggest that subscription
+- Example locations to check:
+  * Subject: "You will be charged ₹75 in 2 days" → amount = 75
+  * Body: "Your subscription renews on Oct 5 for ₹365/month" → amount = 365
+  * Snippet: "Netflix - ₹649/month automatically charged" → amount = 649
+
 IMPORTANT: Detect BOTH completed transactions AND renewal reminders/notifications.
 
 VALIDATION REQUIREMENTS (flexible - at least ONE must pass):
@@ -276,9 +287,9 @@ RECURRING DETECTION (identify ALL patterns):
 
 For EACH subscription detected, you MUST provide:
 1. Service name and merchant
-2. Exact billing amount and currency
+2. **EXACT BILLING AMOUNT** (REQUIRED - search thoroughly in subject, body, snippet) and currency
 3. Billing frequency (monthly, quarterly, yearly, weekly)
-4. Service category (streaming, software, utilities, telecom, fitness, etc.)
+4. Service category (streaming, software, utilities, telecom, fitness, insurance, etc.)
 5. Validation results: Did subject, content, AND attachments all indicate a valid transaction?
 6. Recurring keywords found in the email
 7. Evidence from attachments (if any)
@@ -286,23 +297,29 @@ For EACH subscription detected, you MUST provide:
 9. Detailed reasoning explaining why this is a subscription
 
 Confidence Levels (FLEXIBLE criteria):
-- HIGH: Strong evidence (amount + frequency clearly stated) + Known service (Apple, Netflix, GoDaddy, etc.)
+- HIGH: Strong evidence (amount + frequency clearly stated) + Known service (Apple, Netflix, GoDaddy, TATA AIG, etc.)
 - MEDIUM: Clear amount and service name + Some recurring/renewal indicators
 - LOW: Weak evidence OR unclear amount OR one-time purchase possibility
 
 Focus on:
-- Indian services (Airtel, Jio, Netflix India, Hotstar, Paytm, PhonePe, Replit)
+- Indian services (Airtel, Jio, Netflix India, Hotstar, Paytm, PhonePe, Replit, TATA AIG, ICICI, HDFC)
 - International services with INR billing (Apple, Netflix, Spotify, Adobe)
-- Hosting/domain services (GoDaddy, Namecheap, web hosting)
+- Hosting/domain services (GoDaddy, Namecheap, web hosting, ZebPay)
 - Apple ecosystem (iCloud+, Apple One, iTunes, App Store subscriptions)
+- Insurance policies (General Insurance, Life Insurance, Health Insurance)
 
 CRITICAL EXAMPLES TO DETECT:
-✅ "You will be charged ₹75 for your 50 GB iCloud+ plan in 2 days" → DETECT as iCloud subscription
-✅ "Your Apple One subscription automatically renews on Oct 5 for ₹365/month" → DETECT as Apple One
-✅ "GoDaddy domain renewal - example.com expires in 7 days - ₹800/year" → DETECT as GoDaddy hosting
-✅ "Your Netflix subscription has been renewed - ₹649/month" → DETECT as Netflix
+✅ "You will be charged ₹75 for your 50 GB iCloud+ plan in 2 days" → amount=75, serviceName="iCloud+"
+✅ "Your Apple One subscription automatically renews on Oct 5 for ₹365/month" → amount=365, serviceName="Apple One"
+✅ "GoDaddy domain renewal - example.com expires in 7 days - ₹800/year" → amount=800, serviceName="GoDaddy Domain"
+✅ "Your Netflix subscription has been renewed - ₹649/month" → amount=649, serviceName="Netflix"
+✅ "TATA AIG General Insurance Policy - Premium ₹5000/year due" → amount=5000, serviceName="General Insurance Policy"
 
-IMPORTANT: Include renewal reminders AND completed transactions. Amount can appear ANYWHERE in the email - extract carefully from subject, body, or snippet.`;
+IMPORTANT: 
+- Include renewal reminders AND completed transactions
+- Amount can appear ANYWHERE in the email - extract carefully from subject, body, or snippet
+- If extractedAmount field is provided in email data, use it as a starting point
+- NEVER suggest a subscription without a valid non-zero amount`;
 
     const response = await this.ai.models.generateContent({
       model: "gemini-2.5-flash",

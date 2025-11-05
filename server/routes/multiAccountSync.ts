@@ -6,9 +6,14 @@ import { outlookService } from "../services/outlook";
 import { GeminiSubscriptionDetector } from "../services/geminiSubscriptionDetector";
 import { TransactionDetector } from "../services/transactionDetector";
 import { parseFlexibleDate } from "../utils/dateParser";
-import { db } from "../db";
 import { subscriptionSuggestions } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
+import { drizzle } from 'drizzle-orm/neon-http';
+import { neon } from '@neondatabase/serverless';
+
+// Initialize database connection for direct queries
+const sql = neon(process.env.DATABASE_URL!);
+const db = drizzle(sql);
 
 export function registerMultiAccountSyncRoutes(app: Express) {
   // Get progress notification function from parent scope
