@@ -822,9 +822,9 @@ export class DatabaseStorage implements IStorage {
     avgPerService: number;
   }> {
     try {
-      const [userSubscriptions, emailCount] = await Promise.all([
+      const [userSubscriptions, userEmailAccounts] = await Promise.all([
         this.getSubscriptions(userId),
-        this.db.select({ count: count() }).from(emails).where(eq(emails.userId, userId))
+        this.getEmailAccounts(userId)
       ]);
       
       const activeSubscriptions = userSubscriptions.filter(sub => sub.status === 'active');
@@ -855,7 +855,8 @@ export class DatabaseStorage implements IStorage {
       }, 0);
 
       const activeCount = activeSubscriptions.length;
-      const emailsAnalyzed = emailCount[0].count;
+      // Sum up emailsAnalyzed from all email accounts
+      const emailsAnalyzed = userEmailAccounts.reduce((sum, account) => sum + (account.emailsAnalyzed || 0), 0);
       const avgPerService = activeCount > 0 ? totalMonthly / activeCount : 0;
 
       return {

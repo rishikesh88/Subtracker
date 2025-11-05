@@ -52,6 +52,7 @@ export const emailAccounts = pgTable("email_accounts", {
   tokenExpiry: timestamp("token_expiry"),
   isActive: boolean("is_active").default(true).notNull(),
   lastSync: timestamp("last_sync"),
+  emailsAnalyzed: integer("emails_analyzed").default(0).notNull(), // Total emails processed across all syncs
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
@@ -200,6 +201,7 @@ export const updateEmailAccountSchema = createInsertSchema(emailAccounts).pick({
   tokenExpiry: true,
   isActive: true,
   lastSync: true,
+  emailsAnalyzed: true,
   updatedAt: true,
 }).partial();
 

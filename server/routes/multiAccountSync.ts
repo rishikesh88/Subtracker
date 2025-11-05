@@ -619,6 +619,15 @@ async function syncGmailAccount(
 
   console.log(`✅ Gmail suggestions processed: ${savedCount} new, ${updatedCount} updated, ${skippedCount} skipped (total: ${geminiResult.subscriptions.length})`);
 
+  // Update email account's emailsAnalyzed counter
+  const currentAccount = await storage.getEmailAccount(account.id);
+  if (currentAccount) {
+    await storage.updateEmailAccount(account.id, {
+      emailsAnalyzed: (currentAccount.emailsAnalyzed || 0) + parsedEmails.length,
+      lastSync: new Date()
+    });
+  }
+
   sendProgressUpdate(userId, {
     stage: 'complete',
     progress: 100,
@@ -895,6 +904,15 @@ async function syncOutlookAccount(
   }
 
   console.log(`✅ Outlook suggestions processed: ${savedCount} new, ${updatedCount} updated, ${skippedCount} skipped (total: ${geminiResult.subscriptions.length})`);
+
+  // Update email account's emailsAnalyzed counter
+  const currentAccount = await storage.getEmailAccount(account.id);
+  if (currentAccount) {
+    await storage.updateEmailAccount(account.id, {
+      emailsAnalyzed: (currentAccount.emailsAnalyzed || 0) + parsedEmails.length,
+      lastSync: new Date()
+    });
+  }
 
   sendProgressUpdate(userId, {
     stage: 'complete',
