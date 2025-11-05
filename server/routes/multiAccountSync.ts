@@ -461,6 +461,7 @@ async function syncGmailAccount(
   const geminiResult = await geminiDetector.analyzeEmailsForSubscriptions(parsedEmails);
   
   console.log(`✅ Gemini analysis complete: ${geminiResult.subscriptions.length} subscriptions found`);
+  console.log(`📊 Gemini subscriptions:`, JSON.stringify(geminiResult.subscriptions, null, 2));
 
   // Save subscription suggestions to database
   let savedCount = 0;
@@ -471,6 +472,8 @@ async function syncGmailAccount(
       
       // Convert confidence text to numeric score
       const confidenceScore = sub.confidence === 'high' ? 0.90 : sub.confidence === 'medium' ? 0.70 : 0.50;
+      
+      console.log(`💾 Attempting to save suggestion for ${sub.serviceName}...`);
       
       await storage.createSuggestion({
         userId,
@@ -494,12 +497,18 @@ async function syncGmailAccount(
         senderHistory: sub.senderHistory || null
       });
       savedCount++;
+      console.log(`✅ Successfully saved suggestion for ${sub.serviceName}`);
     } catch (error) {
-      console.error('Failed to save subscription suggestion:', error);
+      console.error(`❌ Failed to save subscription suggestion for ${sub.serviceName}:`, error);
+      console.error('Error details:', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : JSON.stringify(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 
-  console.log(`✅ Saved ${savedCount} subscription suggestions to database`);
+  console.log(`✅ Saved ${savedCount}/${geminiResult.subscriptions.length} subscription suggestions to database`);
 
   sendProgressUpdate(userId, {
     stage: 'complete',
@@ -630,6 +639,7 @@ async function syncOutlookAccount(
   const geminiResult = await geminiDetector.analyzeEmailsForSubscriptions(parsedEmails);
   
   console.log(`✅ Gemini analysis complete: ${geminiResult.subscriptions.length} subscriptions found from Outlook`);
+  console.log(`📊 Outlook Gemini subscriptions:`, JSON.stringify(geminiResult.subscriptions, null, 2));
 
   // Save subscription suggestions to database
   let savedCount = 0;
@@ -640,6 +650,8 @@ async function syncOutlookAccount(
       
       // Convert confidence text to numeric score
       const confidenceScore = sub.confidence === 'high' ? 0.90 : sub.confidence === 'medium' ? 0.70 : 0.50;
+      
+      console.log(`💾 Attempting to save Outlook suggestion for ${sub.serviceName}...`);
       
       await storage.createSuggestion({
         userId,
@@ -663,12 +675,18 @@ async function syncOutlookAccount(
         senderHistory: sub.senderHistory || null
       });
       savedCount++;
+      console.log(`✅ Successfully saved Outlook suggestion for ${sub.serviceName}`);
     } catch (error) {
-      console.error('Failed to save Outlook subscription suggestion:', error);
+      console.error(`❌ Failed to save Outlook subscription suggestion for ${sub.serviceName}:`, error);
+      console.error('Outlook Error details:', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : JSON.stringify(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
     }
   }
 
-  console.log(`✅ Saved ${savedCount} Outlook subscription suggestions to database`);
+  console.log(`✅ Saved ${savedCount}/${geminiResult.subscriptions.length} Outlook subscription suggestions to database`);
 
   sendProgressUpdate(userId, {
     stage: 'complete',
