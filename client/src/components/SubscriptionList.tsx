@@ -1,21 +1,10 @@
 import { useState } from "react";
-import { Search, List, Grid3X3, Pencil, Mail } from "lucide-react";
+import { Search, List, Grid3X3, Pencil } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { type Subscription } from "@shared/schema";
 import { EditSubscriptionModal } from "./EditSubscriptionModal";
-import { useQuery } from "@tanstack/react-query";
-import { SiGmail } from "react-icons/si";
-
-interface EmailAccount {
-  id: string;
-  provider: 'gmail' | 'outlook';
-  email: string;
-  accountName: string;
-  isActive: boolean;
-}
 
 interface SubscriptionListProps {
   subscriptions: Subscription[];
@@ -25,14 +14,9 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [accountFilter, setAccountFilter] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-
-  const { data: emailAccounts = [] } = useQuery<EmailAccount[]>({
-    queryKey: ['/api/email-accounts'],
-  });
 
   const filteredSubscriptions = subscriptions.filter((subscription) => {
     const matchesSearch = subscription.serviceName
@@ -40,26 +24,9 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
       .includes(searchQuery.toLowerCase());
     const matchesCategory = categoryFilter === "all" || subscription.category === categoryFilter;
     const matchesStatus = statusFilter === "all" || subscription.status === statusFilter;
-    const matchesAccount = accountFilter === "all" || subscription.emailAccountId === accountFilter;
 
-    return matchesSearch && matchesCategory && matchesStatus && matchesAccount;
+    return matchesSearch && matchesCategory && matchesStatus;
   });
-
-  const getAccountInfo = (accountId: string | null) => {
-    if (!accountId) return null;
-    return emailAccounts.find(acc => acc.id === accountId);
-  };
-
-  const getProviderIcon = (provider: 'gmail' | 'outlook') => {
-    switch (provider) {
-      case 'gmail':
-        return <SiGmail className="h-3 w-3 text-red-600 dark:text-red-400" />;
-      case 'outlook':
-        return <Mail className="h-3 w-3 text-blue-600 dark:text-blue-400" />;
-      default:
-        return <Mail className="h-3 w-3" />;
-    }
-  };
 
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
@@ -167,23 +134,6 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
                 <SelectItem value="expiring_soon">Expiring Soon</SelectItem>
               </SelectContent>
             </Select>
-
-            {/* Account Filter */}
-            {emailAccounts.length > 1 && (
-              <Select value={accountFilter} onValueChange={setAccountFilter}>
-                <SelectTrigger className="w-48" data-testid="filter-account">
-                  <SelectValue placeholder="All Accounts" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Accounts</SelectItem>
-                  {emailAccounts.map((account) => (
-                    <SelectItem key={account.id} value={account.id}>
-                      {account.accountName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
           </div>
 
           {/* View Toggle */}
@@ -215,7 +165,7 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
         <div className="p-6 border-b border-border">
           <h3 className="text-lg font-semibold text-foreground">Your Subscriptions</h3>
           <p className="text-sm text-muted-foreground mt-1">
-            Automatically detected from your email accounts
+            Automatically detected from your Gmail account
           </p>
         </div>
 
@@ -241,21 +191,9 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
                       {subscription.serviceName.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <div className="flex items-center space-x-2">
-                        <h4 className="font-semibold text-foreground" data-testid={`subscription-name-${subscription.id}`}>
-                          {subscription.serviceName}
-                        </h4>
-                        {subscription.emailAccountId && getAccountInfo(subscription.emailAccountId) && (
-                          <Badge 
-                            variant="outline" 
-                            className="flex items-center space-x-1 text-xs px-2 py-0.5 bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800"
-                            data-testid={`subscription-account-badge-${subscription.id}`}
-                          >
-                            {getProviderIcon(getAccountInfo(subscription.emailAccountId)!.provider)}
-                            <span className="ml-1">{getAccountInfo(subscription.emailAccountId)!.accountName}</span>
-                          </Badge>
-                        )}
-                      </div>
+                      <h4 className="font-semibold text-foreground" data-testid={`subscription-name-${subscription.id}`}>
+                        {subscription.serviceName}
+                      </h4>
                       <p className="text-sm text-muted-foreground capitalize" data-testid={`subscription-category-${subscription.id}`}>
                         {subscription.category || "Other"}
                       </p>

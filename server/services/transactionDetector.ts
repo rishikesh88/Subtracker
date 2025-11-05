@@ -52,27 +52,21 @@ export class TransactionDetector {
 
   // Subject line keywords (case-insensitive)
   private subjectKeywords = {
-    payment: ['receipt', 'invoice', 'payment', 'charged', 'billed', 'paid', 'purchase', 'bill', 'premium', 'charges', 'fee'],
+    payment: ['receipt', 'invoice', 'payment', 'charged', 'billed', 'paid', 'purchase'],
     subscription: ['subscription', 'membership', 'plan', 'renewal', 'auto-renew', 'renews'],
     confirmation: ['confirmed', 'successful', 'processed', 'completed', 'thank you'],
     reference: ['order #', 'invoice #', 'receipt #', 'transaction', 'confirmation'],
-    renewal: ['will be charged', 'renewing', 'renews on', 'renews in', 'expires in', 'expiring', 'expiration', 'due', 'payment due'],
-    hosting: ['domain', 'hosting', 'ssl certificate', 'web hosting', 'server'],
-    insurance: ['insurance', 'policy', 'coverage'],
-    telecom: ['mobile', 'broadband', 'recharge', 'prepaid', 'postpaid', 'data plan'],
-    utilities: ['electricity', 'water', 'gas', 'utility bill', 'meter'],
-    maintenance: ['maintenance', 'society', 'hoa', 'association']
+    renewal: ['will be charged', 'renewing', 'renews on', 'renews in', 'expires in', 'expiring', 'expiration'],
+    hosting: ['domain', 'hosting', 'ssl certificate', 'web hosting', 'server']
   };
 
   // Body content patterns
   private bodyKeywords = {
-    recurring: ['next billing', 'renews on', 'auto-renewal', 'recurring charge', 'billing cycle', 'subscription period', 'automatically renew', 'will renew', 'monthly charge', 'quarterly', 'annual fee'],
-    payment: ['card ending', 'paypal account', 'bank account', 'payment method', 'total amount', 'amount due', 'payment received', 'paid on'],
+    recurring: ['next billing', 'renews on', 'auto-renewal', 'recurring charge', 'billing cycle', 'subscription period', 'automatically renew', 'will renew'],
+    payment: ['card ending', 'paypal account', 'bank account', 'payment method', 'total amount', 'amount due'],
     service: ['manage subscription', 'view invoice', 'update payment', 'cancel anytime', 'billing details'],
-    renewal: ['will be charged', 'you will be charged', 'upcoming charge', 'renewal date', 'renewal reminder', 'auto-renews', 'premium due', 'policy renewal'],
-    hosting: ['domain expires', 'hosting expires', 'ssl expires', 'domain renewal', 'hosting renewal', 'nameservers'],
-    utilities: ['meter reading', 'consumption', 'units consumed', 'previous balance', 'current charges'],
-    maintenance: ['maintenance charges', 'society dues', 'common area', 'facility charges']
+    renewal: ['will be charged', 'you will be charged', 'upcoming charge', 'renewal date', 'renewal reminder', 'auto-renews'],
+    hosting: ['domain expires', 'hosting expires', 'ssl expires', 'domain renewal', 'hosting renewal', 'nameservers']
   };
 
   // Currency patterns
@@ -278,43 +272,7 @@ export class TransactionDetector {
       }
     }
 
-    // Insurance keywords (25 points - recurring annual/monthly premiums)
-    for (const keyword of this.subjectKeywords.insurance) {
-      if (subjectLower.includes(keyword)) {
-        score += 25;
-        reasons.push(`Insurance keyword in subject: ${keyword}`);
-        break;
-      }
-    }
-
-    // Telecom keywords (25 points - recurring monthly bills)
-    for (const keyword of this.subjectKeywords.telecom) {
-      if (subjectLower.includes(keyword)) {
-        score += 25;
-        reasons.push(`Telecom keyword in subject: ${keyword}`);
-        break;
-      }
-    }
-
-    // Utilities keywords (22 points - recurring monthly bills)
-    for (const keyword of this.subjectKeywords.utilities) {
-      if (subjectLower.includes(keyword)) {
-        score += 22;
-        reasons.push(`Utility keyword in subject: ${keyword}`);
-        break;
-      }
-    }
-
-    // Maintenance keywords (22 points - recurring quarterly/monthly charges)
-    for (const keyword of this.subjectKeywords.maintenance) {
-      if (subjectLower.includes(keyword)) {
-        score += 22;
-        reasons.push(`Maintenance keyword in subject: ${keyword}`);
-        break;
-      }
-    }
-
-    return { score: Math.min(score, 60), reasons }; // Cap at 60 (raised from 40 to allow strong subscription keywords to reach 50+ threshold)
+    return { score: Math.min(score, 40), reasons }; // Cap at 40
   }
 
   /**
@@ -366,24 +324,6 @@ export class TransactionDetector {
       if (content.includes(keyword)) {
         score += 12;
         reasons.push(`Hosting/domain language detected`);
-        break;
-      }
-    }
-
-    // Utilities language (15 points)
-    for (const keyword of this.bodyKeywords.utilities) {
-      if (content.includes(keyword)) {
-        score += 15;
-        reasons.push(`Utility billing content found`);
-        break;
-      }
-    }
-
-    // Maintenance language (15 points)
-    for (const keyword of this.bodyKeywords.maintenance) {
-      if (content.includes(keyword)) {
-        score += 15;
-        reasons.push(`Maintenance charges content found`);
         break;
       }
     }

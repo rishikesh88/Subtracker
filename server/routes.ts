@@ -10,11 +10,8 @@ import { insertEmailSchema, insertUserSchema, updateSettingsSchema, insertSubscr
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { registerGeminiRoutes } from "./routes/geminiSync";
-import { registerEmailAccountRoutes } from "./routes/emailAccounts";
-import { registerMultiAccountSyncRoutes } from "./routes/multiAccountSync";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { generateServiceKey } from "./utils/serviceKey";
-import { google } from "googleapis";
 
 // Request validation schemas
 const approveSuggestionsSchema = z.object({
@@ -71,12 +68,6 @@ export function sendProgressUpdate(userId: string, data: {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup Replit Auth
   await setupAuth(app);
-
-  // Register email account management routes
-  registerEmailAccountRoutes(app);
-  
-  // Register multi-account sync routes
-  registerMultiAccountSyncRoutes(app);
 
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
@@ -166,66 +157,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error("User not found");
       }
 
-      // Fetch user's email from Google
-      const oauth2Client = new google.auth.OAuth2();
-      oauth2Client.setCredentials({
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token
-      });
-      
-      const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
-      const userInfo = await oauth2.userinfo.get();
-      const gmailEmail = userInfo.data.email || user.email || 'unknown@gmail.com';
-
-      // Create email account entry
-      const existingAccount = await storage.getEmailAccountByProviderEmail(userId, 'gmail', gmailEmail);
-      
-      if (existingAccount) {
-        // Update existing account
-        await storage.updateEmailAccount(existingAccount.id, {
-          accessToken: tokens.access_token || null,
-          refreshToken: tokens.refresh_token || existingAccount.refreshToken,
-          tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-          isActive: true,
-          updatedAt: new Date()
-        });
-        console.log("Gmail account updated:", gmailEmail);
-      } else {
-        // Create new account
-        await storage.createEmailAccount({
-          userId,
-          provider: 'gmail',
-          email: gmailEmail,
-          accountName: `Gmail - ${gmailEmail}`,
-          accessToken: tokens.access_token || null,
-          refreshToken: tokens.refresh_token || null,
-          tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-          isActive: true,
-          lastSync: null
-        });
-        console.log("Gmail account created:", gmailEmail);
-      }
-
-      // Also update legacy user fields for backward compatibility
+      // Update user with Gmail tokens and expiry
       const updateData: any = {
         gmailAccessToken: tokens.access_token || null,
         gmailTokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
         gmailConnected: true,
-        gmailEmail: gmailEmail,
+        gmailEmail: tokens.scope?.includes('email') ? user.email : null,
         lastSync: new Date(),
         updatedAt: new Date()
       };
       
+      // Only update refresh token if Google provides a new one
       if (tokens.refresh_token) {
         updateData.gmailRefreshToken = tokens.refresh_token;
       }
       
-      await storage.updateUser(user.id, updateData);
+      const updatedUser = await storage.updateUser(user.id, updateData);
+
+      if (!updatedUser) {
+        throw new Error("Failed to update user with Gmail tokens");
+      }
 
       console.log("Gmail connected successfully for user:", user.id);
 
-      // Redirect to accounts page instead of dashboard
-      const redirectUrl = `/accounts?gmailConnected=true`;
+      // Redirect back to dashboard with success flag
+      const redirectUrl = `/?gmailConnected=true&userId=${encodeURIComponent(user.id)}`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error("OAuth callback error:", error);

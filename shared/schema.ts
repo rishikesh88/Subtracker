@@ -27,7 +27,7 @@ export const users = pgTable("users", {
   profileImageUrl: varchar("profile_image_url"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-  // Legacy Gmail integration fields (deprecated - moved to email_accounts table)
+  // Gmail integration fields
   gmailAccessToken: text("gmail_access_token"),
   gmailRefreshToken: text("gmail_refresh_token"),
   gmailTokenExpiry: timestamp("gmail_token_expiry"),
@@ -40,30 +40,9 @@ export const users = pgTable("users", {
   emailSyncDays: integer("email_sync_days").default(90).notNull(), // Number of days to fetch emails (1-180)
 });
 
-// Email Accounts - Multi-account support for Gmail and Outlook
-export const emailAccounts = pgTable("email_accounts", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull(),
-  provider: text("provider").notNull(), // 'gmail' or 'outlook'
-  email: text("email").notNull(),
-  accountName: text("account_name"), // User-friendly name for the account
-  accessToken: text("access_token"), // TODO: Encrypt tokens before production
-  refreshToken: text("refresh_token"), // TODO: Encrypt tokens before production
-  tokenExpiry: timestamp("token_expiry"),
-  isActive: boolean("is_active").default(true).notNull(),
-  lastSync: timestamp("last_sync"),
-  emailsAnalyzed: integer("emails_analyzed").default(0).notNull(), // Total emails processed across all syncs
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
-}, (table) => [
-  index("email_accounts_user_id_idx").on(table.userId),
-  index("email_accounts_provider_idx").on(table.provider),
-]);
-
 export const subscriptions = pgTable("subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
-  emailAccountId: varchar("email_account_id"), // Link to email account source (nullable for backward compatibility)
   serviceName: text("service_name").notNull(),
   serviceKey: text("service_key").notNull(), // For deduplication: normalized service + frequency
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
@@ -77,15 +56,12 @@ export const subscriptions = pgTable("subscriptions", {
   nextBillingDate: timestamp("next_billing_date"),
   lastEmailDate: timestamp("last_email_date"),
   detectedAt: timestamp("detected_at").defaultNow(),
-}, (table) => [
-  index("subscriptions_email_account_id_idx").on(table.emailAccountId),
-]);
+});
 
 export const emails = pgTable("emails", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
-  emailAccountId: varchar("email_account_id"), // Link to email account source (nullable for backward compatibility)
-  gmailId: text("gmail_id").notNull().unique(), // Now represents external email ID (Gmail or Outlook message ID)
+  gmailId: text("gmail_id").notNull().unique(),
   subject: text("subject").notNull(),
   fromEmail: text("from_email").notNull(),
   fromName: text("from_name"),
@@ -99,15 +75,12 @@ export const emails = pgTable("emails", {
   subscriptionId: varchar("subscription_id"),
   processed: boolean("processed").default(false),
   analyzedAt: timestamp("analyzed_at").defaultNow(),
-}, (table) => [
-  index("emails_email_account_id_idx").on(table.emailAccountId),
-]);
+});
 
 // Subscription Suggestions schema - for user verification workflow
 export const subscriptionSuggestions = pgTable("subscription_suggestions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
-  emailAccountId: varchar("email_account_id"), // Link to email account source (nullable for backward compatibility)
   serviceName: text("service_name").notNull(),
   serviceKey: text("service_key").notNull(), // For deduplication: normalized service + frequency
   merchantName: text("merchant_name"),
@@ -133,9 +106,7 @@ export const subscriptionSuggestions = pgTable("subscription_suggestions", {
   lastSeen: timestamp("last_seen").notNull(),
   detectedAt: timestamp("detected_at").defaultNow(),
   status: text("status").default("pending").notNull(), // pending, approved, rejected
-}, (table) => [
-  index("subscription_suggestions_email_account_id_idx").on(table.emailAccountId),
-]);
+});
 
 export const insertUserSchema = createInsertSchema(users).pick({
   email: true,
@@ -188,23 +159,6 @@ export const insertSubscriptionSuggestionSchema = createInsertSchema(subscriptio
   detectedAt: true,
 });
 
-export const insertEmailAccountSchema = createInsertSchema(emailAccounts).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-export const updateEmailAccountSchema = createInsertSchema(emailAccounts).pick({
-  accountName: true,
-  accessToken: true,
-  refreshToken: true,
-  tokenExpiry: true,
-  isActive: true,
-  lastSync: true,
-  emailsAnalyzed: true,
-  updatedAt: true,
-}).partial();
-
 // SafeUser schema - excludes sensitive tokens for frontend consumption
 export const safeUserSchema = createInsertSchema(users).pick({
   id: true,
@@ -217,19 +171,6 @@ export const safeUserSchema = createInsertSchema(users).pick({
   lastSync: true,
   preferredCurrency: true,
   emailSyncDays: true,
-  createdAt: true,
-  updatedAt: true,
-});
-
-// SafeEmailAccount schema - excludes sensitive tokens for frontend consumption
-export const safeEmailAccountSchema = createInsertSchema(emailAccounts).pick({
-  id: true,
-  userId: true,
-  provider: true,
-  email: true,
-  accountName: true,
-  isActive: true,
-  lastSync: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -253,7 +194,3 @@ export type Email = typeof emails.$inferSelect;
 export type InsertEmail = z.infer<typeof insertEmailSchema>;
 export type UpdateUser = z.infer<typeof updateUserSchema>;
 export type UpdateSettings = z.infer<typeof updateSettingsSchema>;
-export type EmailAccount = typeof emailAccounts.$inferSelect;
-export type InsertEmailAccount = z.infer<typeof insertEmailAccountSchema>;
-export type UpdateEmailAccount = z.infer<typeof updateEmailAccountSchema>;
-export type SafeEmailAccount = z.infer<typeof safeEmailAccountSchema>;

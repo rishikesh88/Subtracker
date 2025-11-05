@@ -7,7 +7,6 @@ import { useAuth } from "@/hooks/useAuth";
 import Dashboard from "@/pages/dashboard";
 import Subscriptions from "@/pages/subscriptions";
 import Settings from "@/pages/settings";
-import Accounts from "@/pages/accounts";
 import { Landing } from "@/pages/Landing";
 import AuthCallback from "@/pages/auth";
 import NotFound from "@/pages/not-found";
@@ -37,7 +36,6 @@ function Router() {
           {/* Redirect protected routes to landing when not authenticated */}
           <Route path="/dashboard" component={() => { window.location.href = '/'; return null; }} />
           <Route path="/subscriptions" component={() => { window.location.href = '/'; return null; }} />
-          <Route path="/accounts" component={() => { window.location.href = '/'; return null; }} />
           <Route path="/settings" component={() => { window.location.href = '/'; return null; }} />
         </>
       ) : (
@@ -45,7 +43,6 @@ function Router() {
           <Route path="/" component={Dashboard} />
           <Route path="/dashboard" component={Dashboard} />
           <Route path="/subscriptions" component={Subscriptions} />
-          <Route path="/accounts" component={Accounts} />
           <Route path="/settings" component={Settings} />
         </>
       )}

@@ -1,6 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
 import { Email, Subscription } from "@shared/schema";
-import { createRobustServiceKey } from "../utils/normalizeServiceKey";
 
 // Reference to blueprint for Gemini integration
 // DON'T DELETE THIS COMMENT
@@ -73,39 +72,23 @@ export class GeminiSubscriptionDetector {
 EMAILS TO ANALYZE:
 ${emailSummaries}
 
-TASK: Identify emails that are likely recurring or subscription-related. Cast a WIDE NET - include anything that MIGHT be:
+TASK: Identify emails that are likely:
+- Subscription renewals or renewal reminders (e.g., "will be charged in 2 days", "renews on Oct 5")
+- Recurring payments/billings (completed or upcoming)
+- Service invoices (SaaS, streaming, cloud services)
+- Membership charges (active or upcoming)
+- Regular service fees (hosting, domains, SSL certificates)
+- Apple services (iCloud, Apple One, iTunes, App Store subscriptions)
+- Hosting/domain services (GoDaddy, Namecheap, web hosting renewals)
 
-SUBSCRIPTION CATEGORIES TO INCLUDE:
-- Streaming & Entertainment (Netflix, Spotify, YouTube Premium, Apple Music, Prime Video)
-- Cloud Storage (iCloud, Google One, Dropbox, OneDrive)
-- SaaS & Developer Tools (Replit, GitHub, ChatGPT, Adobe, Microsoft 365, Google Workspace)
-- Hosting & Domains (GoDaddy, Namecheap, hosting renewals, SSL certificates, domain expiries)
-- Telecom & Utilities (Mobile bills, broadband, DTH, electricity, water - ANY recurring utility)
-- Insurance (Health, vehicle, life, property - annual/monthly/quarterly premiums)
-- Property & Maintenance (Society maintenance, rent, HOA fees, parking charges)
-- Memberships (Gym, clubs, professional associations, loyalty programs)
-- Education & Learning (Online courses, tutoring, skill platforms)
-- Financial Services (Credit card annual fees, demat charges, banking fees)
+IMPORTANT: Include BOTH completed transactions AND renewal reminders/notifications.
+Examples to INCLUDE:
+- "You will be charged ₹75 in 2 days for iCloud+"
+- "Your Apple One subscription renews on Oct 5 for ₹365"
+- "GoDaddy domain renewal - expires in 7 days"
+- "Your Netflix subscription has been renewed"
 
-PAYMENT PATTERNS TO WATCH FOR:
-✅ Renewal reminders: "will be charged", "renews on", "expires in X days", "auto-renew"
-✅ Completed payments: "payment received", "charged", "invoice", "receipt", "bill paid"
-✅ Upcoming charges: "upcoming payment", "next billing date", "due on"
-✅ Regular invoices: Monthly/quarterly/annual invoice numbers, billing cycles
-✅ Subscription confirmations: "welcome to", "subscription activated", "plan upgraded"
-
-CRITICAL EXAMPLES - INCLUDE ALL OF THESE:
-✅ "TATA AIG Health Insurance - Premium Due ₹15,000"
-✅ "Airtel Bill for September - ₹1,800"
-✅ "Pebbels Urbania - Quarterly Maintenance Charges ₹12,000"
-✅ "ChatGPT Plus - Monthly Subscription ₹399"
-✅ "Your iCloud+ storage renews tomorrow for ₹75"
-✅ "Netflix subscription has been renewed"
-✅ "Domain expiring soon - GoDaddy"
-✅ "Apple One Family subscription payment"
-
-APPROACH: Be COMPREHENSIVE, not conservative. The sophisticated deep analysis (Phase 2) will filter false positives.
-When in doubt, INCLUDE the email - it's better to approve 50 borderline cases than miss 1 real subscription.
+Be CONSERVATIVE - only include emails with strong subscription indicators.
 
 CRITICAL OUTPUT FORMAT REQUIREMENT:
 You MUST respond with ONLY a valid JSON object in this exact format:
@@ -268,17 +251,6 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
 
     const systemPrompt = `You are an expert subscription detection system. You MUST perform comprehensive validation on emails before suggesting subscriptions.
 
-CRITICAL: AMOUNT EXTRACTION IS MANDATORY
-- NEVER return a subscription with amount=0 or amount=null
-- Search EVERYWHERE: subject line, email body, snippet, content preview
-- Extract amounts in ANY format: ₹75, Rs. 75, INR 75, $10, 10.99 USD
-- Common patterns: "charged ₹X", "renews for ₹X", "₹X/month", "amount: ₹X"
-- If you CANNOT find a valid amount, DO NOT suggest that subscription
-- Example locations to check:
-  * Subject: "You will be charged ₹75 in 2 days" → amount = 75
-  * Body: "Your subscription renews on Oct 5 for ₹365/month" → amount = 365
-  * Snippet: "Netflix - ₹649/month automatically charged" → amount = 649
-
 IMPORTANT: Detect BOTH completed transactions AND renewal reminders/notifications.
 
 VALIDATION REQUIREMENTS (flexible - at least ONE must pass):
@@ -304,9 +276,9 @@ RECURRING DETECTION (identify ALL patterns):
 
 For EACH subscription detected, you MUST provide:
 1. Service name and merchant
-2. **EXACT BILLING AMOUNT** (REQUIRED - search thoroughly in subject, body, snippet) and currency
+2. Exact billing amount and currency
 3. Billing frequency (monthly, quarterly, yearly, weekly)
-4. Service category (streaming, software, utilities, telecom, fitness, insurance, etc.)
+4. Service category (streaming, software, utilities, telecom, fitness, etc.)
 5. Validation results: Did subject, content, AND attachments all indicate a valid transaction?
 6. Recurring keywords found in the email
 7. Evidence from attachments (if any)
@@ -314,29 +286,23 @@ For EACH subscription detected, you MUST provide:
 9. Detailed reasoning explaining why this is a subscription
 
 Confidence Levels (FLEXIBLE criteria):
-- HIGH: Strong evidence (amount + frequency clearly stated) + Known service (Apple, Netflix, GoDaddy, TATA AIG, etc.)
+- HIGH: Strong evidence (amount + frequency clearly stated) + Known service (Apple, Netflix, GoDaddy, etc.)
 - MEDIUM: Clear amount and service name + Some recurring/renewal indicators
 - LOW: Weak evidence OR unclear amount OR one-time purchase possibility
 
 Focus on:
-- Indian services (Airtel, Jio, Netflix India, Hotstar, Paytm, PhonePe, Replit, TATA AIG, ICICI, HDFC)
+- Indian services (Airtel, Jio, Netflix India, Hotstar, Paytm, PhonePe, Replit)
 - International services with INR billing (Apple, Netflix, Spotify, Adobe)
-- Hosting/domain services (GoDaddy, Namecheap, web hosting, ZebPay)
+- Hosting/domain services (GoDaddy, Namecheap, web hosting)
 - Apple ecosystem (iCloud+, Apple One, iTunes, App Store subscriptions)
-- Insurance policies (General Insurance, Life Insurance, Health Insurance)
 
 CRITICAL EXAMPLES TO DETECT:
-✅ "You will be charged ₹75 for your 50 GB iCloud+ plan in 2 days" → amount=75, serviceName="iCloud+"
-✅ "Your Apple One subscription automatically renews on Oct 5 for ₹365/month" → amount=365, serviceName="Apple One"
-✅ "GoDaddy domain renewal - example.com expires in 7 days - ₹800/year" → amount=800, serviceName="GoDaddy Domain"
-✅ "Your Netflix subscription has been renewed - ₹649/month" → amount=649, serviceName="Netflix"
-✅ "TATA AIG General Insurance Policy - Premium ₹5000/year due" → amount=5000, serviceName="General Insurance Policy"
+✅ "You will be charged ₹75 for your 50 GB iCloud+ plan in 2 days" → DETECT as iCloud subscription
+✅ "Your Apple One subscription automatically renews on Oct 5 for ₹365/month" → DETECT as Apple One
+✅ "GoDaddy domain renewal - example.com expires in 7 days - ₹800/year" → DETECT as GoDaddy hosting
+✅ "Your Netflix subscription has been renewed - ₹649/month" → DETECT as Netflix
 
-IMPORTANT: 
-- Include renewal reminders AND completed transactions
-- Amount can appear ANYWHERE in the email - extract carefully from subject, body, or snippet
-- If extractedAmount field is provided in email data, use it as a starting point
-- NEVER suggest a subscription without a valid non-zero amount`;
+IMPORTANT: Include renewal reminders AND completed transactions. Amount can appear ANYWHERE in the email - extract carefully from subject, body, or snippet.`;
 
     const response = await this.ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -419,12 +385,9 @@ IMPORTANT:
     const seen = new Map<string, SubscriptionSuggestion>();
     
     for (const suggestion of suggestions) {
-      // Use robust serviceKey: normalized merchant + service + frequency (consistent with database deduplication)
-      // This handles AI variations in naming between runs
-      const key = createRobustServiceKey(suggestion.serviceName, suggestion.merchantName, suggestion.frequency);
+      const key = `${suggestion.merchantName.toLowerCase()}_${suggestion.currency}_${Math.round(suggestion.amount)}`;
       
       const existing = seen.get(key);
-      // If duplicate found within batch, keep the one with higher confidence
       if (!existing || this.getConfidenceScore(suggestion.confidence) > this.getConfidenceScore(existing.confidence)) {
         seen.set(key, suggestion);
       }
@@ -455,7 +418,7 @@ IMPORTANT:
       userId,
       merchantName: suggestion.merchantName,
       serviceName: suggestion.serviceName,
-      serviceKey: createRobustServiceKey(suggestion.serviceName, suggestion.merchantName, suggestion.frequency),
+      serviceKey: `${suggestion.merchantName.toLowerCase()}_${suggestion.frequency}`.replace(/\s+/g, '_'),
       amount: suggestion.amount.toString(),
       currency: suggestion.currency,
       frequency: suggestion.frequency,

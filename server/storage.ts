@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type EmailAccount, type InsertEmailAccount, type UpdateEmailAccount, users, subscriptions, emails, subscriptionSuggestions, emailAccounts } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, users, subscriptions, emails, subscriptionSuggestions } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
 import { eq, and, desc, asc, count, sql, inArray } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
@@ -13,16 +13,6 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   upsertUser(user: UpsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<UpdateUser>): Promise<User | undefined>;
-  
-  // Email Account methods
-  getEmailAccounts(userId: string): Promise<EmailAccount[]>;
-  getEmailAccount(id: string): Promise<EmailAccount | undefined>;
-  getEmailAccountByEmail(userId: string, email: string, provider: string): Promise<EmailAccount | undefined>;
-  getEmailAccountByProviderEmail(userId: string, provider: string, email: string): Promise<EmailAccount | undefined>;
-  createEmailAccount(account: InsertEmailAccount): Promise<EmailAccount>;
-  updateEmailAccount(id: string, updates: Partial<UpdateEmailAccount>): Promise<EmailAccount | undefined>;
-  deleteEmailAccount(id: string): Promise<boolean>;
-  getActiveEmailAccounts(userId: string): Promise<EmailAccount[]>;
   
   // Subscription methods
   getSubscriptions(userId: string): Promise<Subscription[]>;
@@ -175,139 +165,6 @@ export class DatabaseStorage implements IStorage {
       return result[0] || undefined;
     } catch (error) {
       console.error('Error updating user:', error);
-      throw error;
-    }
-  }
-
-  // Email Account methods
-  async getEmailAccounts(userId: string): Promise<EmailAccount[]> {
-    try {
-      return await this.db
-        .select()
-        .from(emailAccounts)
-        .where(eq(emailAccounts.userId, userId))
-        .orderBy(desc(emailAccounts.createdAt));
-    } catch (error) {
-      console.error('Error getting email accounts:', error);
-      throw error;
-    }
-  }
-
-  async getEmailAccount(id: string): Promise<EmailAccount | undefined> {
-    try {
-      const result = await this.db
-        .select()
-        .from(emailAccounts)
-        .where(eq(emailAccounts.id, id))
-        .limit(1);
-      return result[0] || undefined;
-    } catch (error) {
-      console.error('Error getting email account:', error);
-      throw error;
-    }
-  }
-
-  async getEmailAccountByEmail(userId: string, email: string, provider: string): Promise<EmailAccount | undefined> {
-    try {
-      const result = await this.db
-        .select()
-        .from(emailAccounts)
-        .where(
-          and(
-            eq(emailAccounts.userId, userId),
-            eq(emailAccounts.email, email),
-            eq(emailAccounts.provider, provider)
-          )
-        )
-        .limit(1);
-      return result[0] || undefined;
-    } catch (error) {
-      console.error('Error getting email account by email:', error);
-      throw error;
-    }
-  }
-
-  async getEmailAccountByProviderEmail(userId: string, provider: string, email: string): Promise<EmailAccount | undefined> {
-    try {
-      const result = await this.db
-        .select()
-        .from(emailAccounts)
-        .where(
-          and(
-            eq(emailAccounts.userId, userId),
-            eq(emailAccounts.provider, provider),
-            eq(emailAccounts.email, email)
-          )
-        )
-        .limit(1);
-      return result[0] || undefined;
-    } catch (error) {
-      console.error('Error getting email account by provider and email:', error);
-      throw error;
-    }
-  }
-
-  async createEmailAccount(account: InsertEmailAccount): Promise<EmailAccount> {
-    try {
-      const accountData = {
-        userId: account.userId,
-        provider: account.provider,
-        email: account.email,
-        accountName: account.accountName || account.email,
-        accessToken: account.accessToken || null,
-        refreshToken: account.refreshToken || null,
-        tokenExpiry: account.tokenExpiry || null,
-        isActive: account.isActive !== undefined ? account.isActive : true,
-        lastSync: account.lastSync || null,
-      };
-
-      const result = await this.db.insert(emailAccounts).values(accountData).returning();
-      return result[0];
-    } catch (error) {
-      console.error('Error creating email account:', error);
-      throw error;
-    }
-  }
-
-  async updateEmailAccount(id: string, updates: Partial<UpdateEmailAccount>): Promise<EmailAccount | undefined> {
-    try {
-      const result = await this.db
-        .update(emailAccounts)
-        .set({ ...updates, updatedAt: new Date() })
-        .where(eq(emailAccounts.id, id))
-        .returning();
-      
-      return result[0] || undefined;
-    } catch (error) {
-      console.error('Error updating email account:', error);
-      throw error;
-    }
-  }
-
-  async deleteEmailAccount(id: string): Promise<boolean> {
-    try {
-      await this.db.delete(emailAccounts).where(eq(emailAccounts.id, id));
-      return true;
-    } catch (error) {
-      console.error('Error deleting email account:', error);
-      throw error;
-    }
-  }
-
-  async getActiveEmailAccounts(userId: string): Promise<EmailAccount[]> {
-    try {
-      return await this.db
-        .select()
-        .from(emailAccounts)
-        .where(
-          and(
-            eq(emailAccounts.userId, userId),
-            eq(emailAccounts.isActive, true)
-          )
-        )
-        .orderBy(desc(emailAccounts.createdAt));
-    } catch (error) {
-      console.error('Error getting active email accounts:', error);
       throw error;
     }
   }
@@ -822,9 +679,9 @@ export class DatabaseStorage implements IStorage {
     avgPerService: number;
   }> {
     try {
-      const [userSubscriptions, userEmailAccounts] = await Promise.all([
+      const [userSubscriptions, emailCount] = await Promise.all([
         this.getSubscriptions(userId),
-        this.getEmailAccounts(userId)
+        this.db.select({ count: count() }).from(emails).where(eq(emails.userId, userId))
       ]);
       
       const activeSubscriptions = userSubscriptions.filter(sub => sub.status === 'active');
@@ -855,8 +712,7 @@ export class DatabaseStorage implements IStorage {
       }, 0);
 
       const activeCount = activeSubscriptions.length;
-      // Sum up emailsAnalyzed from all email accounts
-      const emailsAnalyzed = userEmailAccounts.reduce((sum, account) => sum + (account.emailsAnalyzed || 0), 0);
+      const emailsAnalyzed = emailCount[0].count;
       const avgPerService = activeCount > 0 ? totalMonthly / activeCount : 0;
 
       return {
