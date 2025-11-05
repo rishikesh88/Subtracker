@@ -402,9 +402,11 @@ IMPORTANT:
     const seen = new Map<string, SubscriptionSuggestion>();
     
     for (const suggestion of suggestions) {
-      const key = `${suggestion.merchantName.toLowerCase()}_${suggestion.currency}_${Math.round(suggestion.amount)}`;
+      // Use serviceKey format: serviceName_frequency (consistent with database deduplication)
+      const key = `${suggestion.serviceName.toLowerCase().replace(/\s+/g, '_')}_${suggestion.frequency}`;
       
       const existing = seen.get(key);
+      // If duplicate found within batch, keep the one with higher confidence
       if (!existing || this.getConfidenceScore(suggestion.confidence) > this.getConfidenceScore(existing.confidence)) {
         seen.set(key, suggestion);
       }
