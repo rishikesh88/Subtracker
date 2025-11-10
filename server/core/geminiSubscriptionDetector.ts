@@ -1,3 +1,22 @@
+/**
+ * 🔒 PROTECTED CORE LOGIC - MODIFICATION REQUIRES USER APPROVAL
+ * 
+ * Gemini AI Subscription Detector
+ * Two-phase AI analysis: Pre-filter (Phase 1.5) + Deep Analysis (Phase 2)
+ * 
+ * @version 1.0.0
+ * @lastModified 2025-11-10
+ * @protection LOCKED - See server/core/README.md for modification protocol
+ * @model gemini-2.5-flash (specified by user - DO NOT CHANGE)
+ * 
+ * CRITICAL: This file contains AI prompts, fallback strategies, and analysis logic.
+ * All prompts, chunk sizes, and fallback behaviors are locked and require user approval.
+ * See SPECIFICATION.md for exact prompt text and algorithm details.
+ * 
+ * FALLBACK STRATEGY: Maximum detection priority - approve chunks on parsing failures
+ * to ensure no subscription data is lost. This aligns with user's primary goal.
+ */
+
 import { GoogleGenAI } from "@google/genai";
 import { Email, Subscription } from "@shared/schema";
 

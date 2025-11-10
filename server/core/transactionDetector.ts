@@ -1,6 +1,16 @@
 /**
+ * 🔒 PROTECTED CORE LOGIC - MODIFICATION REQUIRES USER APPROVAL
+ * 
  * Enhanced Transaction Detection Service
  * Multi-parameter scoring system to identify transaction/subscription emails
+ * 
+ * @version 1.0.0
+ * @lastModified 2025-11-10
+ * @protection LOCKED - See server/core/README.md for modification protocol
+ * 
+ * CRITICAL: This file contains core IP for subscription detection.
+ * Any modifications to scoring algorithms, thresholds, or keyword lists
+ * require explicit user approval. See SPECIFICATION.md for canonical algorithm.
  */
 
 import { getMerchantDatabase } from './merchantDatabase';

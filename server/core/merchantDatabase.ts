@@ -1,3 +1,19 @@
+/**
+ * 🔒 PROTECTED CORE LOGIC - MODIFICATION REQUIRES USER APPROVAL
+ * 
+ * Merchant Database Service
+ * Verified merchant lookup for enhanced transaction detection
+ * 
+ * @version 1.0.0
+ * @lastModified 2025-11-10
+ * @protection LOCKED - See server/core/README.md for modification protocol
+ * @dataSource server/data/merchants.csv (APPEND-ONLY)
+ * 
+ * CRITICAL: This file contains merchant lookup logic and database loading.
+ * Modifications to lookup algorithms or data structures require user approval.
+ * See SPECIFICATION.md for canonical implementation.
+ */
+
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
