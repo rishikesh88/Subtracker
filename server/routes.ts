@@ -5,7 +5,7 @@ import { GmailService } from "./services/gmail";
 import { emailParser } from "./services/emailParser";
 import { EnhancedEmailParser } from "./services/enhancedEmailParser";
 import { subscriptionDetector } from "./services/subscriptionDetector";
-import { GeminiSubscriptionDetector } from "./services/geminiSubscriptionDetector";
+import { GeminiSubscriptionDetector } from "./core/geminiSubscriptionDetector";
 import { insertEmailSchema, insertUserSchema, updateSettingsSchema, insertSubscriptionSchema, updateSubscriptionSchema, type SafeUser } from "@shared/schema";
 import { randomBytes } from "crypto";
 import { z } from "zod";

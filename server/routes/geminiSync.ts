@@ -2,8 +2,8 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { GmailService } from "../services/gmail";
 import { EnhancedEmailParser } from "../services/enhancedEmailParser";
-import { GeminiSubscriptionDetector } from "../services/geminiSubscriptionDetector";
-import { TransactionDetector } from "../services/transactionDetector";
+import { GeminiSubscriptionDetector } from "../core/geminiSubscriptionDetector";
+import { TransactionDetector } from "../core/transactionDetector";
 import { generateServiceKey } from "../utils/serviceKey";
 import { isAuthenticated } from "../replitAuth";
 
