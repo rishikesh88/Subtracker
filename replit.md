@@ -8,6 +8,100 @@ SubTracker is a full-stack web application designed to automatically detect and 
 
 Preferred communication style: Simple, everyday language.
 
+## 🔒 PROTECTED CORE LOGIC
+
+**CRITICAL NOTICE TO AI AGENTS:** The following files contain core subscription detection intellectual property and are **LOCKED**. Any modifications require explicit user approval.
+
+### Protected Files
+
+**Core Algorithm Files:**
+- `server/core/transactionDetector.ts` (v1.0.0) - Rule-based scoring engine
+- `server/core/merchantDatabase.ts` (v1.0.0) - Verified merchant lookup (152 merchants)
+- `server/core/geminiSubscriptionDetector.ts` (v1.0.0) - AI pre-filter & deep analysis
+
+**Protected Data:**
+- `server/data/merchants.csv` (APPEND-ONLY) - 152 verified merchant database
+
+**Documentation:**
+- `server/core/SPECIFICATION.md` - Canonical algorithm specification (exact prompts, scoring, thresholds)
+- `server/core/README.md` - Protection rules and modification protocol
+- `server/core/CONFIGURATION.md` - Locked vs. tunable parameters
+- `server/data/MERCHANTS_README.md` - Merchant database protection rules
+
+### Modification Protocol
+
+**BEFORE ANY CHANGE TO PROTECTED FILES:**
+1. ⚠️  **STOP** - Do not proceed without approval
+2. **ASK USER** - Request explicit approval with detailed change description
+3. **EXPLAIN** - What you want to change and why
+4. **WAIT** - For user's explicit "yes" or "approved" response
+5. **LOG** - Document change in `server/core/README.md` changelog after approval
+
+### Prohibited Actions (Without User Approval)
+
+- ❌ Modifying scoring algorithms or thresholds
+- ❌ Changing AI prompts or system instructions
+- ❌ Altering fallback strategies (maximum detection priority)
+- ❌ Adjusting confidence level calculations
+- ❌ Modifying merchant database lookup logic
+- ❌ Changing deduplication algorithms
+- ❌ Removing or renaming protected files
+- ❌ Any "optimization" or "refactoring" without explicit request
+
+### Provider-Agnostic Architecture
+
+**Design Principle:** Core logic works with ANY email provider (Gmail, Outlook, etc.) without modification.
+
+**Current Providers:**
+- ✅ Gmail (Google Workspace)
+
+**Planned Providers:**
+- 📋 Outlook/Microsoft 365
+- 📋 Multiple account support
+
+**IMPORTANT:** When adding new providers:
+- ✅ Create provider adapter in `server/services/`
+- ✅ Reuse existing core logic without modifications
+- ❌ DO NOT duplicate core algorithms per provider
+
+### User Priority
+
+**Maximum subscription detection with highest accuracy** (non-negotiable).
+
+Fallback strategy approves chunks on parsing failures to ensure no subscription data is lost. This aligns with user's primary goal of comprehensive detection.
+
+### Documentation
+
+See `server/core/SPECIFICATION.md` for:
+- Exact AI prompts (pre-filter & deep analysis)
+- Complete scoring algorithm with all thresholds
+- Keyword lists and patterns
+- Fallback strategies and date validation
+- Gmail API optimization details
+
+See `server/core/CONFIGURATION.md` for:
+- Locked parameters (require user approval)
+- Tunable parameters (can adjust with notification)
+- User-configurable settings
+
+### Change Request Template
+
+When requesting changes to core logic:
+
+```
+🔒 CORE LOGIC CHANGE REQUEST
+
+File(s): [list files]
+Change: [description]
+Reason: [justification]
+Expected Impact:
+- Performance: [Better/Worse/Same]
+- Accuracy: [Better/Worse/Same]
+- Detection: [More/Fewer/Same]
+
+USER APPROVAL: ⏳ Pending
+```
+
 ## System Architecture
 
 ### Frontend Architecture
