@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { SubscriptionList } from "@/components/SubscriptionList";
+import type { Subscription } from "@shared/schema";
 
 export default function Subscriptions() {
-  const { data: subscriptions, isLoading } = useQuery({ 
+  const { data: subscriptions } = useQuery<Subscription[]>({ 
     queryKey: ['/api/subscriptions'] 
   });
 
@@ -15,7 +16,7 @@ export default function Subscriptions() {
         </p>
       </div>
 
-      <SubscriptionList subscriptions={subscriptions || []} isLoading={isLoading} />
+      <SubscriptionList subscriptions={subscriptions || []} />
     </div>
   );
 }

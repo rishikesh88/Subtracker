@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
-import { Sidebar } from "@/components/Sidebar";
 import { StatsCards } from "@/components/StatsCards";
 import { SubscriptionList } from "@/components/SubscriptionList";
 import { SubscriptionSuggestionsModal } from "@/components/SubscriptionSuggestionsModal";
@@ -349,12 +348,9 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen flex bg-background">
-      <Sidebar user={user} isGmailConnected={user?.gmailConnected || false} />
-      
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <header className="bg-card border-b border-border px-6 py-4">
+    <>
+      {/* Header */}
+      <header className="bg-card border-b border-border px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-2xl font-bold text-foreground">Dashboard</h2>
@@ -544,28 +540,27 @@ export default function Dashboard() {
             <SubscriptionList subscriptions={subscriptions} />
           )}
 
-        </main>
+      </main>
 
-        {/* Suggestions Modal */}
-        <SubscriptionSuggestionsModal 
-          open={suggestionsModalOpen}
-          onOpenChange={setSuggestionsModalOpen}
-        />
-        
-        {/* Add Subscription Modal */}
-        <AddSubscriptionModal
-          open={addSubscriptionModalOpen}
-          onOpenChange={setAddSubscriptionModalOpen}
-        />
-        
-        {/* Sync Progress Modal */}
-        <SyncProgressModal
-          isOpen={syncProgressOpen}
-          onOpenChange={setSyncProgressOpen}
-          userId={currentUserId}
-          onComplete={handleSyncComplete}
-        />
-      </div>
-    </div>
+      {/* Suggestions Modal */}
+      <SubscriptionSuggestionsModal 
+        open={suggestionsModalOpen}
+        onOpenChange={setSuggestionsModalOpen}
+      />
+      
+      {/* Add Subscription Modal */}
+      <AddSubscriptionModal
+        open={addSubscriptionModalOpen}
+        onOpenChange={setAddSubscriptionModalOpen}
+      />
+      
+      {/* Sync Progress Modal */}
+      <SyncProgressModal
+        isOpen={syncProgressOpen}
+        onOpenChange={setSyncProgressOpen}
+        userId={currentUserId}
+        onComplete={handleSyncComplete}
+      />
+    </>
   );
 }

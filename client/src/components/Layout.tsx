@@ -10,7 +10,7 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <div className="min-h-screen flex bg-background">
-      <Sidebar user={user} isGmailConnected={user?.gmailConnected || false} />
+      <Sidebar user={user || undefined} isGmailConnected={user?.gmailConnected || false} />
       <div className="flex-1 flex flex-col">
         {children}
       </div>
