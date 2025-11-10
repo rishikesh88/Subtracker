@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
+import { Layout } from "@/components/Layout";
 import Dashboard from "@/pages/dashboard";
 import Subscriptions from "@/pages/subscriptions";
 import Settings from "@/pages/settings";
@@ -40,10 +41,10 @@ function Router() {
         </>
       ) : (
         <>
-          <Route path="/" component={Dashboard} />
-          <Route path="/dashboard" component={Dashboard} />
-          <Route path="/subscriptions" component={Subscriptions} />
-          <Route path="/settings" component={Settings} />
+          <Route path="/" component={() => <Layout><Dashboard /></Layout>} />
+          <Route path="/dashboard" component={() => <Layout><Dashboard /></Layout>} />
+          <Route path="/subscriptions" component={() => <Layout><Subscriptions /></Layout>} />
+          <Route path="/settings" component={() => <Layout><Settings /></Layout>} />
         </>
       )}
       <Route component={NotFound} />
