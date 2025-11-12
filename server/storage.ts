@@ -648,8 +648,23 @@ export class DatabaseStorage implements IStorage {
                 userId
               );
 
-              // Create invoice records
+              // Check for existing invoices to prevent duplicates
+              const existingInvoices = await this.db
+                .select({ fileUrl: invoices.fileUrl })
+                .from(invoices)
+                .where(eq(invoices.subscriptionId, createdSubscription.id));
+              
+              const existingUrls = new Set(existingInvoices.map(inv => inv.fileUrl));
+
+              // Create invoice records (skip duplicates)
+              let createdCount = 0;
+              let skippedCount = 0;
               for (const extractedInvoice of extractedInvoices) {
+                if (existingUrls.has(extractedInvoice.fileUrl)) {
+                  skippedCount++;
+                  continue;
+                }
+                
                 await this.createInvoice({
                   subscriptionId: createdSubscription.id,
                   userId: userId,
@@ -659,14 +674,18 @@ export class DatabaseStorage implements IStorage {
                   fileUrl: extractedInvoice.fileUrl,
                   source: extractedInvoice.source
                 });
+                createdCount++;
               }
 
-              if (extractedInvoices.length > 0) {
-                console.log(`✅ Created ${extractedInvoices.length} invoice(s) for subscription: ${createdSubscription.serviceName}`);
+              if (createdCount > 0) {
+                console.log(`✅ Created ${createdCount} invoice(s) for subscription: ${createdSubscription.serviceName}`);
+              }
+              if (skippedCount > 0) {
+                console.log(`⏭️  Skipped ${skippedCount} duplicate invoice(s) for subscription: ${createdSubscription.serviceName}`);
               }
             } catch (invoiceError) {
               // Don't fail the entire approval if invoice extraction fails
-              console.error('Error extracting invoices (non-fatal):', invoiceError);
+              console.error('⚠️  Error extracting invoices (non-fatal):', invoiceError);
             }
           }
         }
