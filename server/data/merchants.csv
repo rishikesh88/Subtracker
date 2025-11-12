@@ -150,3 +150,52 @@ Paddle,paddle.com,billing@paddle.com,Merchant of Record Platform,Transaction-bas
 FastSpring,fastspring.com,billing@fastspring.com,Subscription Billing,Transaction-based,Global
 Chargify,chargify.com,billing@chargify.com,Recurring Billing,Monthly,Global
 Aria Systems,ariasystems.com,billing@ariasystems.com,Subscription Billing,Monthly / Annual,Global
+AT&T,att.com,billing@att.com,"AT&T Wireless, AT&T Fiber, AT&T Business",Monthly,United States
+Verizon,verizon.com,billing@verizon.com,"Verizon Wireless, Fios, Business Internet",Monthly,United States
+T-Mobile US,t-mobile.com,billing@t-mobile.com,"Magenta Max, Business Unlimited, Home Internet",Monthly,United States
+Sprint,sprint.com,billing@sprint.com,Sprint Unlimited,Monthly,United States
+Xfinity,xfinity.com,billing@xfinity.com,"Xfinity Mobile, Internet, TV",Monthly,United States
+Spectrum,spectrum.com,billing@spectrum.com,"Spectrum Internet, TV, Mobile",Monthly,United States
+Cox Communications,cox.com,billing@cox.com,"Cox Internet, Mobile, TV",Monthly,United States
+Frontier Communications,frontier.com,billing@frontier.com,"Fiber, Internet, Digital Voice",Monthly,United States
+Optimum,optimum.com,billing@optimum.com,"Optimum Fiber, Mobile, TV",Monthly,United States
+CenturyLink,centurylink.com,billing@centurylink.com,"Fiber Internet, Business Voice",Monthly,United States
+BT,bt.com,billing@bt.com,"BT Broadband, Mobile, Business Fibre",Monthly,United Kingdom
+EE,ee.co.uk,billing@ee.co.uk,"EE 5G, EE Broadband",Monthly,United Kingdom
+Vodafone UK,vodafone.co.uk,billing@vodafone.co.uk,"Vodafone Red, Unlimited Max",Monthly,United Kingdom
+O2,o2.co.uk,billing@o2.co.uk,"O2 Mobile, Business Plans",Monthly,United Kingdom
+Virgin Media,virginmedia.com,billing@virginmedia.com,"Broadband, TV, Mobile",Monthly,United Kingdom
+Sky Broadband,sky.com,billing@sky.com,"Sky Broadband, Sky Mobile",Monthly,United Kingdom
+Three UK,three.co.uk,billing@three.co.uk,"Three 5G, Home Broadband",Monthly,United Kingdom
+TalkTalk,talktalk.co.uk,billing@talktalk.co.uk,"TalkTalk Fibre, TV, Mobile",Monthly,United Kingdom
+Plusnet,plus.net,billing@plus.net,Plusnet Broadband,Monthly,United Kingdom
+Giffgaff,giffgaff.com,billing@giffgaff.com,Giffgaff Goodybags,Monthly,United Kingdom
+Vodafone Germany,vodafone.de,billing@vodafone.de,"Red+, GigaKombi",Monthly,Germany
+Deutsche Telekom,telekom.de,billing@telekom.de,"MagentaMobil, MagentaZuhause",Monthly,Germany
+O2 Germany,o2online.de,billing@o2online.de,"O2 Free, DSL",Monthly,Germany
+1&1,1und1.de,billing@1und1.de,"1&1 DSL, 1&1 Mobile",Monthly,Germany
+Orange France,orange.fr,billing@orange.fr,"Orange Fibre, Orange Mobile",Monthly,France
+SFR France,sfr.fr,billing@sfr.fr,"SFR Fibre, SFR Mobile",Monthly,France
+Bouygues Telecom,bouyguestelecom.fr,billing@bouyguestelecom.fr,"Bbox Fibre, Forfait Mobile",Monthly,France
+Free,free.fr,billing@free.fr,"Freebox, Free Mobile",Monthly,France
+Vodafone Spain,vodafone.es,billing@vodafone.es,Vodafone One,Monthly,Spain
+Movistar,movistar.es,billing@movistar.es,"Fusión, Fibra",Monthly,Spain
+Orange Spain,orange.es,billing@orange.es,"Orange Love, Go Plans",Monthly,Spain
+WindTre,windtre.it,billing@windtre.it,WindTre Unlimited,Monthly,Italy
+TIM,tim.it,billing@tim.it,"TIM Smart, TIM Connect",Monthly,Italy
+Vodafone Italy,vodafone.it,billing@vodafone.it,Vodafone Unlimited,Monthly,Italy
+Iliad Italy,iliad.it,billing@iliad.it,Iliad Mobile,Monthly,Italy
+Proximus,proximus.be,billing@proximus.be,"Internet Maxi, Epic Combo",Monthly,Belgium
+Telenor,telenor.com,billing@telenor.com,"Telenor Mobile, Business",Monthly,"Nordic & EU"
+Telia Company,telia.com,billing@telia.com,"Telia Mobile, Fiber",Monthly,"Nordic & EU"
+Elisa,elisa.fi,billing@elisa.fi,"Elisa Broadband, 5G",Monthly,Finland
+Jio,jio.com,billing@jio.com,"Jio Fiber, Jio Postpaid Plus",Monthly,India
+Airtel,airtel.in,billing@airtel.in,"Airtel Xstream Fiber, Postpaid, DTH",Monthly,India
+Vi,myvi.in,billing@myvi.in,"Vi Prepaid, Postpaid",Monthly,India
+BSNL,bsnl.co.in,billing@bsnl.co.in,"BSNL Fiber, Landline, Mobile",Monthly,India
+MTNL,mtnl.net.in,billing@mtnl.net.in,"MTNL Broadband, GSM",Monthly,India
+ACT Fibernet,actcorp.in,billing@actcorp.in,"ACT Broadband, Corporate Leased Line",Monthly,India
+Hathway,hathway.com,billing@hathway.net,"Hathway Broadband, Digital TV",Monthly,India
+Excitel Broadband,excitel.com,billing@excitel.com,Excitel Fiber Plans,Monthly,India
+Tata Play Fiber,tataplayfiber.com,billing@tataplayfiber.com,Tata Play Fiber,Monthly,India
+Spectra,spectra.co,billing@spectra.co,Spectra Business Internet,Monthly,India
