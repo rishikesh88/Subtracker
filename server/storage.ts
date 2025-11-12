@@ -619,7 +619,7 @@ export class DatabaseStorage implements IStorage {
             .set({ subscriptionId: createdSubscription.id, processed: true })
             .where(
               and(
-                inArray(emails.id, suggestion.evidenceEmailIds),
+                inArray(emails.gmailId, suggestion.evidenceEmailIds),
                 eq(emails.userId, userId) // SECURITY: Ensure tenant isolation
               )
             );
@@ -638,7 +638,7 @@ export class DatabaseStorage implements IStorage {
                 .from(emails)
                 .where(
                   and(
-                    inArray(emails.id, suggestion.evidenceEmailIds),
+                    inArray(emails.gmailId, suggestion.evidenceEmailIds),
                     eq(emails.userId, userId)
                   )
                 );
