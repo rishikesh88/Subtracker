@@ -654,7 +654,7 @@ export class DatabaseStorage implements IStorage {
                 .from(invoices)
                 .where(eq(invoices.subscriptionId, createdSubscription.id));
               
-              const existingUrls = new Set(existingInvoices.map(inv => inv.fileUrl));
+              const existingUrls = new Set(existingInvoices.map((inv: { fileUrl: string }) => inv.fileUrl));
 
               // Create invoice records (skip duplicates)
               let createdCount = 0;
