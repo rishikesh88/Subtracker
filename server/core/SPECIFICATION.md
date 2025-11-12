@@ -22,7 +22,7 @@ This document defines the canonical specification for SubTracker's subscription 
 Phase 1: Lightweight Screening (Fast, Inexpensive)
 ├── 1a. Email Metadata Fetch (subject, sender, snippet)
 ├── 1b. Transaction Detector (rule-based scoring)
-├── 1c. Merchant Database Lookup (152 verified merchants)
+├── 1c. Merchant Database Lookup (201 verified merchants)
 └── 1d. AI Pre-filter (Gemini 2.5 Flash, batch 200 emails)
     
 Phase 2: Deep Processing (Targeted, Accurate)
@@ -56,7 +56,7 @@ The Transaction Detector uses a multi-parameter scoring system with **threshold:
 
 **Priority 1: Merchant Database (80 points)** ⭐ STRONGEST SIGNAL
 ```typescript
-// Check against verified merchant database (152 merchants)
+// Check against verified merchant database (201 merchants)
 if (merchantDB.isKnownMerchant(emailLower)) {
   score += 80;
   reasons.push(`Verified merchant: ${knownMerchant.name}`);
@@ -411,7 +411,8 @@ name,websiteDomain,billingEmailDomain,products,frequency,regions
 **APPEND-ONLY:** New merchants can be added; existing entries CANNOT be modified or removed.
 
 ### Current Count
-152 verified merchants (as of v1.0.0)
+201 verified merchants (as of v1.1.0)
+- Added 50 telecom/ISP providers (US, UK, EU, India) on 2025-11-12
 
 ### Lookup Algorithm
 
