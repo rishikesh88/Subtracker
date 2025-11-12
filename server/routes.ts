@@ -952,8 +952,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
       }
+
+      // Get user's Gmail access token for invoice extraction
+      const user = await storage.getUser(userId);
+      const gmailAccessToken = user?.gmailAccessToken || undefined;
       
-      const result = await storage.approveSuggestions(suggestionIds, userId);
+      const result = await storage.approveSuggestions(suggestionIds, userId, gmailAccessToken);
       res.json({
         success: true,
         message: `Approved ${result.approved} suggestions`,

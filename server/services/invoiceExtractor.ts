@@ -136,7 +136,9 @@ export class InvoiceExtractor {
 
     try {
       // Initialize Gmail API client
-      const gmail = gmailService.getGmailClient(gmailAccessToken);
+      // Note: We don't have refreshToken here, but Gmail operations during approval
+      // should work with just the access token since user is actively using the app
+      const gmail = gmailService.getGmailClient(gmailAccessToken, '');
       
       for (const emailRecord of emailRecords) {
         const attachments = this.parseAttachmentMetadata(emailRecord.attachmentData);

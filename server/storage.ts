@@ -4,6 +4,7 @@ import { eq, and, desc, asc, count, sql, inArray } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { randomUUID } from "crypto";
 import { convertCurrency } from "./utils/currencyConverter";
+import { invoiceExtractor } from "./services/invoiceExtractor";
 
 export interface IStorage {
   // User methods
@@ -34,7 +35,7 @@ export interface IStorage {
   getSuggestions(userId: string, options?: { page?: number; pageSize?: number; minConfidence?: string }): Promise<{ suggestions: SubscriptionSuggestion[]; total: number }>;
   createSuggestion(suggestion: InsertSubscriptionSuggestion): Promise<SubscriptionSuggestion>;
   createSuggestionsBulk(suggestions: InsertSubscriptionSuggestion[]): Promise<SubscriptionSuggestion[]>;
-  approveSuggestions(suggestionIds: string[], userId: string): Promise<{ subscriptions: Subscription[]; approved: number }>;
+  approveSuggestions(suggestionIds: string[], userId: string, gmailAccessToken?: string): Promise<{ subscriptions: Subscription[]; approved: number }>;
   rejectSuggestions(suggestionIds: string[], userId: string): Promise<{ rejected: number }>;
   clearSuggestions(userId: string): Promise<{ cleared: number }>;
   
@@ -570,7 +571,7 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async approveSuggestions(suggestionIds: string[], userId: string): Promise<{ subscriptions: Subscription[]; approved: number }> {
+  async approveSuggestions(suggestionIds: string[], userId: string, gmailAccessToken?: string): Promise<{ subscriptions: Subscription[]; approved: number }> {
     try {
       const suggestions = await this.db
         .select()
@@ -622,6 +623,52 @@ export class DatabaseStorage implements IStorage {
                 eq(emails.userId, userId) // SECURITY: Ensure tenant isolation
               )
             );
+
+          // Extract invoices from email attachments
+          if (gmailAccessToken) {
+            try {
+              // Fetch email records with attachment metadata
+              const evidenceEmails = await this.db
+                .select({
+                  gmailId: emails.gmailId,
+                  attachmentData: emails.attachmentData
+                })
+                .from(emails)
+                .where(
+                  and(
+                    inArray(emails.id, suggestion.evidenceEmailIds),
+                    eq(emails.userId, userId)
+                  )
+                );
+
+              // Extract and upload attachments
+              const extractedInvoices = await invoiceExtractor.extractInvoicesFromEmails(
+                gmailAccessToken,
+                evidenceEmails,
+                userId
+              );
+
+              // Create invoice records
+              for (const extractedInvoice of extractedInvoices) {
+                await this.createInvoice({
+                  subscriptionId: createdSubscription.id,
+                  userId: userId,
+                  fileName: extractedInvoice.fileName,
+                  fileType: extractedInvoice.fileType,
+                  fileSize: extractedInvoice.fileSize,
+                  fileUrl: extractedInvoice.fileUrl,
+                  source: extractedInvoice.source
+                });
+              }
+
+              if (extractedInvoices.length > 0) {
+                console.log(`✅ Created ${extractedInvoices.length} invoice(s) for subscription: ${createdSubscription.serviceName}`);
+              }
+            } catch (invoiceError) {
+              // Don't fail the entire approval if invoice extraction fails
+              console.error('Error extracting invoices (non-fatal):', invoiceError);
+            }
+          }
         }
       }
       
