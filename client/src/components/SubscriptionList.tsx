@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Search, List, Grid3X3, Pencil } from "lucide-react";
+import { useLocation } from "wouter";
+import { Search, List, Grid3X3, Pencil, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ interface SubscriptionListProps {
 }
 
 export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
+  const [, setLocation] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -182,8 +184,9 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
             {filteredSubscriptions.map((subscription) => (
               <div
                 key={subscription.id}
-                className="p-6 hover:bg-accent/50 transition-colors"
+                className="p-6 hover:bg-accent/50 transition-colors cursor-pointer"
                 data-testid={`subscription-${subscription.id}`}
+                onClick={() => setLocation(`/subscriptions/${subscription.id}`)}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
@@ -227,17 +230,7 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
                         Last email: {formatDate(subscription.lastEmailDate)}
                       </p>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        setEditingSubscription(subscription);
-                        setIsEditModalOpen(true);
-                      }}
-                      data-testid={`button-edit-${subscription.id}`}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
                   </div>
                 </div>
               </div>

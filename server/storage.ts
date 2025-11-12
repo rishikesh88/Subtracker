@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, users, subscriptions, emails, subscriptionSuggestions } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, users, subscriptions, emails, subscriptionSuggestions, invoices } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
 import { eq, and, desc, asc, count, sql, inArray } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
@@ -48,6 +48,12 @@ export interface IStorage {
     emailsAnalyzed: number;
     avgPerService: number;
   }>;
+  
+  // Invoice methods
+  getInvoices(subscriptionId: string): Promise<Invoice[]>;
+  getInvoice(id: string): Promise<Invoice | undefined>;
+  createInvoice(invoice: InsertInvoice): Promise<Invoice>;
+  deleteInvoice(id: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -723,6 +729,55 @@ export class DatabaseStorage implements IStorage {
       };
     } catch (error) {
       console.error('Error getting subscription stats:', error);
+      throw error;
+    }
+  }
+
+  // Invoice methods
+  async getInvoices(subscriptionId: string): Promise<Invoice[]> {
+    try {
+      const result = await this.db
+        .select()
+        .from(invoices)
+        .where(eq(invoices.subscriptionId, subscriptionId))
+        .orderBy(desc(invoices.uploadedAt));
+      return result;
+    } catch (error) {
+      console.error('Error getting invoices:', error);
+      throw error;
+    }
+  }
+
+  async getInvoice(id: string): Promise<Invoice | undefined> {
+    try {
+      const result = await this.db
+        .select()
+        .from(invoices)
+        .where(eq(invoices.id, id))
+        .limit(1);
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error getting invoice:', error);
+      throw error;
+    }
+  }
+
+  async createInvoice(invoice: InsertInvoice): Promise<Invoice> {
+    try {
+      const result = await this.db.insert(invoices).values(invoice).returning();
+      return result[0];
+    } catch (error) {
+      console.error('Error creating invoice:', error);
+      throw error;
+    }
+  }
+
+  async deleteInvoice(id: string): Promise<boolean> {
+    try {
+      const result = await this.db.delete(invoices).where(eq(invoices.id, id)).returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('Error deleting invoice:', error);
       throw error;
     }
   }

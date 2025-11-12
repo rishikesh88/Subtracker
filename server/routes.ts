@@ -6,7 +6,9 @@ import { emailParser } from "./services/emailParser";
 import { EnhancedEmailParser } from "./services/enhancedEmailParser";
 import { subscriptionDetector } from "./services/subscriptionDetector";
 import { GeminiSubscriptionDetector } from "./core/geminiSubscriptionDetector";
-import { insertEmailSchema, insertUserSchema, updateSettingsSchema, insertSubscriptionSchema, updateSubscriptionSchema, type SafeUser } from "@shared/schema";
+import { insertEmailSchema, insertUserSchema, updateSettingsSchema, insertSubscriptionSchema, updateSubscriptionSchema, insertInvoiceSchema, type SafeUser } from "@shared/schema";
+import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
+import { ObjectPermission } from "./objectAcl";
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { registerGeminiRoutes } from "./routes/geminiSync";
@@ -474,6 +476,173 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Invalid subscription data", details: (error as any).issues });
       }
       res.status(500).json({ message: "Failed to update subscription" });
+    }
+  });
+
+  // Get subscription detail
+  app.get("/api/subscriptions/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { id } = req.params;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      const subscription = await storage.getSubscription(id);
+      if (!subscription) {
+        return res.status(404).json({ message: "Subscription not found" });
+      }
+
+      if (subscription.userId !== userId) {
+        return res.status(403).json({ message: "Unauthorized to view this subscription" });
+      }
+
+      res.json(subscription);
+    } catch (error) {
+      console.error("Get subscription error:", error);
+      res.status(500).json({ message: "Failed to fetch subscription" });
+    }
+  });
+
+  // Object Storage Routes - Referenced from blueprint:javascript_object_storage
+  // Endpoint for serving private invoice files with ACL check
+  app.get("/objects/:objectPath(*)", isAuthenticated, async (req: any, res) => {
+    const userId = req.user?.claims?.sub;
+    const objectStorageService = new ObjectStorageService();
+    try {
+      const objectFile = await objectStorageService.getObjectEntityFile(req.path);
+      const canAccess = await objectStorageService.canAccessObjectEntity({
+        objectFile,
+        userId: userId,
+        requestedPermission: ObjectPermission.READ,
+      });
+      if (!canAccess) {
+        return res.sendStatus(401);
+      }
+      objectStorageService.downloadObject(objectFile, res);
+    } catch (error) {
+      console.error("Error checking object access:", error);
+      if (error instanceof ObjectNotFoundError) {
+        return res.sendStatus(404);
+      }
+      return res.sendStatus(500);
+    }
+  });
+
+  // Endpoint for getting upload URL for invoice files
+  app.post("/api/objects/upload", isAuthenticated, async (req: any, res) => {
+    try {
+      const objectStorageService = new ObjectStorageService();
+      const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+      res.json({ uploadURL });
+    } catch (error) {
+      console.error("Error getting upload URL:", error);
+      res.status(500).json({ error: "Failed to generate upload URL" });
+    }
+  });
+
+  // Invoice Routes
+  // Get all invoices for a subscription
+  app.get("/api/subscriptions/:id/invoices", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { id } = req.params;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      // Verify the subscription belongs to the user
+      const subscription = await storage.getSubscription(id);
+      if (!subscription) {
+        return res.status(404).json({ message: "Subscription not found" });
+      }
+      if (subscription.userId !== userId) {
+        return res.status(403).json({ message: "Unauthorized to view invoices" });
+      }
+
+      const invoices = await storage.getInvoices(id);
+      res.json(invoices);
+    } catch (error) {
+      console.error("Get invoices error:", error);
+      res.status(500).json({ message: "Failed to fetch invoices" });
+    }
+  });
+
+  // Create invoice record after file upload
+  app.post("/api/subscriptions/:id/invoices", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { id } = req.params;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      // Verify the subscription belongs to the user
+      const subscription = await storage.getSubscription(id);
+      if (!subscription) {
+        return res.status(404).json({ message: "Subscription not found" });
+      }
+      if (subscription.userId !== userId) {
+        return res.status(403).json({ message: "Unauthorized to add invoices" });
+      }
+
+      const objectStorageService = new ObjectStorageService();
+      const normalizedPath = await objectStorageService.trySetObjectEntityAclPolicy(
+        req.body.fileUrl,
+        {
+          owner: userId,
+          visibility: "private",
+        }
+      );
+
+      const invoiceData = insertInvoiceSchema.parse({
+        subscriptionId: id,
+        userId,
+        fileName: req.body.fileName,
+        fileType: req.body.fileType,
+        fileSize: req.body.fileSize,
+        fileUrl: normalizedPath,
+        source: req.body.source || 'manual',
+      });
+
+      const invoice = await storage.createInvoice(invoiceData);
+      res.status(201).json(invoice);
+    } catch (error) {
+      console.error("Create invoice error:", error);
+      if (error instanceof Error && error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid invoice data", details: (error as any).issues });
+      }
+      res.status(500).json({ message: "Failed to create invoice" });
+    }
+  });
+
+  // Delete invoice
+  app.delete("/api/invoices/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { id } = req.params;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      // Verify the invoice belongs to the user
+      const invoice = await storage.getInvoice(id);
+      if (!invoice) {
+        return res.status(404).json({ message: "Invoice not found" });
+      }
+      if (invoice.userId !== userId) {
+        return res.status(403).json({ message: "Unauthorized to delete this invoice" });
+      }
+
+      await storage.deleteInvoice(id);
+      res.json({ success: true, message: "Invoice deleted successfully" });
+    } catch (error) {
+      console.error("Delete invoice error:", error);
+      res.status(500).json({ message: "Failed to delete invoice" });
     }
   });
 

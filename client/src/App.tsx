@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Layout } from "@/components/Layout";
 import Dashboard from "@/pages/dashboard";
 import Subscriptions from "@/pages/subscriptions";
+import SubscriptionDetail from "@/pages/subscription-detail";
 import Settings from "@/pages/settings";
 import { Landing } from "@/pages/Landing";
 import AuthCallback from "@/pages/auth";
@@ -44,6 +45,7 @@ function Router() {
           <Route path="/" component={() => <Layout><Dashboard /></Layout>} />
           <Route path="/dashboard" component={() => <Layout><Dashboard /></Layout>} />
           <Route path="/subscriptions" component={() => <Layout><Subscriptions /></Layout>} />
+          <Route path="/subscriptions/:id" component={() => <Layout><SubscriptionDetail /></Layout>} />
           <Route path="/settings" component={() => <Layout><Settings /></Layout>} />
         </>
       )}

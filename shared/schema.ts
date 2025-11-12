@@ -56,6 +56,10 @@ export const subscriptions = pgTable("subscriptions", {
   nextBillingDate: timestamp("next_billing_date"),
   lastEmailDate: timestamp("last_email_date"),
   detectedAt: timestamp("detected_at").defaultNow(),
+  // Ownership and details
+  ownerName: text("owner_name"),
+  ownerEmail: text("owner_email"),
+  description: text("description"),
 });
 
 export const emails = pgTable("emails", {
@@ -78,6 +82,18 @@ export const emails = pgTable("emails", {
 });
 
 // Subscription Suggestions schema - for user verification workflow
+export const invoices = pgTable("invoices", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  subscriptionId: varchar("subscription_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  fileName: text("file_name").notNull(),
+  fileType: text("file_type").notNull(), // pdf, image, docx
+  fileSize: integer("file_size").notNull(), // in bytes
+  fileUrl: text("file_url").notNull(), // object storage URL
+  source: text("source").default("manual").notNull(), // gmail or manual
+  uploadedAt: timestamp("uploaded_at").defaultNow(),
+});
+
 export const subscriptionSuggestions = pgTable("subscription_suggestions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
@@ -135,6 +151,18 @@ export const updateSubscriptionSchema = createInsertSchema(subscriptions).pick({
   frequency: true,
   category: true,
   status: true,
+  ownerName: true,
+  ownerEmail: true,
+  description: true,
+}).partial();
+
+export const insertInvoiceSchema = createInsertSchema(invoices).omit({
+  id: true,
+  uploadedAt: true,
+});
+
+export const updateInvoiceSchema = createInsertSchema(invoices).pick({
+  fileName: true,
 }).partial();
 
 export const insertEmailSchema = createInsertSchema(emails).omit({
@@ -194,3 +222,6 @@ export type Email = typeof emails.$inferSelect;
 export type InsertEmail = z.infer<typeof insertEmailSchema>;
 export type UpdateUser = z.infer<typeof updateUserSchema>;
 export type UpdateSettings = z.infer<typeof updateSettingsSchema>;
+export type Invoice = typeof invoices.$inferSelect;
+export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
+export type UpdateInvoice = z.infer<typeof updateInvoiceSchema>;
