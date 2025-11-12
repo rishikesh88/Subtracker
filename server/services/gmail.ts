@@ -407,6 +407,8 @@ export class GmailService {
   async processAttachments(gmail: any, messageId: string, message: any): Promise<{
     hasAttachments: boolean;
     attachments: Array<{
+      messageId: string;
+      attachmentId: string;
       filename: string;
       mimeType: string;
       size: number;
@@ -428,6 +430,7 @@ export class GmailService {
           const filename = part.filename;
           const mimeType = part.mimeType || '';
           const size = part.body.size || 0;
+          const attachmentId = part.body.attachmentId;
 
           // Only process PDFs and images, and limit size to 5MB
           const isPDF = mimeType.includes('pdf');
@@ -439,7 +442,7 @@ export class GmailService {
               const attachment = await gmail.users.messages.attachments.get({
                 userId: 'me',
                 messageId: messageId,
-                id: part.body.attachmentId
+                id: attachmentId
               });
 
               const data = Buffer.from(attachment.data.data, 'base64');
@@ -448,6 +451,8 @@ export class GmailService {
                 // Extract text from PDF
                 const extractedText = await this.extractPDFText(data);
                 attachments.push({
+                  messageId,
+                  attachmentId,
                   filename,
                   mimeType,
                   size,
@@ -456,6 +461,8 @@ export class GmailService {
               } else if (isImage) {
                 // Store base64 for Gemini Vision API processing
                 attachments.push({
+                  messageId,
+                  attachmentId,
                   filename,
                   mimeType,
                   size,

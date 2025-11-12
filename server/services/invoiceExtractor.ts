@@ -4,11 +4,13 @@ import type { InsertInvoice } from '@shared/schema';
 import { randomUUID } from 'crypto';
 
 interface AttachmentMetadata {
-  messageId: string;
+  messageId?: string; // Optional for backward compatibility with legacy data
   attachmentId: string;
   filename: string;
   mimeType: string;
   size: number;
+  extractedText?: string;
+  base64Data?: string;
 }
 
 interface ExtractedInvoice {
@@ -35,13 +37,23 @@ export class InvoiceExtractor {
     
     try {
       const data = JSON.parse(attachmentDataJson);
-      if (Array.isArray(data)) {
-        return data.filter((att: any) => {
-          // Only PDFs and images
-          const mimeType = att.mimeType || '';
-          return (mimeType.includes('pdf') || mimeType.includes('image')) && att.attachmentId;
-        });
+      
+      // Handle the structure: { hasAttachments: boolean, attachments: [...] }
+      let attachmentsList: any[] = [];
+      
+      if (data.attachments && Array.isArray(data.attachments)) {
+        attachmentsList = data.attachments;
+      } else if (Array.isArray(data)) {
+        attachmentsList = data;
       }
+      
+      return attachmentsList.filter((att: any) => {
+        // Only PDFs and images, and must have attachmentId
+        // messageId is optional (for backward compatibility with legacy data)
+        const mimeType = att.mimeType || '';
+        return (mimeType.includes('pdf') || mimeType.includes('image')) && 
+               att.attachmentId;
+      });
     } catch (error) {
       console.error('Error parsing attachment metadata:', error);
     }
@@ -148,9 +160,12 @@ export class InvoiceExtractor {
         console.log(`📧 Processing ${attachments.length} attachment(s) from email ${emailRecord.gmailId}`);
         
         for (const attachment of attachments) {
+          // Use attachment's own messageId (preferred) or fall back to emailRecord.gmailId
+          const messageId = attachment.messageId || emailRecord.gmailId;
+          
           const fileUrl = await this.downloadAndUploadAttachment(
             gmail,
-            emailRecord.gmailId,
+            messageId,
             attachment.attachmentId,
             attachment.filename,
             attachment.mimeType,
