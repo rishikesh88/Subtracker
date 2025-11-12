@@ -624,75 +624,88 @@ export class DatabaseStorage implements IStorage {
               )
             );
 
-          // Extract invoices from email attachments
-          if (gmailAccessToken) {
-            console.log(`📎 Attempting invoice extraction for subscription: ${createdSubscription.serviceName}`);
-            console.log(`📧 Evidence emails: ${suggestion.evidenceEmailIds.length}`);
-            try {
-              // Fetch email records with attachment metadata
-              const evidenceEmails = await this.db
-                .select({
-                  gmailId: emails.gmailId,
-                  attachmentData: emails.attachmentData
-                })
-                .from(emails)
-                .where(
-                  and(
-                    inArray(emails.gmailId, suggestion.evidenceEmailIds),
-                    eq(emails.userId, userId)
-                  )
-                );
-
-              console.log(`📎 Found ${evidenceEmails.length} evidence emails with potential attachments`);
-
-              // Extract and upload attachments
-              const extractedInvoices = await invoiceExtractor.extractInvoicesFromEmails(
-                gmailAccessToken,
-                evidenceEmails,
-                userId
+          // Create invoices from attachments that were already uploaded during sync
+          console.log(`📎 Creating invoices for subscription: ${createdSubscription.serviceName}`);
+          console.log(`📧 Evidence emails: ${suggestion.evidenceEmailIds.length}`);
+          try {
+            // Fetch email records with attachment metadata
+            const evidenceEmails = await this.db
+              .select({
+                gmailId: emails.gmailId,
+                attachmentData: emails.attachmentData
+              })
+              .from(emails)
+              .where(
+                and(
+                  inArray(emails.gmailId, suggestion.evidenceEmailIds),
+                  eq(emails.userId, userId)
+                )
               );
 
-              console.log(`📊 Invoice extractor returned ${extractedInvoices.length} invoices`);
+            console.log(`📎 Found ${evidenceEmails.length} evidence emails`);
 
-              // Check for existing invoices to prevent duplicates
-              const existingInvoices = await this.db
-                .select({ fileUrl: invoices.fileUrl })
-                .from(invoices)
-                .where(eq(invoices.subscriptionId, createdSubscription.id));
-              
-              const existingUrls = new Set(existingInvoices.map((inv: { fileUrl: string }) => inv.fileUrl));
+            // Parse attachments and create invoice records for files already in object storage
+            let createdCount = 0;
+            let skippedCount = 0;
 
-              // Create invoice records (skip duplicates)
-              let createdCount = 0;
-              let skippedCount = 0;
-              for (const extractedInvoice of extractedInvoices) {
-                if (existingUrls.has(extractedInvoice.fileUrl)) {
-                  skippedCount++;
-                  continue;
+            for (const evidenceEmail of evidenceEmails) {
+              if (!evidenceEmail.attachmentData) continue;
+
+              try {
+                const attachmentDataParsed = JSON.parse(evidenceEmail.attachmentData);
+                const attachmentsList = attachmentDataParsed.attachments || [];
+
+                for (const attachment of attachmentsList) {
+                  // Only process attachments that were successfully uploaded during sync
+                  if (!attachment.objectStoragePath) {
+                    console.log(`⏭️  Skipping attachment without object storage path: ${attachment.filename}`);
+                    continue;
+                  }
+
+                  // Check for existing invoices to prevent duplicates
+                  const existingInvoice = await this.db
+                    .select()
+                    .from(invoices)
+                    .where(
+                      and(
+                        eq(invoices.subscriptionId, createdSubscription.id),
+                        eq(invoices.fileUrl, attachment.objectStoragePath)
+                      )
+                    )
+                    .limit(1);
+
+                  if (existingInvoice.length > 0) {
+                    skippedCount++;
+                    continue;
+                  }
+
+                  // Create invoice record using the already-uploaded file
+                  await this.createInvoice({
+                    subscriptionId: createdSubscription.id,
+                    userId: userId,
+                    fileName: attachment.filename,
+                    fileType: attachment.mimeType,
+                    fileSize: attachment.size,
+                    fileUrl: attachment.objectStoragePath,
+                    source: 'gmail'
+                  });
+                  createdCount++;
+                  console.log(`✅ Created invoice from synced attachment: ${attachment.filename}`);
                 }
-                
-                await this.createInvoice({
-                  subscriptionId: createdSubscription.id,
-                  userId: userId,
-                  fileName: extractedInvoice.fileName,
-                  fileType: extractedInvoice.fileType,
-                  fileSize: extractedInvoice.fileSize,
-                  fileUrl: extractedInvoice.fileUrl,
-                  source: extractedInvoice.source
-                });
-                createdCount++;
+              } catch (parseError) {
+                console.error('Error parsing attachment data:', parseError);
               }
-
-              if (createdCount > 0) {
-                console.log(`✅ Created ${createdCount} invoice(s) for subscription: ${createdSubscription.serviceName}`);
-              }
-              if (skippedCount > 0) {
-                console.log(`⏭️  Skipped ${skippedCount} duplicate invoice(s) for subscription: ${createdSubscription.serviceName}`);
-              }
-            } catch (invoiceError) {
-              // Don't fail the entire approval if invoice extraction fails
-              console.error('⚠️  Error extracting invoices (non-fatal):', invoiceError);
             }
+
+            if (createdCount > 0) {
+              console.log(`✅ Created ${createdCount} invoice(s) for subscription: ${createdSubscription.serviceName}`);
+            }
+            if (skippedCount > 0) {
+              console.log(`⏭️  Skipped ${skippedCount} duplicate invoice(s)`);
+            }
+          } catch (invoiceError) {
+            // Don't fail the entire approval if invoice creation fails
+            console.error('⚠️  Error creating invoices (non-fatal):', invoiceError);
           }
         }
       }

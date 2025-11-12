@@ -316,7 +316,7 @@ export function registerGeminiRoutes(app: Express) {
             // Process attachments using the correct method signature
             let attachmentData = null;
             if (gmailMessage.payload?.parts) {
-              const attachmentProcessingResult = await gmailService.processAttachments(gmail, email.gmailId, gmailMessage);
+              const attachmentProcessingResult = await gmailService.processAttachments(gmail, email.gmailId, gmailMessage, userId);
               if (attachmentProcessingResult.attachments.length > 0) {
                 attachmentData = JSON.stringify(attachmentProcessingResult);
                 totalAttachments += attachmentProcessingResult.attachments.length;

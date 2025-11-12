@@ -1,8 +1,11 @@
 import { google } from 'googleapis';
 import { PDFParse } from 'pdf-parse';
+import { ObjectStorageService } from '../objectStorage';
+import { randomUUID } from 'crypto';
 
 export class GmailService {
   private oauth2Client;
+  private objectStorage: ObjectStorageService;
 
   constructor() {
     // Get the current Replit domain for redirect URI following official docs
@@ -25,6 +28,8 @@ export class GmailService {
       process.env.GOOGLE_CLIENT_SECRET,
       finalRedirectUri
     );
+    
+    this.objectStorage = new ObjectStorageService();
   }
 
   getAuthUrl(state?: string): string {
@@ -403,8 +408,9 @@ export class GmailService {
   /**
    * Download and process attachments from a Gmail message
    * Supports PDFs and images
+   * Now also uploads attachments to object storage for later use
    */
-  async processAttachments(gmail: any, messageId: string, message: any): Promise<{
+  async processAttachments(gmail: any, messageId: string, message: any, userId: string): Promise<{
     hasAttachments: boolean;
     attachments: Array<{
       messageId: string;
@@ -414,6 +420,7 @@ export class GmailService {
       size: number;
       extractedText?: string;
       base64Data?: string;
+      objectStoragePath?: string;
     }>;
   }> {
     const attachments: any[] = [];
@@ -447,8 +454,31 @@ export class GmailService {
 
               const data = Buffer.from(attachment.data.data, 'base64');
 
+              // Upload to object storage for later use (during approval)
+              let objectStoragePath: string | undefined;
+              try {
+                const privateObjectDir = this.objectStorage.getPrivateObjectDir();
+                const objectId = randomUUID();
+                const sanitizedFilename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+                const fullPath = `${privateObjectDir}/invoices/${objectId}/${sanitizedFilename}`;
+
+                objectStoragePath = await this.objectStorage.uploadBufferWithAcl(
+                  fullPath,
+                  data,
+                  mimeType,
+                  {
+                    owner: userId,
+                    visibility: 'private'
+                  }
+                );
+                console.log(`📎 Uploaded attachment during sync: ${sanitizedFilename} → ${objectStoragePath}`);
+              } catch (uploadError) {
+                console.error(`⚠️  Failed to upload attachment ${filename} to object storage:`, uploadError);
+                // Continue processing even if upload fails (non-fatal)
+              }
+
               if (isPDF) {
-                // Extract text from PDF
+                // Extract text from PDF for AI analysis
                 const extractedText = await this.extractPDFText(data);
                 attachments.push({
                   messageId,
@@ -456,7 +486,8 @@ export class GmailService {
                   filename,
                   mimeType,
                   size,
-                  extractedText
+                  extractedText,
+                  objectStoragePath
                 });
               } else if (isImage) {
                 // Store base64 for Gemini Vision API processing
@@ -466,7 +497,8 @@ export class GmailService {
                   filename,
                   mimeType,
                   size,
-                  base64Data: attachment.data.data
+                  base64Data: attachment.data.data,
+                  objectStoragePath
                 });
               }
             } catch (attachmentError) {
