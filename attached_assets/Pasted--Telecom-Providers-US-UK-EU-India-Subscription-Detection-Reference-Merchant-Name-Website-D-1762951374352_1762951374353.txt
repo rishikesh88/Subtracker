@@ -1,0 +1,100 @@
+📡 Telecom Providers – US, UK, EU & India (Subscription Detection Reference)
+Merchant Name	Website Domain	Known Billing Email Domain (Estimate)	Product / Subscription Name(s)	Renewal Frequency	Region(s) Served / Domain Variants	Additional Notes	Confidence Score
+AT&T	att.com	billing@att.com
+	AT&T Wireless, AT&T Fiber, AT&T Business	Monthly	United States	Major US telecom and internet provider	High
+Verizon	verizon.com	billing@verizon.com
+	Verizon Wireless, Fios, Business Internet	Monthly	United States	Mobile, broadband & enterprise telecom	High
+T-Mobile US	t-mobile.com	billing@t-mobile.com
+	Magenta Max, Business Unlimited, Home Internet	Monthly	United States	Nationwide mobile network operator	High
+Sprint (legacy)	sprint.com	billing@sprint.com
+	Sprint Unlimited (merged with T-Mobile)	Monthly	United States	Legacy brand, now merged into T-Mobile	Medium
+Xfinity (Comcast)	xfinity.com	billing@xfinity.com
+	Xfinity Mobile, Internet, TV	Monthly	United States	ISP and cable services (Comcast)	High
+Spectrum (Charter)	spectrum.com	billing@spectrum.com
+	Spectrum Internet, TV, Mobile	Monthly	United States	Cable + internet + mobile	High
+Cox Communications	cox.com	billing@cox.com
+	Cox Internet, Mobile, TV	Monthly	United States	Broadband, cable, mobile	High
+Frontier Communications	frontier.com	billing@frontier.com
+	Fiber, Internet, Digital Voice	Monthly	United States	Fiber and internet provider	Medium
+Optimum (Altice USA)	optimum.com	billing@optimum.com
+	Optimum Fiber, Mobile, TV	Monthly	United States	Tri-state broadband and mobile	High
+CenturyLink (Lumen)	centurylink.com	billing@centurylink.com
+	Fiber Internet, Business Voice	Monthly	United States	Residential and enterprise telecom	High
+BT (British Telecom)	bt.com	billing@bt.com
+	BT Broadband, Mobile, Business Fibre	Monthly	United Kingdom	National carrier, internet and mobile	High
+EE (BT Group)	ee.co.uk	billing@ee.co.uk
+	EE 5G, EE Broadband	Monthly	United Kingdom	Mobile + broadband (owned by BT)	High
+Vodafone UK	vodafone.co.uk	billing@vodafone.co.uk
+	Vodafone Red, Unlimited Max	Monthly	United Kingdom	Mobile and broadband provider	High
+O2 (Virgin Media O2)	o2.co.uk	billing@o2.co.uk
+	O2 Mobile, Business Plans	Monthly	United Kingdom	Major UK telecom provider	High
+Virgin Media	virginmedia.com	billing@virginmedia.com
+	Broadband, TV, Mobile	Monthly	United Kingdom	Owned by Liberty Global / O2 JV	High
+Sky Broadband (Sky UK)	sky.com	billing@sky.com
+	Sky Broadband, Sky Mobile	Monthly	United Kingdom	Internet, mobile and TV provider	High
+Three UK (Hutchison)	three.co.uk	billing@three.co.uk
+	Three 5G, Home Broadband	Monthly	United Kingdom	Mobile network operator	High
+TalkTalk	talktalk.co.uk	billing@talktalk.co.uk
+	TalkTalk Fibre, TV, Mobile	Monthly	United Kingdom	Broadband and mobile operator	High
+Plusnet	plus.net	billing@plus.net
+	Plusnet Broadband	Monthly	United Kingdom	Budget broadband by BT Group	High
+Giffgaff	giffgaff.com	billing@giffgaff.com
+	Giffgaff Goodybags	Monthly	United Kingdom	SIM-only MVNO using O2 network	High
+Vodafone Germany	vodafone.de	billing@vodafone.de
+	Red+, GigaKombi	Monthly	Germany	Mobile, cable and broadband	High
+Deutsche Telekom (Telekom DE)	telekom.de	billing@telekom.de
+	MagentaMobil, MagentaZuhause	Monthly	Germany	National carrier, broadband + 5G	High
+O2 Germany (Telefónica DE)	o2online.de	billing@o2online.de
+	O2 Free, DSL	Monthly	Germany	Mobile and broadband	High
+1&1 (Drillisch)	1und1.de	billing@1und1.de
+	1&1 DSL, 1&1 Mobile	Monthly	Germany	ISP and MVNO	Medium
+Orange France	orange.fr	billing@orange.fr
+	Orange Fibre, Orange Mobile	Monthly	France	National carrier and ISP	High
+SFR France	sfr.fr	billing@sfr.fr
+	SFR Fibre, SFR Mobile	Monthly	France	Mobile + fiber (Altice)	High
+Bouygues Telecom	bouyguestelecom.fr	billing@bouyguestelecom.fr
+	Bbox Fibre, Forfait Mobile	Monthly	France	ISP and mobile	High
+Free (Iliad Group)	free.fr	billing@free.fr
+	Freebox, Free Mobile	Monthly	France	Low-cost ISP and mobile	High
+Vodafone Spain	vodafone.es	billing@vodafone.es
+	Vodafone One	Monthly	Spain	Mobile and broadband	High
+Movistar (Telefónica Spain)	movistar.es	billing@movistar.es
+	Fusión, Fibra	Monthly	Spain	Mobile + fiber ISP	High
+Orange Spain	orange.es	billing@orange.es
+	Orange Love, Go Plans	Monthly	Spain	Multi-service operator	High
+WindTre	windtre.it	billing@windtre.it
+	WindTre Unlimited	Monthly	Italy	Mobile + broadband operator	High
+TIM (Telecom Italia)	tim.it	billing@tim.it
+	TIM Smart, TIM Connect	Monthly	Italy	National telecom and fiber	High
+Vodafone Italy	vodafone.it	billing@vodafone.it
+	Vodafone Unlimited	Monthly	Italy	Mobile + broadband	High
+Iliad Italy	iliad.it	billing@iliad.it
+	Iliad Mobile	Monthly	Italy	Low-cost mobile network	High
+Proximus	proximus.be	billing@proximus.be
+	Internet Maxi, Epic Combo	Monthly	Belgium	Telecom & broadband provider	Medium
+Telenor	telenor.com	billing@telenor.com
+	Telenor Mobile, Business	Monthly	Nordic & EU	Major Nordic operator	High
+Telia Company	telia.com	billing@telia.com
+	Telia Mobile, Fiber	Monthly	Nordic & EU	Sweden-based telecom	High
+Elisa	elisa.fi	billing@elisa.fi
+	Elisa Broadband, 5G	Monthly	Finland	Telecom & mobile provider	Medium
+Jio (Reliance Jio)	jio.com	billing@jio.com
+	Jio Fiber, Jio Postpaid Plus	Monthly	India	Largest 4G/5G telecom in India	High
+Airtel (Bharti Airtel)	airtel.in	billing@airtel.in
+	Airtel Xstream Fiber, Postpaid, DTH	Monthly	India	Leading mobile & broadband operator	High
+Vi (Vodafone Idea)	myvi.in	billing@myvi.in
+	Vi Prepaid, Postpaid	Monthly	India	Vodafone + Idea merged operator	High
+BSNL (Bharat Sanchar Nigam Limited)	bsnl.co.in	billing@bsnl.co.in
+	BSNL Fiber, Landline, Mobile	Monthly	India	State-owned telecom	High
+MTNL	mtnl.net.in	billing@mtnl.net.in
+	MTNL Broadband, GSM	Monthly	India	Govt. owned operator (Delhi/Mumbai)	Medium
+ACT Fibernet	actcorp.in	billing@actcorp.in
+	ACT Broadband, Corporate Leased Line	Monthly	India	Private ISP (fiber broadband)	High
+Hathway	hathway.com	billing@hathway.net
+	Hathway Broadband, Digital TV	Monthly	India	Cable + broadband	Medium
+Excitel Broadband	excitel.com	billing@excitel.com
+	Excitel Fiber Plans	Monthly	India	Urban ISP	Medium
+Tata Play (Fiber)	tataplayfiber.com	billing@tataplayfiber.com
+	Tata Play Fiber	Monthly	India	Broadband & entertainment services	High
+Spectra	spectra.co	billing@spectra.co
+	Spectra Business Internet	Monthly	India	Premium enterprise ISP	Medium
