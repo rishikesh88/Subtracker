@@ -115,6 +115,7 @@ The server-side uses Express.js with TypeScript, following a service-oriented pa
 - **Transaction Detector**: A sophisticated multi-parameter scoring system for identifying transaction emails.
 - **Email Parser**: Extracts transaction and merchant details from raw email content.
 - **Gemini Subscription Detector**: Utilizes Google's Gemini AI for intelligent subscription detection.
+- **Invoice Extractor** (NEW): Automatically downloads email attachments (PDFs, images) from Gmail and uploads them to object storage as invoice records when subscriptions are approved.
 
 The email sync system employs an optimized two-phase architecture:
 1.  **Lightweight Screening**: Fetches email metadata, applies transaction detection with a merchant database (152 verified merchants), and pre-filters candidates using the `gemini-2.5-flash` model. This phase includes aggressive Gmail API batching (50 concurrent requests) and improved keyword coverage for renewal and hosting services.
@@ -122,9 +123,25 @@ The email sync system employs an optimized two-phase architecture:
 
 The system implements intelligent rate limiting for the Gmail API with exponential backoff for 429 errors and handles configurable email sync ranges (90/180 days).
 
+**Automatic Invoice Extraction** (Added: November 2025):
+When users approve subscription suggestions, the system automatically:
+1. Parses `attachmentData` from evidence emails
+2. Downloads PDF and image attachments from Gmail API
+3. Uploads files to Replit Object Storage at `/objects/invoices/{uuid}/{filename}`
+4. Sets ACL policy (private, owner-only access)
+5. Creates invoice records with `source: 'gmail'`
+6. Implements deduplication to prevent duplicate invoices
+7. Uses non-fatal error handling (invoice failures don't block subscription approval)
+
 ### Database and Storage
 
-The application uses Drizzle ORM with PostgreSQL (hosted on Neon Database) for data persistence. The schema includes tables for Users, Subscriptions, Emails, and `subscription_suggestions` for AI-generated recommendations. An in-memory storage implementation is available for development.
+The application uses Drizzle ORM with PostgreSQL (hosted on Neon Database) for data persistence. The schema includes tables for Users, Subscriptions, Emails, `subscription_suggestions` for AI-generated recommendations, and `invoices` for storing invoice file metadata.
+
+**Object Storage Integration**:
+- Replit Object Storage (GCS-backed) for invoice files
+- Stable `/objects/...` paths (no expiring presigned URLs)
+- ACL enforcement for private file access
+- Direct buffer upload support via `ObjectStorageService.uploadBufferWithAcl()`
 
 ### Authentication and Authorization
 
@@ -138,9 +155,10 @@ Vite is used for fast development builds, and esbuild for production builds. Typ
 
 ### Core Services
 - **Neon Database**: PostgreSQL hosting.
-- **Google Gmail API**: Email access and OAuth2 authentication.
+- **Google Gmail API**: Email access, OAuth2 authentication, and attachment downloads.
 - **Google Cloud Console**: OAuth2 credentials and API key management.
 - **Google Gemini API**: AI models (`gemini-2.5-flash`) for subscription detection.
+- **Replit Object Storage**: GCS-backed storage for invoice files (PDFs, images, documents).
 
 ### UI and Styling
 - **Radix UI**: Headless UI primitives.
