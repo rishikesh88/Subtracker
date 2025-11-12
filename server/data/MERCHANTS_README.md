@@ -3,9 +3,9 @@
 ## File: merchants.csv
 
 **Protection Level:** APPEND-ONLY  
-**Current Entries:** 152 verified merchants  
-**Version:** 1.0.0  
-**Last Modified:** 2025-11-10
+**Current Entries:** 201 verified merchants  
+**Version:** 1.1.0  
+**Last Modified:** 2025-11-12
 
 ---
 
@@ -135,7 +135,8 @@ When an email sender matches a merchant in this database:
 
 | Version | Date | Entries | Changes |
 |---------|------|---------|---------|
-| 1.0.0 | 2025-11-10 | 152 | Initial protection setup |
+| 1.1.0 | 2025-11-12 | 201 | Added 50 telecom providers (US, UK, EU, India) |
+| 1.0.0 | 2025-11-10 | 151 | Initial protection setup |
 
 ---
 
@@ -148,15 +149,18 @@ When an email sender matches a merchant in this database:
 - Hosting/Infrastructure: ~15
 - Marketing/Analytics: ~25
 - Productivity Tools: ~15
+- Telecom/ISP Providers: 50
 
 **Geographic Coverage:**
 - Global: ~130 merchants
-- US-specific: ~15 merchants
-- EU-specific: ~5 merchants
-- Region-agnostic: ~2 merchants
+- US-specific: ~25 merchants
+- UK-specific: ~10 merchants
+- EU-specific: ~25 merchants
+- India-specific: ~10 merchants
+- Region-agnostic: ~1 merchant
 
 ---
 
-**Last Updated:** 2025-11-10  
+**Last Updated:** 2025-11-12  
 **Protection Status:** 🔒 ACTIVE APPEND-ONLY  
 **Maintained By:** User (with AI assistance for additions)
