@@ -955,7 +955,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Get user's Gmail access token for invoice extraction
       const user = await storage.getUser(userId);
-      const gmailAccessToken = user?.gmail_access_token || undefined;
+      const gmailAccessToken = user?.gmailAccessToken || undefined;
+      
+      console.log(`🔑 Gmail access token available: ${!!gmailAccessToken}, User ID: ${userId}`);
       
       const result = await storage.approveSuggestions(suggestionIds, userId, gmailAccessToken);
       res.json({

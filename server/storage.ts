@@ -626,6 +626,8 @@ export class DatabaseStorage implements IStorage {
 
           // Extract invoices from email attachments
           if (gmailAccessToken) {
+            console.log(`📎 Attempting invoice extraction for subscription: ${createdSubscription.serviceName}`);
+            console.log(`📧 Evidence emails: ${suggestion.evidenceEmailIds.length}`);
             try {
               // Fetch email records with attachment metadata
               const evidenceEmails = await this.db
@@ -641,12 +643,16 @@ export class DatabaseStorage implements IStorage {
                   )
                 );
 
+              console.log(`📎 Found ${evidenceEmails.length} evidence emails with potential attachments`);
+
               // Extract and upload attachments
               const extractedInvoices = await invoiceExtractor.extractInvoicesFromEmails(
                 gmailAccessToken,
                 evidenceEmails,
                 userId
               );
+
+              console.log(`📊 Invoice extractor returned ${extractedInvoices.length} invoices`);
 
               // Check for existing invoices to prevent duplicates
               const existingInvoices = await this.db
