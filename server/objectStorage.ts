@@ -114,6 +114,48 @@ export class ObjectStorageService {
     });
   }
 
+  /**
+   * Upload a buffer directly to object storage
+   * Returns the normalized /objects/... path
+   */
+  async uploadBufferToObject(
+    fullPath: string,
+    buffer: Buffer,
+    mimeType: string
+  ): Promise<string> {
+    const { bucketName, objectName } = parseObjectPath(fullPath);
+    const bucket = objectStorageClient.bucket(bucketName);
+    const file = bucket.file(objectName);
+
+    // Upload the buffer
+    await file.save(buffer, {
+      contentType: mimeType,
+      resumable: false,
+      metadata: {
+        cacheControl: 'private'
+      }
+    });
+
+    // Return normalized path
+    return this.normalizeObjectEntityPath(`https://storage.googleapis.com/${bucketName}/${objectName}`);
+  }
+
+  /**
+   * Upload buffer and set ACL policy in one operation
+   * Convenience wrapper for invoiceExtractor and similar services
+   */
+  async uploadBufferWithAcl(
+    fullPath: string,
+    buffer: Buffer,
+    mimeType: string,
+    aclPolicy: ObjectAclPolicy
+  ): Promise<string> {
+    const normalizedPath = await this.uploadBufferToObject(fullPath, buffer, mimeType);
+    const file = await this.getObjectEntityFile(normalizedPath);
+    await setObjectAclPolicy(file, aclPolicy);
+    return normalizedPath;
+  }
+
   // Gets the object entity file from the object path.
   async getObjectEntityFile(objectPath: string): Promise<File> {
     if (!objectPath.startsWith("/objects/")) {
