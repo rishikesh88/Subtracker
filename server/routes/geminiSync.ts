@@ -67,6 +67,7 @@ export function registerGeminiRoutes(app: Express) {
     const enhancedParser = new EnhancedEmailParser();
     const geminiDetector = new GeminiSubscriptionDetector();
     let processingSuccessful = false;
+    let lastErrorMessage: string | null = null;
     
     try {
       console.log(`\n🔄 Processing account: ${gmailAccount.gmailEmail}`);
@@ -98,19 +99,14 @@ export function registerGeminiRoutes(app: Express) {
           
           console.log(`✅ Access token refreshed for ${gmailAccount.gmailEmail}`);
         } catch (error) {
-          const errorMsg = `Failed to refresh token for ${gmailAccount.gmailEmail}`;
-          console.error(`❌ ${errorMsg}:`, error);
-          
-          await storage.updateGmailAccount(gmailAccount.id, {
-            syncStatus: 'error',
-            syncError: 'Token refresh failed. Please reconnect this account.'
-          });
+          lastErrorMessage = 'Token refresh failed. Please reconnect this account.';
+          console.error(`❌ ${lastErrorMessage}:`, error);
           
           return {
             success: false,
             accountId: gmailAccount.id,
             gmailEmail: gmailAccount.gmailEmail,
-            error: errorMsg
+            error: lastErrorMessage
           };
         }
       }
@@ -363,21 +359,21 @@ export function registerGeminiRoutes(app: Express) {
       };
       
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      lastErrorMessage = error instanceof Error ? error.message : 'Unknown error';
       console.error(`❌ Error processing ${gmailAccount.gmailEmail}:`, error);
       
       return {
         success: false,
         accountId: gmailAccount.id,
         gmailEmail: gmailAccount.gmailEmail,
-        error: errorMsg
+        error: lastErrorMessage
       };
     } finally {
-      // Always update final sync status
+      // Always update final sync status with error message
       await storage.updateGmailAccount(gmailAccount.id, {
         syncStatus: processingSuccessful ? 'idle' : 'error',
         lastSync: new Date(),
-        syncError: processingSuccessful ? null : undefined
+        syncError: processingSuccessful ? null : lastErrorMessage
       });
     }
   }

@@ -231,7 +231,7 @@ export default function Dashboard() {
     },
   });
 
-  // Enhanced sync emails mutation with suggestions and progress notifications
+  // Enhanced sync emails mutation with multi-account support
   const syncEmailsMutation = useMutation({
     mutationFn: async () => {
       if (!currentUserId) throw new Error("No user ID");
@@ -240,13 +240,41 @@ export default function Dashboard() {
       return response.json();
     },
     onSuccess: (data) => {
-      toast({
-        title: "Email Analysis Complete",
-        description: `Generated ${data.suggestionsGenerated || 0} subscription suggestions for your review`,
-      });
+      // Handle multi-account response
+      const totalAccounts = data.totalAccounts || 0;
+      const successfulAccounts = data.successful || 0;
+      const failedAccounts = data.failed || 0;
+      const totalSuggestions = data.suggestionsGenerated || 0;
+      
+      // Build success message
+      let description = '';
+      if (totalAccounts > 1) {
+        description = `Synced ${successfulAccounts} of ${totalAccounts} accounts. Found ${totalSuggestions} subscription suggestions.`;
+      } else {
+        description = `Generated ${totalSuggestions} subscription suggestions for your review`;
+      }
+      
+      // Show per-account errors if any failed
+      if (failedAccounts > 0 && data.results) {
+        const failedResults = data.results.filter((r: any) => !r.success);
+        const errorDetails = failedResults
+          .map((r: any) => `${r.gmailEmail}: ${r.error || 'Unknown error'}`)
+          .join('\n');
+        
+        toast({
+          title: "Sync Completed with Errors",
+          description: `${description}\n\nFailed accounts:\n${errorDetails}`,
+          variant: "default",
+        });
+      } else {
+        toast({
+          title: "Email Analysis Complete",
+          description: description,
+        });
+      }
       
       // Open suggestions modal if suggestions were generated
-      if (data.redirectToSuggestions && data.suggestionsGenerated > 0) {
+      if (data.redirectToSuggestions && totalSuggestions > 0) {
         setSuggestionsModalOpen(true);
       }
       
@@ -256,6 +284,7 @@ export default function Dashboard() {
       queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/emails`] });
       queryClient.invalidateQueries({ queryKey: [`/api/users/${currentUserId}`] });
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/accounts'] });
     },
     onError: (error: any) => {
       // Handle 410 response from disabled legacy endpoint
