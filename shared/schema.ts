@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, decimal, integer, boolean, index, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, decimal, integer, boolean, index, jsonb, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -57,10 +57,32 @@ export const gmailAccounts = pgTable("gmail_accounts", {
   index("idx_gmail_accounts_user_email").on(table.userId, table.gmailEmail),
 ]);
 
+// Outlook Accounts table - supports multiple Outlook/Microsoft 365 accounts per user
+export const outlookAccounts = pgTable("outlook_accounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  outlookEmail: text("outlook_email").notNull(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  tokenExpiry: timestamp("token_expiry"),
+  tenantId: text("tenant_id"), // For Work/School accounts (Microsoft 365)
+  accountType: text("account_type").default("personal").notNull(), // 'personal' | 'work_school'
+  lastSync: timestamp("last_sync"),
+  syncStatus: text("sync_status").default("idle").notNull(), // idle, syncing, error
+  syncError: text("sync_error"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_outlook_accounts_user_id").on(table.userId),
+  index("idx_outlook_accounts_user_email").on(table.userId, table.outlookEmail),
+  check("valid_account_type", sql`account_type IN ('personal', 'work_school')`),
+]);
+
 export const subscriptions = pgTable("subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
-  gmailAccountId: varchar("gmail_account_id"), // Links to source Gmail account
+  gmailAccountId: varchar("gmail_account_id"), // DEPRECATED: Legacy Gmail account link (nullable for backward compatibility)
+  emailProvider: text("email_provider"), // 'gmail' | 'outlook' (nullable during migration)
+  providerAccountId: varchar("provider_account_id"), // Polymorphic link to gmail_accounts.id OR outlook_accounts.id
   serviceName: text("service_name").notNull(),
   serviceKey: text("service_key").notNull(), // For deduplication: normalized service + frequency
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
@@ -78,12 +100,19 @@ export const subscriptions = pgTable("subscriptions", {
   ownerName: text("owner_name"),
   ownerEmail: text("owner_email"),
   description: text("description"),
-});
+}, (table) => [
+  index("idx_subscriptions_user_provider").on(table.userId, table.emailProvider),
+  index("idx_subscriptions_provider_account").on(table.providerAccountId),
+  check("valid_email_provider", sql`email_provider IS NULL OR email_provider IN ('gmail', 'outlook')`),
+  check("provider_fields_sync", sql`(email_provider IS NULL) = (provider_account_id IS NULL)`),
+]);
 
 export const emails = pgTable("emails", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
-  gmailAccountId: varchar("gmail_account_id"), // Links to source Gmail account
+  gmailAccountId: varchar("gmail_account_id"), // DEPRECATED: Legacy Gmail account link (nullable for backward compatibility)
+  emailProvider: text("email_provider"), // 'gmail' | 'outlook' (nullable during migration)
+  providerAccountId: varchar("provider_account_id"), // Polymorphic link to gmail_accounts.id OR outlook_accounts.id
   gmailId: text("gmail_id").notNull().unique(),
   subject: text("subject").notNull(),
   fromEmail: text("from_email").notNull(),
@@ -98,7 +127,12 @@ export const emails = pgTable("emails", {
   subscriptionId: varchar("subscription_id"),
   processed: boolean("processed").default(false),
   analyzedAt: timestamp("analyzed_at").defaultNow(),
-});
+}, (table) => [
+  index("idx_emails_user_provider").on(table.userId, table.emailProvider),
+  index("idx_emails_provider_account").on(table.providerAccountId),
+  check("valid_email_provider", sql`email_provider IS NULL OR email_provider IN ('gmail', 'outlook')`),
+  check("provider_fields_sync", sql`(email_provider IS NULL) = (provider_account_id IS NULL)`),
+]);
 
 // Subscription Suggestions schema - for user verification workflow
 export const invoices = pgTable("invoices", {
@@ -116,7 +150,9 @@ export const invoices = pgTable("invoices", {
 export const subscriptionSuggestions = pgTable("subscription_suggestions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
-  gmailAccountId: varchar("gmail_account_id"), // Links to source Gmail account
+  gmailAccountId: varchar("gmail_account_id"), // DEPRECATED: Legacy Gmail account link (nullable for backward compatibility)
+  emailProvider: text("email_provider"), // 'gmail' | 'outlook' (nullable during migration)
+  providerAccountId: varchar("provider_account_id"), // Polymorphic link to gmail_accounts.id OR outlook_accounts.id
   serviceName: text("service_name").notNull(),
   serviceKey: text("service_key").notNull(), // For deduplication: normalized service + frequency
   merchantName: text("merchant_name"),
@@ -142,7 +178,12 @@ export const subscriptionSuggestions = pgTable("subscription_suggestions", {
   lastSeen: timestamp("last_seen").notNull(),
   detectedAt: timestamp("detected_at").defaultNow(),
   status: text("status").default("pending").notNull(), // pending, approved, rejected
-});
+}, (table) => [
+  index("idx_suggestions_user_provider").on(table.userId, table.emailProvider),
+  index("idx_suggestions_provider_account").on(table.providerAccountId),
+  check("valid_email_provider", sql`email_provider IS NULL OR email_provider IN ('gmail', 'outlook')`),
+  check("provider_fields_sync", sql`(email_provider IS NULL) = (provider_account_id IS NULL)`),
+]);
 
 export const insertUserSchema = createInsertSchema(users).pick({
   email: true,
@@ -238,6 +279,22 @@ export const updateGmailAccountSchema = createInsertSchema(gmailAccounts).pick({
   syncError: true,
 }).partial();
 
+export const insertOutlookAccountSchema = createInsertSchema(outlookAccounts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const updateOutlookAccountSchema = createInsertSchema(outlookAccounts).pick({
+  accessToken: true,
+  refreshToken: true,
+  tokenExpiry: true,
+  tenantId: true,
+  accountType: true,
+  lastSync: true,
+  syncStatus: true,
+  syncError: true,
+}).partial();
+
 export const updateSettingsSchema = z.object({
   preferredCurrency: currencyEnum.optional(),
   emailSyncDays: z.number().int().min(1).max(180).optional(),
@@ -262,3 +319,6 @@ export type UpdateInvoice = z.infer<typeof updateInvoiceSchema>;
 export type GmailAccount = typeof gmailAccounts.$inferSelect;
 export type InsertGmailAccount = z.infer<typeof insertGmailAccountSchema>;
 export type UpdateGmailAccount = z.infer<typeof updateGmailAccountSchema>;
+export type OutlookAccount = typeof outlookAccounts.$inferSelect;
+export type InsertOutlookAccount = z.infer<typeof insertOutlookAccountSchema>;
+export type UpdateOutlookAccount = z.infer<typeof updateOutlookAccountSchema>;
