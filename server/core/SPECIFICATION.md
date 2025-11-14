@@ -1,8 +1,12 @@
 # 🔒 CORE SUBSCRIPTION DETECTION SPECIFICATION
 
-**VERSION:** 1.0.0  
-**LAST MODIFIED:** November 10, 2025  
+**VERSION:** 1.0.1  
+**LAST MODIFIED:** November 14, 2025  
 **STATUS:** LOCKED - Requires Explicit User Approval for Modifications
+
+**CHANGELOG:**
+- **v1.0.1 (2025-11-14)**: Documented tiered merchant matching system (80/60/45 pts), multi-domain support via pipe-separated format, and tldts library integration for multi-level TLD support.
+- **v1.0.0 (2025-11-10)**: Initial specification release.
 
 ---
 
@@ -22,7 +26,7 @@ This document defines the canonical specification for SubTracker's subscription 
 Phase 1: Lightweight Screening (Fast, Inexpensive)
 ├── 1a. Email Metadata Fetch (subject, sender, snippet)
 ├── 1b. Transaction Detector (rule-based scoring)
-├── 1c. Merchant Database Lookup (201 verified merchants)
+├── 1c. Merchant Database Lookup (200 verified merchants)
 └── 1d. AI Pre-filter (Gemini 2.5 Flash, batch 200 emails)
     
 Phase 2: Deep Processing (Targeted, Accurate)
@@ -54,15 +58,48 @@ The Transaction Detector uses a multi-parameter scoring system with **threshold:
 
 ### 1. Sender Domain Analysis (Max 50 Points)
 
-**Priority 1: Merchant Database (80 points)** ⭐ STRONGEST SIGNAL
+**Priority 1: Merchant Database (80/60/45 points - Tiered Matching)** ⭐ STRONGEST SIGNAL
+
+The merchant database uses a tiered matching system to handle email format variations and regional domains:
+
 ```typescript
-// Check against verified merchant database (201 merchants)
-if (merchantDB.isKnownMerchant(emailLower)) {
-  score += 80;
-  reasons.push(`Verified merchant: ${knownMerchant.name}`);
+// Check against verified merchant database (200 merchants)
+// Uses tldts library for multi-level TLD support (.co.uk, .com.au)
+const merchantMatch = merchantDB.isKnownMerchantWithScore(emailLower);
+
+if (merchantMatch) {
+  // Tiered scoring based on match confidence:
+  // Tier 1: Exact email match (+80 points)
+  //   Example: ebill@airtel.com matches exactly
+  
+  // Tier 2: Root domain match (+60 points)  
+  //   Example: billing@airtel.com, noreply@airtel.in
+  //   Handles subdomain variations (bill.airtel.com → airtel.com)
+  //   Multi-domain support via pipe-separated format (airtel.com|airtel.in)
+  
+  // Tier 3: Pattern match (+45 points)
+  //   Example: receipts+12345@stripe.com matches receipts@stripe.com
+  
+  score += merchantMatch.score;
+  reasons.push(`Verified merchant: ${merchantMatch.merchant.name} (${merchantMatch.matchType} match, +${merchantMatch.score} pts)`);
   return { score, reasons }; // Early return for efficiency
 }
 ```
+
+**Multi-Domain Support:**
+Merchants can specify multiple domains using pipe-separated format in CSV:
+```csv
+Airtel,airtel.com|airtel.in,ebill@airtel.com,"Services...",Monthly,India
+```
+
+**Root Domain Extraction:**
+Uses `tldts` library (public suffix aware) to correctly handle:
+- Simple TLDs: `bill.airtel.com` → `airtel.com`
+- Multi-level TLDs: `vodafone.co.uk` → `vodafone.co.uk` (not `co.uk`)
+- Regional variants: `example.com.au` → `example.com.au`
+
+**Design Rationale:**
+Favors domain-based matching over exact email addresses for resilience to vendor email format changes (billing@ → ebill@ → noreply@). Domains remain stable while email prefixes frequently change.
 
 **Known Payment Processors (50 points)**
 ```typescript
@@ -411,16 +448,20 @@ name,websiteDomain,billingEmailDomain,products,frequency,regions
 **APPEND-ONLY:** New merchants can be added; existing entries CANNOT be modified or removed.
 
 ### Current Count
-201 verified merchants (as of v1.1.0)
-- Added 50 telecom/ISP providers (US, UK, EU, India) on 2025-11-12
+200 verified merchants (as of v1.2.0)
+- v1.2.0 (2025-11-14): Implemented tiered matching system with multi-domain support
+- v1.1.0 (2025-11-12): Added 50 telecom/ISP providers (US, UK, EU, India)
 
 ### Lookup Algorithm
 
-**Priority Order:**
-1. Exact email match
-2. Email domain lookup
-3. Website domain lookup
-4. Pattern matching (e.g., `receipts+{account}@stripe.com`)
+**Tiered Matching (v1.2.0):**
+1. **Tier 1:** Exact email match → +80 points
+2. **Tier 2:** Root domain match (using tldts) → +60 points
+   - Handles subdomains: `bill.airtel.com` → `airtel.com`
+   - Multi-level TLDs: `vodafone.co.uk` → `vodafone.co.uk`
+   - Multi-domain merchants: `airtel.com|airtel.in`
+3. **Tier 3:** Pattern match → +45 points
+   - Example: `receipts+{account}@stripe.com`
 
 **Performance:**
 - Domain map: O(1) lookup
@@ -511,6 +552,7 @@ const key = `${merchantName.toLowerCase()}_${currency}_${Math.round(amount)}`;
 
 | Version | Date | Changes | Approved By |
 |---------|------|---------|-------------|
+| 1.0.1 | 2025-11-14 | Documented tiered merchant matching system (80/60/45 pts), multi-domain support via pipe-separated format (airtel.com\|airtel.in), and tldts library integration for multi-level TLD support (.co.uk, .com.au). Updated merchant count to 200. | User |
 | 1.0.0 | 2025-11-10 | Initial specification creation | User |
 
 ---

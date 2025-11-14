@@ -3,8 +3,8 @@
 ## File: merchants.csv
 
 **Protection Level:** APPEND-ONLY  
-**Current Entries:** 201 verified merchants  
-**Version:** 1.1.1  
+**Current Entries:** 200 verified merchants  
+**Version:** 1.2.0  
 **Last Modified:** 2025-11-14
 
 ---
@@ -68,7 +68,10 @@ Added new merchant to database:
 Total merchants: [new count]
 Previous: [old count]
 
-This merchant will now receive +80 point bonus during transaction detection.
+This merchant will now receive tiered scoring bonuses during transaction detection:
+  - Exact email match: +80 points (highest confidence)
+  - Root domain match: +60 points (high confidence)
+  - Pattern match: +45 points (medium-high confidence)
 ```
 
 ### Step 4: Update Documentation
@@ -85,12 +88,31 @@ This merchant will now receive +80 point bonus during transaction detection.
 
 ```
 Column 1: Merchant Name (display name)
-Column 2: Website Domain (primary domain, no www)
+Column 2: Website Domain (primary domain, no www) - SUPPORTS MULTIPLE DOMAINS
 Column 3: Billing Email Domain (sender email or pattern)
 Column 4: Products (services offered)
 Column 5: Frequency (monthly, annual, quarterly)
 Column 6: Regions (Global, US, EU, etc.)
 ```
+
+### Multi-Domain Support (NEW in v1.2.0)
+
+**Pipe-Separated Domains:**
+Merchants can specify multiple website domains using pipe `|` separator:
+```csv
+Airtel,airtel.com|airtel.in,ebill@airtel.com,"Airtel Xstream Fiber, Postpaid, DTH",Monthly,India
+```
+
+This enables matching for:
+- Regional domain variants (.com, .in, .co.uk)
+- Brand domain variations
+- Subdomain variations via root domain extraction
+
+**Root Domain Extraction:**
+Uses `tldts` library (public suffix aware) to correctly handle:
+- Simple TLDs: `bill.airtel.com` → `airtel.com`
+- Multi-level TLDs: `vodafone.co.uk` → `vodafone.co.uk` (NOT `co.uk`)
+- Regional variants: `example.com.au` → `example.com.au`
 
 ### Special Patterns
 
@@ -119,15 +141,27 @@ The `{account}` placeholder matches any account-specific emails.
 
 ## IMPACT ON DETECTION
 
-**Merchant Database Bonus:** +80 points (strongest signal)
+**Merchant Database Tiered Scoring (v1.2.0):**
 
-When an email sender matches a merchant in this database:
-- Immediately scores 80 points
-- Skips other sender checks (early return)
-- High confidence candidate
-- Prioritized for AI analysis
+The system uses intelligent tiered matching to handle email format variations:
 
-**ROI:** High - Reduces false positives significantly by verifying known subscription services.
+**Tier 1: Exact Email Match (+80 points)** ⭐ HIGHEST CONFIDENCE
+- Example: `ebill@airtel.com` matches exactly
+- Strongest signal, early return
+
+**Tier 2: Root Domain Match (+60 points)** 🎯 HIGH CONFIDENCE
+- Example: `billing@airtel.com`, `noreply@airtel.in`, `bill.airtel.com`
+- Handles subdomain variations and multi-domain merchants
+- Resilient to email prefix changes (billing@ → ebill@ → noreply@)
+
+**Tier 3: Pattern Match (+45 points)** 📧 MEDIUM-HIGH CONFIDENCE
+- Example: `receipts+12345@stripe.com` matches `receipts+{account}@stripe.com`
+- Handles account-specific email variations
+
+**Design Rationale:**
+Favors domain-based matching over exact email addresses. Domains remain stable while email prefixes frequently change. This approach maximizes detection accuracy while minimizing maintenance overhead.
+
+**ROI:** High - Reduces false positives significantly by verifying known subscription services with intelligent fallback matching.
 
 ---
 
@@ -135,6 +169,7 @@ When an email sender matches a merchant in this database:
 
 | Version | Date | Entries | Changes |
 |---------|------|---------|---------|
+| 1.2.0 | 2025-11-14 | 200 | **TIERED MATCHING SYSTEM**: Added multi-domain support via pipe-separated format (airtel.com\|airtel.in). Implemented tiered scoring (80/60/45 pts) for exact email, root domain, and pattern matches. Integrated tldts library for multi-level TLD support (.co.uk, .com.au). Updated Airtel entry to use airtel.com\|airtel.in. |
 | 1.1.1 | 2025-11-14 | 201 | Fixed Airtel billing email: billing@airtel.in → ebill@airtel.com (verified from user's actual email) |
 | 1.1.0 | 2025-11-12 | 201 | Added 50 telecom providers (US, UK, EU, India) |
 | 1.0.0 | 2025-11-10 | 151 | Initial protection setup |
