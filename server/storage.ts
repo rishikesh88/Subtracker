@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, users, subscriptions, emails, subscriptionSuggestions, invoices, gmailAccounts } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, users, subscriptions, emails, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
 import { eq, and, desc, asc, count, sql, inArray } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
@@ -63,6 +63,14 @@ export interface IStorage {
   createGmailAccount(account: InsertGmailAccount): Promise<GmailAccount>;
   updateGmailAccount(id: string, updates: UpdateGmailAccount): Promise<GmailAccount | undefined>;
   deleteGmailAccount(id: string): Promise<boolean>;
+  
+  // Outlook Account methods
+  getOutlookAccounts(userId: string): Promise<OutlookAccount[]>;
+  getOutlookAccount(id: string): Promise<OutlookAccount | undefined>;
+  getOutlookAccountByEmail(userId: string, outlookEmail: string): Promise<OutlookAccount | undefined>;
+  createOutlookAccount(account: InsertOutlookAccount): Promise<OutlookAccount>;
+  updateOutlookAccount(id: string, updates: UpdateOutlookAccount): Promise<OutlookAccount | undefined>;
+  deleteOutlookAccount(id: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -952,6 +960,86 @@ export class DatabaseStorage implements IStorage {
       return result.length > 0;
     } catch (error) {
       console.error('Error deleting Gmail account:', error);
+      throw error;
+    }
+  }
+
+  // Outlook Account methods
+  async getOutlookAccounts(userId: string): Promise<OutlookAccount[]> {
+    try {
+      const result = await this.db
+        .select()
+        .from(outlookAccounts)
+        .where(eq(outlookAccounts.userId, userId))
+        .orderBy(desc(outlookAccounts.createdAt));
+      return result;
+    } catch (error) {
+      console.error('Error getting Outlook accounts:', error);
+      throw error;
+    }
+  }
+
+  async getOutlookAccount(id: string): Promise<OutlookAccount | undefined> {
+    try {
+      const result = await this.db
+        .select()
+        .from(outlookAccounts)
+        .where(eq(outlookAccounts.id, id))
+        .limit(1);
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error getting Outlook account:', error);
+      throw error;
+    }
+  }
+
+  async getOutlookAccountByEmail(userId: string, outlookEmail: string): Promise<OutlookAccount | undefined> {
+    try {
+      const result = await this.db
+        .select()
+        .from(outlookAccounts)
+        .where(and(
+          eq(outlookAccounts.userId, userId),
+          eq(outlookAccounts.outlookEmail, outlookEmail)
+        ))
+        .limit(1);
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error getting Outlook account by email:', error);
+      throw error;
+    }
+  }
+
+  async createOutlookAccount(account: InsertOutlookAccount): Promise<OutlookAccount> {
+    try {
+      const result = await this.db.insert(outlookAccounts).values(account).returning();
+      return result[0];
+    } catch (error) {
+      console.error('Error creating Outlook account:', error);
+      throw error;
+    }
+  }
+
+  async updateOutlookAccount(id: string, updates: UpdateOutlookAccount): Promise<OutlookAccount | undefined> {
+    try {
+      const result = await this.db
+        .update(outlookAccounts)
+        .set(updates)
+        .where(eq(outlookAccounts.id, id))
+        .returning();
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error updating Outlook account:', error);
+      throw error;
+    }
+  }
+
+  async deleteOutlookAccount(id: string): Promise<boolean> {
+    try {
+      const result = await this.db.delete(outlookAccounts).where(eq(outlookAccounts.id, id)).returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('Error deleting Outlook account:', error);
       throw error;
     }
   }

@@ -2,6 +2,7 @@ import { google } from 'googleapis';
 import { PDFParse } from 'pdf-parse';
 import { ObjectStorageService } from '../objectStorage';
 import { randomUUID } from 'crypto';
+import { OAuthTokens } from '../interfaces/emailProviderAdapter';
 
 export class GmailService {
   private oauth2Client;
@@ -68,7 +69,7 @@ export class GmailService {
     return google.gmail({ version: 'v1', auth: this.oauth2Client });
   }
 
-  async getEmails(accessToken: string, refreshToken: string, onTokenRefresh?: (newAccessToken: string) => Promise<void>, days: number = 90) {
+  async getEmails(accessToken: string, refreshToken: string, onTokenRefresh?: (tokens: OAuthTokens) => Promise<void>, days: number = 90) {
     this.oauth2Client.setCredentials({
       access_token: accessToken,
       refresh_token: refreshToken
@@ -79,7 +80,13 @@ export class GmailService {
       this.oauth2Client.on('tokens', (tokens) => {
         if (tokens.access_token && tokens.access_token !== accessToken) {
           console.log('Token refreshed, updating storage...');
-          onTokenRefresh(tokens.access_token);
+          onTokenRefresh({
+            access_token: tokens.access_token!,
+            refresh_token: tokens.refresh_token ?? undefined,
+            expiry_date: tokens.expiry_date ?? undefined,
+            token_type: tokens.token_type ?? undefined,
+            scope: tokens.scope ?? undefined
+          });
         }
       });
     }
@@ -164,7 +171,7 @@ export class GmailService {
    * Fetch lightweight email metadata (subject, sender, snippet only)
    * Much faster than full fetch - for Phase 1 screening
    */
-  async getEmailMetadata(accessToken: string, refreshToken: string, onTokenRefresh?: (newAccessToken: string) => Promise<void>, days: number = 90) {
+  async getEmailMetadata(accessToken: string, refreshToken: string, onTokenRefresh?: (tokens: OAuthTokens) => Promise<void>, days: number = 90) {
     this.oauth2Client.setCredentials({
       access_token: accessToken,
       refresh_token: refreshToken
@@ -173,7 +180,13 @@ export class GmailService {
     if (onTokenRefresh) {
       this.oauth2Client.on('tokens', (tokens) => {
         if (tokens.access_token && tokens.access_token !== accessToken) {
-          onTokenRefresh(tokens.access_token);
+          onTokenRefresh({
+            access_token: tokens.access_token!,
+            refresh_token: tokens.refresh_token ?? undefined,
+            expiry_date: tokens.expiry_date ?? undefined,
+            token_type: tokens.token_type ?? undefined,
+            scope: tokens.scope ?? undefined
+          });
         }
       });
     }
