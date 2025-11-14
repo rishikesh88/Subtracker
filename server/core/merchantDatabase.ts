@@ -20,6 +20,7 @@ import { join } from 'path';
 export interface Merchant {
   name: string;
   websiteDomain: string;
+  websiteDomains: string[]; // Multiple domains for the merchant
   billingEmailDomain: string;
   products: string;
   frequency: string;
@@ -31,6 +32,7 @@ export class MerchantDatabase {
   private domainMap: Map<string, Merchant> = new Map();
   private emailDomainMap: Map<string, Merchant> = new Map();
   private emailPatternMap: Map<string, Merchant> = new Map();
+  private rootDomainMap: Map<string, Merchant> = new Map(); // Root domain index (airtel.com/in → Airtel)
 
   constructor() {
     this.loadMerchants();
