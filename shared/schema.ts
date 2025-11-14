@@ -27,7 +27,7 @@ export const users = pgTable("users", {
   profileImageUrl: varchar("profile_image_url"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
-  // Gmail integration fields
+  // Gmail integration fields (DEPRECATED - migrated to gmail_accounts table)
   gmailAccessToken: text("gmail_access_token"),
   gmailRefreshToken: text("gmail_refresh_token"),
   gmailTokenExpiry: timestamp("gmail_token_expiry"),
@@ -40,9 +40,27 @@ export const users = pgTable("users", {
   emailSyncDays: integer("email_sync_days").default(90).notNull(), // Number of days to fetch emails (1-180)
 });
 
+// Gmail Accounts table - supports multiple Gmail accounts per user
+export const gmailAccounts = pgTable("gmail_accounts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  gmailEmail: text("gmail_email").notNull(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  tokenExpiry: timestamp("token_expiry"),
+  lastSync: timestamp("last_sync"),
+  syncStatus: text("sync_status").default("idle").notNull(), // idle, syncing, success, error
+  syncError: text("sync_error"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_gmail_accounts_user_id").on(table.userId),
+  index("idx_gmail_accounts_user_email").on(table.userId, table.gmailEmail),
+]);
+
 export const subscriptions = pgTable("subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
+  gmailAccountId: varchar("gmail_account_id"), // Links to source Gmail account
   serviceName: text("service_name").notNull(),
   serviceKey: text("service_key").notNull(), // For deduplication: normalized service + frequency
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
@@ -65,6 +83,7 @@ export const subscriptions = pgTable("subscriptions", {
 export const emails = pgTable("emails", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
+  gmailAccountId: varchar("gmail_account_id"), // Links to source Gmail account
   gmailId: text("gmail_id").notNull().unique(),
   subject: text("subject").notNull(),
   fromEmail: text("from_email").notNull(),
@@ -97,6 +116,7 @@ export const invoices = pgTable("invoices", {
 export const subscriptionSuggestions = pgTable("subscription_suggestions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
+  gmailAccountId: varchar("gmail_account_id"), // Links to source Gmail account
   serviceName: text("service_name").notNull(),
   serviceKey: text("service_key").notNull(), // For deduplication: normalized service + frequency
   merchantName: text("merchant_name"),
@@ -204,6 +224,20 @@ export const safeUserSchema = createInsertSchema(users).pick({
 });
 
 // Settings schema for user preference updates
+export const insertGmailAccountSchema = createInsertSchema(gmailAccounts).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const updateGmailAccountSchema = createInsertSchema(gmailAccounts).pick({
+  accessToken: true,
+  refreshToken: true,
+  tokenExpiry: true,
+  lastSync: true,
+  syncStatus: true,
+  syncError: true,
+}).partial();
+
 export const updateSettingsSchema = z.object({
   preferredCurrency: currencyEnum.optional(),
   emailSyncDays: z.number().int().min(1).max(180).optional(),
@@ -225,3 +259,6 @@ export type UpdateSettings = z.infer<typeof updateSettingsSchema>;
 export type Invoice = typeof invoices.$inferSelect;
 export type InsertInvoice = z.infer<typeof insertInvoiceSchema>;
 export type UpdateInvoice = z.infer<typeof updateInvoiceSchema>;
+export type GmailAccount = typeof gmailAccounts.$inferSelect;
+export type InsertGmailAccount = z.infer<typeof insertGmailAccountSchema>;
+export type UpdateGmailAccount = z.infer<typeof updateGmailAccountSchema>;
