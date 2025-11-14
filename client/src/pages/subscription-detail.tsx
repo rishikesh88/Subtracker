@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
-import type { Subscription, Invoice } from "@shared/schema";
+import type { Subscription, Invoice, GmailAccount } from "@shared/schema";
 import type { UploadResult } from "@uppy/core";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +34,12 @@ export default function SubscriptionDetail() {
   const { data: invoices = [] } = useQuery<Invoice[]>({
     queryKey: ['/api/subscriptions', subscriptionId, 'invoices'],
     enabled: !!subscriptionId,
+  });
+  
+  // Fetch Gmail account if subscription has gmailAccountId
+  const { data: gmailAccount } = useQuery<GmailAccount>({
+    queryKey: [`/api/gmail/accounts/${subscription?.gmailAccountId}`],
+    enabled: !!subscription?.gmailAccountId,
   });
 
   // Initialize form data when subscription is loaded
@@ -288,6 +294,14 @@ export default function SubscriptionDetail() {
                 </p>
               )}
             </div>
+            {gmailAccount && (
+              <div>
+                <Label>Source Gmail Account</Label>
+                <p className="text-sm text-muted-foreground" data-testid="source-gmail-account">
+                  {gmailAccount.gmailEmail}
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

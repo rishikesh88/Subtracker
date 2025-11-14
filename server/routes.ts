@@ -347,6 +347,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/gmail/accounts/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const accountId = req.params.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      const account = await storage.getGmailAccount(accountId);
+      
+      if (!account) {
+        return res.status(404).json({ message: "Gmail account not found" });
+      }
+
+      if (account.userId !== userId) {
+        return res.status(403).json({ message: "Unauthorized to access this account" });
+      }
+
+      const safeAccount = {
+        id: account.id,
+        userId: account.userId,
+        gmailEmail: account.gmailEmail,
+        lastSync: account.lastSync,
+        syncStatus: account.syncStatus,
+        syncError: account.syncError,
+        createdAt: account.createdAt,
+      };
+
+      res.json(safeAccount);
+    } catch (error) {
+      console.error("Error fetching Gmail account:", error);
+      res.status(500).json({ message: "Failed to fetch Gmail account" });
+    }
+  });
+
   app.delete("/api/gmail/accounts/:id", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
