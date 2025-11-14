@@ -135,7 +135,7 @@ When an email sender matches a merchant in this database:
 
 | Version | Date | Entries | Changes |
 |---------|------|---------|---------|
-| 1.1.1 | 2025-11-14 | 201 | Fixed Airtel billing email: billing@airtel.in → bill@airtel.com |
+| 1.1.1 | 2025-11-14 | 201 | Fixed Airtel billing email: billing@airtel.in → ebill@airtel.com (verified from user's actual email) |
 | 1.1.0 | 2025-11-12 | 201 | Added 50 telecom providers (US, UK, EU, India) |
 | 1.0.0 | 2025-11-10 | 151 | Initial protection setup |
 
