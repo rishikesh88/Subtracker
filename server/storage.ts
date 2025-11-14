@@ -602,6 +602,7 @@ export class DatabaseStorage implements IStorage {
       for (const suggestion of suggestions) {
         const subscriptionData = {
           userId: suggestion.userId,
+          gmailAccountId: suggestion.gmailAccountId || null,
           serviceName: suggestion.serviceName,
           serviceKey: suggestion.serviceKey,
           amount: suggestion.amount,

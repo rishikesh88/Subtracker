@@ -438,8 +438,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const gmailMessages = await gmailService.getEmails(
         accessToken,
         user.gmailRefreshToken || '',
-        200, // Fetch up to 200 emails
-        onTokenRefresh
+        onTokenRefresh,
+        user.emailSyncDays || 90
       );
 
       let newEmails = 0;
@@ -1191,8 +1191,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const gmailMessages = await gmailService.getEmails(
         user.gmailAccessToken!,
         user.gmailRefreshToken || '',
-        500, // Fetch up to 500 emails for analysis
-        onTokenRefresh
+        onTokenRefresh,
+        user.emailSyncDays || 90
       );
       
       console.log(`📬 Gmail fetch complete: ${gmailMessages.length} emails retrieved`);
