@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, users, subscriptions, emails, subscriptionSuggestions, invoices } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, users, subscriptions, emails, subscriptionSuggestions, invoices, gmailAccounts } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
 import { eq, and, desc, asc, count, sql, inArray } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
@@ -55,6 +55,14 @@ export interface IStorage {
   getInvoice(id: string): Promise<Invoice | undefined>;
   createInvoice(invoice: InsertInvoice): Promise<Invoice>;
   deleteInvoice(id: string): Promise<boolean>;
+  
+  // Gmail Account methods
+  getGmailAccounts(userId: string): Promise<GmailAccount[]>;
+  getGmailAccount(id: string): Promise<GmailAccount | undefined>;
+  getGmailAccountByEmail(userId: string, gmailEmail: string): Promise<GmailAccount | undefined>;
+  createGmailAccount(account: InsertGmailAccount): Promise<GmailAccount>;
+  updateGmailAccount(id: string, updates: UpdateGmailAccount): Promise<GmailAccount | undefined>;
+  deleteGmailAccount(id: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -863,6 +871,86 @@ export class DatabaseStorage implements IStorage {
       return result.length > 0;
     } catch (error) {
       console.error('Error deleting invoice:', error);
+      throw error;
+    }
+  }
+
+  // Gmail Account methods
+  async getGmailAccounts(userId: string): Promise<GmailAccount[]> {
+    try {
+      const result = await this.db
+        .select()
+        .from(gmailAccounts)
+        .where(eq(gmailAccounts.userId, userId))
+        .orderBy(desc(gmailAccounts.createdAt));
+      return result;
+    } catch (error) {
+      console.error('Error getting Gmail accounts:', error);
+      throw error;
+    }
+  }
+
+  async getGmailAccount(id: string): Promise<GmailAccount | undefined> {
+    try {
+      const result = await this.db
+        .select()
+        .from(gmailAccounts)
+        .where(eq(gmailAccounts.id, id))
+        .limit(1);
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error getting Gmail account:', error);
+      throw error;
+    }
+  }
+
+  async getGmailAccountByEmail(userId: string, gmailEmail: string): Promise<GmailAccount | undefined> {
+    try {
+      const result = await this.db
+        .select()
+        .from(gmailAccounts)
+        .where(and(
+          eq(gmailAccounts.userId, userId),
+          eq(gmailAccounts.gmailEmail, gmailEmail)
+        ))
+        .limit(1);
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error getting Gmail account by email:', error);
+      throw error;
+    }
+  }
+
+  async createGmailAccount(account: InsertGmailAccount): Promise<GmailAccount> {
+    try {
+      const result = await this.db.insert(gmailAccounts).values(account).returning();
+      return result[0];
+    } catch (error) {
+      console.error('Error creating Gmail account:', error);
+      throw error;
+    }
+  }
+
+  async updateGmailAccount(id: string, updates: UpdateGmailAccount): Promise<GmailAccount | undefined> {
+    try {
+      const result = await this.db
+        .update(gmailAccounts)
+        .set(updates)
+        .where(eq(gmailAccounts.id, id))
+        .returning();
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error updating Gmail account:', error);
+      throw error;
+    }
+  }
+
+  async deleteGmailAccount(id: string): Promise<boolean> {
+    try {
+      const result = await this.db.delete(gmailAccounts).where(eq(gmailAccounts.id, id)).returning();
+      return result.length > 0;
+    } catch (error) {
+      console.error('Error deleting Gmail account:', error);
       throw error;
     }
   }
