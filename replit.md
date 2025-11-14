@@ -15,12 +15,12 @@ Preferred communication style: Simple, everyday language.
 ### Protected Files
 
 **Core Algorithm Files:**
-- `server/core/transactionDetector.ts` (v1.0.0) - Rule-based scoring engine
-- `server/core/merchantDatabase.ts` (v1.0.0) - Verified merchant lookup (152 merchants)
+- `server/core/transactionDetector.ts` (v1.0.1) - Rule-based scoring engine with tiered merchant matching
+- `server/core/merchantDatabase.ts` (v1.2.0) - Verified merchant lookup (200 merchants) with multi-domain support
 - `server/core/geminiSubscriptionDetector.ts` (v1.0.0) - AI pre-filter & deep analysis
 
 **Protected Data:**
-- `server/data/merchants.csv` (APPEND-ONLY) - 152 verified merchant database
+- `server/data/merchants.csv` (APPEND-ONLY) - 200 verified merchant database with multi-domain support
 
 **Documentation:**
 - `server/core/SPECIFICATION.md` - Canonical algorithm specification (exact prompts, scoring, thresholds)
@@ -75,6 +75,8 @@ Fallback strategy approves chunks on parsing failures to ensure no subscription 
 See `server/core/SPECIFICATION.md` for:
 - Exact AI prompts (pre-filter & deep analysis)
 - Complete scoring algorithm with all thresholds
+- Tiered merchant matching system (80/60/45 pts)
+- Multi-domain support and tldts library usage
 - Keyword lists and patterns
 - Fallback strategies and date validation
 - Gmail API optimization details
@@ -83,6 +85,12 @@ See `server/core/CONFIGURATION.md` for:
 - Locked parameters (require user approval)
 - Tunable parameters (can adjust with notification)
 - User-configurable settings
+
+See `server/data/MERCHANTS_README.md` for:
+- Merchant database protection rules
+- Multi-domain support using pipe-separated format
+- Tiered scoring system (exact email, root domain, pattern match)
+- Adding new merchants protocol
 
 ### Change Request Template
 
@@ -102,6 +110,34 @@ Expected Impact:
 USER APPROVAL: ⏳ Pending
 ```
 
+### Recent Changes
+
+**November 14, 2025 - Tiered Merchant Matching System (v1.2.0)**
+
+Implemented intelligent tiered merchant matching to handle email format variations and regional domain differences:
+
+**Key Features:**
+- **Multi-domain support**: Merchants can specify multiple domains using pipe-separated format (`airtel.com|airtel.in`)
+- **Tiered scoring**:
+  - Tier 1: Exact email match (+80 points) - Highest confidence
+  - Tier 2: Root domain match (+60 points) - High confidence, handles subdomain variations
+  - Tier 3: Pattern match (+45 points) - Medium-high confidence for account-specific emails
+- **tldts library integration**: Correctly handles multi-level TLDs (.co.uk, .com.au) to prevent false positives
+
+**Technical Implementation:**
+- Enhanced `MerchantDatabase` loader to parse pipe-separated domains
+- Added root domain index using `tldts` for public suffix-aware extraction
+- Updated `TransactionDetector` to use tiered scoring via `isKnownMerchantWithScore()`
+- Fixed Airtel detection issue: now matches `billing@airtel.in`, `ebill@airtel.com`, and subdomain variations
+
+**Design Rationale:**
+Favors domain-based matching over exact email addresses for resilience to vendor email format changes (billing@ → ebill@ → noreply@). Domains remain stable while email prefixes frequently change.
+
+**Documentation Updates:**
+- SPECIFICATION.md v1.0.1: Documented tiered matching system
+- MERCHANTS_README.md v1.2.0: Updated with multi-domain support and tiered scoring
+- Merchant count: 200 verified merchants
+
 ## System Architecture
 
 ### Frontend Architecture
@@ -118,7 +154,7 @@ The server-side uses Express.js with TypeScript, following a service-oriented pa
 - **Invoice Extractor** (NEW): Automatically downloads email attachments (PDFs, images) from Gmail and uploads them to object storage as invoice records when subscriptions are approved.
 
 The email sync system employs an optimized two-phase architecture:
-1.  **Lightweight Screening**: Fetches email metadata, applies transaction detection with a merchant database (152 verified merchants), and pre-filters candidates using the `gemini-2.5-flash` model. This phase includes aggressive Gmail API batching (50 concurrent requests) and improved keyword coverage for renewal and hosting services.
+1.  **Lightweight Screening**: Fetches email metadata, applies transaction detection with a tiered merchant database (200 verified merchants with multi-domain support), and pre-filters candidates using the `gemini-2.5-flash` model. The merchant matching uses intelligent tiered scoring: exact email match (+80 pts), root domain match (+60 pts), and pattern match (+45 pts). This phase includes aggressive Gmail API batching (50 concurrent requests) and improved keyword coverage for renewal and hosting services.
 2.  **Deep Processing**: Fetches full email content only for AI-approved candidates for detailed Gemini analysis, extracting comprehensive subscription information.
 
 The system implements intelligent rate limiting for the Gmail API with exponential backoff for 429 errors and handles configurable email sync ranges (90/180 days).
