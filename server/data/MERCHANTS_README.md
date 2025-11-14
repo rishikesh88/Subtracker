@@ -4,8 +4,8 @@
 
 **Protection Level:** APPEND-ONLY  
 **Current Entries:** 201 verified merchants  
-**Version:** 1.1.0  
-**Last Modified:** 2025-11-12
+**Version:** 1.1.1  
+**Last Modified:** 2025-11-14
 
 ---
 
@@ -135,6 +135,7 @@ When an email sender matches a merchant in this database:
 
 | Version | Date | Entries | Changes |
 |---------|------|---------|---------|
+| 1.1.1 | 2025-11-14 | 201 | Fixed Airtel billing email: billing@airtel.in → bill@airtel.com |
 | 1.1.0 | 2025-11-12 | 201 | Added 50 telecom providers (US, UK, EU, India) |
 | 1.0.0 | 2025-11-10 | 151 | Initial protection setup |
 
@@ -161,6 +162,6 @@ When an email sender matches a merchant in this database:
 
 ---
 
-**Last Updated:** 2025-11-12  
+**Last Updated:** 2025-11-14  
 **Protection Status:** 🔒 ACTIVE APPEND-ONLY  
 **Maintained By:** User (with AI assistance for additions)
