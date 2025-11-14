@@ -47,123 +47,107 @@ function parseValidDate(dateValue: any): Date | null {
 export function registerGeminiRoutes(app: Express) {
   // Get progress notification function from parent scope
   const sendProgressUpdate = (globalThis as any).sendProgressUpdate || (() => {});
-  // Enhanced sync with LLM analysis (AUTHENTICATED)
-  app.post("/api/sync-emails-llm", isAuthenticated, async (req: any, res) => {
+  
+  // Helper function to process a single Gmail account through the complete pipeline
+  async function processGmailAccount(
+    userId: string,
+    gmailAccount: any,
+    emailSyncDays: number
+  ): Promise<{
+    success: boolean;
+    accountId: string;
+    gmailEmail: string;
+    error?: string;
+    emailsProcessed?: number;
+    suggestionsGenerated?: number;
+    candidateEmails?: number;
+    totalEmails?: number;
+  }> {
+    const gmailService = new GmailService();
+    const enhancedParser = new EnhancedEmailParser();
+    const geminiDetector = new GeminiSubscriptionDetector();
+    let processingSuccessful = false;
+    
     try {
-      // Get userId from authenticated user, ignore request body for security
-      const userId = req.user?.claims?.sub;
+      console.log(`\n🔄 Processing account: ${gmailAccount.gmailEmail}`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       
-      if (!userId) {
-        return res.status(401).json({ message: "User not authenticated" });
-      }
-
-      const user = await storage.getUser(userId);
-      if (!user || !user.gmailConnected || !user.gmailAccessToken) {
-        return res.status(400).json({ message: "Gmail not connected" });
-      }
-
-      const gmailService = new GmailService();
-      const enhancedParser = new EnhancedEmailParser();
-      const geminiDetector = new GeminiSubscriptionDetector();
-      
-      console.log('Starting enhanced LLM-powered sync...');
-      
-      // Send initial progress update
-      sendProgressUpdate(userId, {
-        stage: 'starting',
-        progress: 0,
-        message: 'Initializing sync process...'
+      // Update account status to syncing
+      await storage.updateGmailAccount(gmailAccount.id, { 
+        syncStatus: 'syncing',
+        syncError: null
       });
       
       // Check if access token is expired and refresh if needed
-      let accessToken = user.gmailAccessToken;
+      let accessToken = gmailAccount.accessToken;
       const now = new Date();
-      const tokenExpiry = user.gmailTokenExpiry ? new Date(user.gmailTokenExpiry) : null;
+      const tokenExpiry = gmailAccount.tokenExpiry ? new Date(gmailAccount.tokenExpiry) : null;
       
       if (tokenExpiry && now >= tokenExpiry) {
-        console.log('⚠️ Access token expired, refreshing...');
-        sendProgressUpdate(userId, {
-          stage: 'token_refresh',
-          progress: 5,
-          message: 'Refreshing Gmail authentication...'
-        });
+        console.log(`⚠️  Access token expired for ${gmailAccount.gmailEmail}, refreshing...`);
         
         try {
-          const newTokens = await gmailService.refreshAccessToken(user.gmailRefreshToken!);
+          const newTokens = await gmailService.refreshAccessToken(gmailAccount.refreshToken);
           accessToken = newTokens.access_token!;
           
-          // Update user with new tokens
-          await storage.updateUser(userId, {
-            gmailAccessToken: accessToken,
-            gmailTokenExpiry: newTokens.expiry_date ? new Date(newTokens.expiry_date) : null,
+          // Update account with new tokens
+          await storage.updateGmailAccount(gmailAccount.id, {
+            accessToken: accessToken,
+            tokenExpiry: newTokens.expiry_date ? new Date(newTokens.expiry_date) : null,
           });
           
-          console.log('✅ Access token refreshed successfully');
+          console.log(`✅ Access token refreshed for ${gmailAccount.gmailEmail}`);
         } catch (error) {
-          console.error('❌ Failed to refresh access token:', error);
-          return res.status(401).json({ 
-            message: "Gmail authentication expired. Please reconnect your Gmail account.",
-            error: "token_refresh_failed"
+          const errorMsg = `Failed to refresh token for ${gmailAccount.gmailEmail}`;
+          console.error(`❌ ${errorMsg}:`, error);
+          
+          await storage.updateGmailAccount(gmailAccount.id, {
+            syncStatus: 'error',
+            syncError: 'Token refresh failed. Please reconnect this account.'
           });
+          
+          return {
+            success: false,
+            accountId: gmailAccount.id,
+            gmailEmail: gmailAccount.gmailEmail,
+            error: errorMsg
+          };
         }
       }
       
-      // Get user's email sync days setting (default 90, max 180)
-      const emailSyncDays = user.emailSyncDays || 90;
-      
-      console.log('🚀 OPTIMIZED TWO-PHASE EMAIL PROCESSING');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log(`🚀 TWO-PHASE PROCESSING: ${gmailAccount.gmailEmail}`);
       
       // ═══════════════════════════════════════════
       // PHASE 1: LIGHTWEIGHT SCREENING (FAST)
       // ═══════════════════════════════════════════
       
-      console.log('\n📊 PHASE 1: Lightweight Email Screening');
-      console.log('Fetching metadata only (subject, sender, snippet)...\n');
-      
-      // Phase 1a: Fetch lightweight metadata (much faster than full emails)
-      sendProgressUpdate(userId, {
-        stage: 'phase1_metadata_fetch',
-        progress: 10,
-        message: 'Fetching email metadata...'
-      });
+      console.log(`\n📊 PHASE 1: Lightweight Email Screening`);
       
       const emailMetadata = await gmailService.getEmailMetadata(
         accessToken,
-        user.gmailRefreshToken!,
+        gmailAccount.refreshToken,
         async (newAccessToken: string) => {
-          await storage.updateUser(userId, { gmailAccessToken: newAccessToken });
+          await storage.updateGmailAccount(gmailAccount.id, { accessToken: newAccessToken });
         },
         emailSyncDays
       );
       
       console.log(`✅ Fetched metadata for ${emailMetadata.length} emails`);
       
-      sendProgressUpdate(userId, {
-        stage: 'phase1_metadata_complete',
-        progress: 20,
-        message: `Retrieved metadata for ${emailMetadata.length} emails`,
-        details: { totalEmails: emailMetadata.length }
-      });
-      
       // Phase 1b: Extract metadata and apply enhanced transaction detection
-      console.log('\n🎯 Applying enhanced transaction detection...');
-      
       const transactionDetector = new TransactionDetector();
       const extractedMetadata = emailMetadata.map(msg => {
-        // Extract subject, sender, and snippet from Gmail metadata format
         const headers = msg.payload?.headers || [];
         const subject = headers.find((h: any) => h.name === 'Subject')?.value || '';
         const from = headers.find((h: any) => h.name === 'From')?.value || '';
         const snippet = msg.snippet || '';
         
-        // Parse sender email and name
         const emailMatch = from.match(/<(.+?)>/);
         const fromEmail = emailMatch ? emailMatch[1] : from;
         const fromName = from.replace(/<.+?>/, '').trim();
         
         return {
-          id: msg.id!, // Include message ID for AI pre-filter
+          id: msg.id!,
           subject,
           fromEmail,
           fromName,
@@ -179,88 +163,33 @@ export function registerGeminiRoutes(app: Express) {
       console.log(`   ⚠️  Medium confidence: ${detectionResults.stats.medium}`);
       console.log(`   ⚡ Low confidence: ${detectionResults.stats.low}`);
       console.log(`   ❌ Rejected: ${detectionResults.stats.rejected}`);
-      console.log(`   📈 Filter efficiency: ${Math.round((detectionResults.candidates.length / detectionResults.stats.total) * 100)}% pass rate`);
       
-      sendProgressUpdate(userId, {
-        stage: 'phase1_detection_complete',
-        progress: 30,
-        message: `Identified ${detectionResults.candidates.length} potential candidates`,
-        details: { 
-          candidates: detectionResults.candidates.length,
-          total: emailMetadata.length,
-          stats: detectionResults.stats
-        }
-      });
-      
-      // Phase 1c: AI Pre-filter on candidates (subject+snippet only)
-      console.log(`\n🤖 PHASE 1.5: AI Pre-screening ${detectionResults.candidates.length} candidates...`);
-      
-      sendProgressUpdate(userId, {
-        stage: 'phase1_ai_prefilter',
-        progress: 40,
-        message: `AI pre-filtering ${detectionResults.candidates.length} candidates...`
-      });
-      
-      // Map candidates to include required id field
+      // Phase 1c: AI Pre-filter
       const candidatesWithIds = detectionResults.candidates
-        .filter(c => c.id) // Only include candidates with Gmail IDs
-        .map(c => ({ ...c, id: c.id! })); // Make id non-nullable
+        .filter(c => c.id)
+        .map(c => ({ ...c, id: c.id! }));
       
-      const aiApprovedIds = await geminiDetector.prefilterCandidates(
-        candidatesWithIds,
-        (progress) => {
-          sendProgressUpdate(userId, {
-            stage: 'phase1_ai_progress',
-            progress: 40 + Math.round(progress * 0.2),
-            message: `AI screening progress: ${Math.round(progress)}%`
-          });
-        }
-      );
+      const aiApprovedIds = await geminiDetector.prefilterCandidates(candidatesWithIds);
       
       console.log(`✅ AI approved ${aiApprovedIds.length} emails for deep processing`);
-      console.log(`   Reduction: ${detectionResults.candidates.length} → ${aiApprovedIds.length} (${Math.round((1 - aiApprovedIds.length / detectionResults.candidates.length) * 100)}% filtered out)`);
-      
-      sendProgressUpdate(userId, {
-        stage: 'phase1_complete',
-        progress: 60,
-        message: `Phase 1 complete: ${aiApprovedIds.length} emails selected for deep analysis`,
-        details: { approved: aiApprovedIds.length }
-      });
       
       // ═══════════════════════════════════════════
       // PHASE 2: DEEP PROCESSING (TARGETED)
       // ═══════════════════════════════════════════
       
-      console.log('\n\n📥 PHASE 2: Deep Processing of Approved Emails');
-      console.log('Fetching full content + attachments for selected emails only...\n');
+      console.log(`\n📥 PHASE 2: Deep Processing`);
       
-      sendProgressUpdate(userId, {
-        stage: 'phase2_start',
-        progress: 65,
-        message: `Starting deep processing of ${aiApprovedIds.length} emails...`
-      });
-      
-      // Phase 2a: Fetch full email content for approved candidates only
       const gmailMessages = await gmailService.getEmailsByIds(
         accessToken,
-        user.gmailRefreshToken!,
+        gmailAccount.refreshToken,
         aiApprovedIds
       );
       
       console.log(`✅ Fetched full content for ${gmailMessages.length} emails`);
       
-      sendProgressUpdate(userId, {
-        stage: 'phase2_content_fetched',
-        progress: 70,
-        message: `Retrieved full content for ${gmailMessages.length} emails`,
-        details: { emailCount: gmailMessages.length }
-      });
-      
       // Phase 2b: Parse emails
-      console.log('\n📝 Parsing email content...');
       const parsedEmails = [];
-      for (let i = 0; i < gmailMessages.length; i++) {
-        const msg = gmailMessages[i];
+      for (const msg of gmailMessages) {
         try {
           const basicEmail = enhancedParser.parseEmail(msg);
           parsedEmails.push({ 
@@ -275,59 +204,41 @@ export function registerGeminiRoutes(app: Express) {
       
       console.log(`✅ Parsed ${parsedEmails.length} emails`);
       
-      sendProgressUpdate(userId, {
-        stage: 'phase2_parsing_complete',
-        progress: 75,
-        message: `Parsed ${parsedEmails.length} emails`,
-        details: { parsed: parsedEmails.length }
-      });
-
-      // Phase 2c: Download and process attachments for approved emails only
-      console.log(`\n📎 Phase 2c: Processing attachments for ${parsedEmails.length} approved emails...`);
+      // Phase 2c: Download and process attachments
       const savedEmails: any[] = [];
       let totalAttachments = 0;
       
-      // Initialize Gmail client for attachment processing
-      const gmail = gmailService.getGmailClient(accessToken, user.gmailRefreshToken!);
-      
-      // Create a lookup map for Gmail messages by ID for O(1) access
+      const gmail = gmailService.getGmailClient(accessToken, gmailAccount.refreshToken);
       const gmailMessageMap = new Map(gmailMessages.map(msg => [msg.id, msg]));
       
       for (const email of parsedEmails) {
         try {
-          // CRITICAL FIX: Use Gmail message ID directly (already attached in Step 1)
-          if (!email.gmailId) {
-            console.error('Missing Gmail ID for email:', email.subject);
-            continue;
-          }
+          if (!email.gmailId) continue;
           
           const gmailMessage = gmailMessageMap.get(email.gmailId);
-          if (!gmailMessage) {
-            console.error('Gmail message not found for ID:', email.gmailId);
-            continue;
-          }
+          if (!gmailMessage) continue;
           
-          // Check if email already exists
           const existingEmail = await storage.getEmailByGmailId(email.gmailId);
           
-          // CRITICAL FIX: Always process attachments for each unique Gmail ID
-          // Even if email exists, update attachment data if not already processed
           if (!existingEmail || !existingEmail.attachmentData) {
-            // Process attachments using the correct method signature
             let attachmentData = null;
             if (gmailMessage.payload?.parts) {
-              const attachmentProcessingResult = await gmailService.processAttachments(gmail, email.gmailId, gmailMessage, userId);
+              const attachmentProcessingResult = await gmailService.processAttachments(
+                gmail, 
+                email.gmailId, 
+                gmailMessage, 
+                userId
+              );
               if (attachmentProcessingResult.attachments.length > 0) {
                 attachmentData = JSON.stringify(attachmentProcessingResult);
                 totalAttachments += attachmentProcessingResult.attachments.length;
-                console.log(`  📎 Processed ${attachmentProcessingResult.attachments.length} attachments for email: ${email.subject.substring(0, 50)}...`);
               }
             }
             
             if (!existingEmail) {
-              // Create new email
               const emailData = {
                 userId,
+                gmailAccountId: gmailAccount.id,
                 gmailId: email.gmailId,
                 subject: email.subject,
                 fromEmail: email.fromEmail,
@@ -348,9 +259,11 @@ export function registerGeminiRoutes(app: Express) {
                 savedEmails.push(saved);
               }
             } else if (attachmentData) {
-              // Update existing email with attachment data
-              await storage.updateEmail(existingEmail.id, { attachmentData });
-              savedEmails.push({ ...existingEmail, attachmentData });
+              await storage.updateEmail(existingEmail.id, { 
+                attachmentData,
+                gmailAccountId: gmailAccount.id
+              });
+              savedEmails.push({ ...existingEmail, attachmentData, gmailAccountId: gmailAccount.id });
             } else {
               savedEmails.push(existingEmail);
             }
@@ -362,54 +275,18 @@ export function registerGeminiRoutes(app: Express) {
         }
       }
       
-      console.log(`✅ Processed ${savedEmails.length} emails with ${totalAttachments} total attachments`);
-
+      console.log(`✅ Processed ${savedEmails.length} emails with ${totalAttachments} attachments`);
+      
       // Step 4: LLM Analysis with Gemini
-      let geminiResults;
-      try {
-        console.log(`🤖 Starting Gemini LLM analysis on ${savedEmails.length} emails...`);
-        
-        // Send LLM analysis start update
-        sendProgressUpdate(userId, {
-          stage: 'llm_analysis_start',
-          progress: 70,
-          message: `Starting AI analysis of ${savedEmails.length} emails...`,
-          details: { emailCount: savedEmails.length }
-        });
-        const analysisStartTime = Date.now();
-        
-        geminiResults = await geminiDetector.analyzeEmailsForSubscriptions(savedEmails);
-        
-        const analysisTime = ((Date.now() - analysisStartTime) / 1000).toFixed(1);
-        console.log(`✅ Gemini analysis complete in ${analysisTime}s:`);
-        console.log(`   • Total suggestions: ${geminiResults.subscriptions.length}`);
-        console.log(`   • High confidence: ${geminiResults.subscriptions.filter(s => s.confidence === 'high').length}`);
-        console.log(`   • Medium confidence: ${geminiResults.subscriptions.filter(s => s.confidence === 'medium').length}`);
-        console.log(`   • Low confidence: ${geminiResults.subscriptions.filter(s => s.confidence === 'low').length}`);
-        console.log(`   • Processing rate: ${(savedEmails.length / parseFloat(analysisTime)).toFixed(1)} emails/second`);
-        
-        // Send LLM analysis completion update
-        sendProgressUpdate(userId, {
-          stage: 'llm_analysis_complete',
-          progress: 90,
-          message: `AI analysis complete! Found ${geminiResults.subscriptions.length} subscription suggestions`,
-          details: { 
-            total: geminiResults.subscriptions.length,
-            high: geminiResults.subscriptions.filter(s => s.confidence === 'high').length,
-            analysisTime: parseFloat(analysisTime)
-          }
-        });
-      } catch (error) {
-        console.error('Gemini analysis failed:', error);
-        return res.status(500).json({ 
-          message: "LLM analysis failed", 
-          error: error instanceof Error ? error.message : 'Unknown error',
-          fallbackToRegularSync: true
-        });
-      }
-
-      // Step 5: Mark ALL analyzed emails as processed (CRITICAL BUG FIX)
-      console.log(`📧 Marking ${savedEmails.length} analyzed emails as processed...`);
+      console.log(`🤖 Starting Gemini analysis on ${savedEmails.length} emails...`);
+      
+      const geminiResults = await geminiDetector.analyzeEmailsForSubscriptions(savedEmails);
+      
+      console.log(`✅ Gemini analysis complete:`);
+      console.log(`   • Total suggestions: ${geminiResults.subscriptions.length}`);
+      console.log(`   • High confidence: ${geminiResults.subscriptions.filter(s => s.confidence === 'high').length}`);
+      
+      // Step 5: Mark analyzed emails as processed
       for (const email of savedEmails) {
         try {
           await storage.updateEmail(email.id, { processed: true });
@@ -417,12 +294,10 @@ export function registerGeminiRoutes(app: Express) {
           console.error(`Failed to mark email ${email.id} as processed:`, error);
         }
       }
-      console.log(`✅ All ${savedEmails.length} emails marked as processed`);
       
-      // Step 6: Save suggestions to database for user review
-      console.log(`💾 Saving ${geminiResults.subscriptions.length} suggestions to database...`);
+      // Step 6: Save suggestions to database
+      console.log(`💾 Saving ${geminiResults.subscriptions.length} suggestions...`);
       
-      // Helper function to match emails to suggestions based on merchant/service name
       const findMatchingEmails = (suggestion: any, emails: any[]): string[] => {
         const searchTerms = [
           suggestion.serviceName?.toLowerCase(),
@@ -439,15 +314,15 @@ export function registerGeminiRoutes(app: Express) {
               email.fromName?.toLowerCase()
             ].join(' ');
             
-            // Check if any search term appears in email metadata
             return searchTerms.some(term => emailText.includes(term));
           })
           .map(email => email.gmailId)
-          .slice(0, 5); // Limit to 5 most relevant emails
+          .slice(0, 5);
       };
       
       const suggestionInserts = geminiResults.subscriptions.map(suggestion => ({
         userId,
+        gmailAccountId: gmailAccount.id,
         serviceName: suggestion.serviceName,
         serviceKey: generateServiceKey(suggestion.serviceName, suggestion.frequency),
         merchantName: suggestion.merchantName || null,
@@ -470,56 +345,184 @@ export function registerGeminiRoutes(app: Express) {
         lastSeen: new Date(),
         status: 'pending'
       }));
-
-      let savedSuggestions = [];
-      try {
-        savedSuggestions = await storage.createSuggestionsBulk(suggestionInserts);
-        console.log(`✅ Saved ${savedSuggestions.length} suggestions to database`);
-      } catch (error) {
-        console.error('Failed to save suggestions to database:', error);
-        // Critical failure - without persisted suggestions, user can't review them
-        return res.status(500).json({
-          success: false,
-          message: "Email analysis completed but failed to save suggestions",
-          error: error instanceof Error ? error.message : 'Database save failed',
-          emailsProcessed: savedEmails.length,
-          suggestionsGenerated: 0
-        });
+      
+      const savedSuggestions = await storage.createSuggestionsBulk(suggestionInserts);
+      console.log(`✅ Saved ${savedSuggestions.length} suggestions for ${gmailAccount.gmailEmail}`);
+      
+      // Mark as successful before returning
+      processingSuccessful = true;
+      
+      return {
+        success: true,
+        accountId: gmailAccount.id,
+        gmailEmail: gmailAccount.gmailEmail,
+        emailsProcessed: savedEmails.length,
+        suggestionsGenerated: savedSuggestions.length,
+        candidateEmails: aiApprovedIds.length,
+        totalEmails: emailMetadata.length
+      };
+      
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`❌ Error processing ${gmailAccount.gmailEmail}:`, error);
+      
+      return {
+        success: false,
+        accountId: gmailAccount.id,
+        gmailEmail: gmailAccount.gmailEmail,
+        error: errorMsg
+      };
+    } finally {
+      // Always update final sync status
+      await storage.updateGmailAccount(gmailAccount.id, {
+        syncStatus: processingSuccessful ? 'idle' : 'error',
+        lastSync: new Date(),
+        syncError: processingSuccessful ? null : undefined
+      });
+    }
+  }
+  
+  // Enhanced sync with LLM analysis (AUTHENTICATED) - Multi-Account Support
+  app.post("/api/sync-emails-llm", isAuthenticated, async (req: any, res) => {
+    try {
+      // Get userId from authenticated user, ignore request body for security
+      const userId = req.user?.claims?.sub;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
       }
 
-      // Update user's last sync timestamp
-      await storage.updateUser(userId, { lastSync: new Date() });
-
+      // Fetch all Gmail accounts for this user
+      const gmailAccounts = await storage.getGmailAccounts(userId);
+      
+      if (!gmailAccounts || gmailAccounts.length === 0) {
+        return res.status(400).json({ message: "No Gmail accounts connected" });
+      }
+      
+      // Get user's email sync days setting (default 90, max 180)
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      const emailSyncDays = user.emailSyncDays || 90;
+      
+      console.log(`🚀 Starting multi-account sync for ${gmailAccounts.length} Gmail account(s)...`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      
+      // Send initial progress update
+      sendProgressUpdate(userId, {
+        stage: 'multi_account_sync_start',
+        progress: 0,
+        message: `Starting sync for ${gmailAccounts.length} Gmail account(s)...`,
+        details: { totalAccounts: gmailAccounts.length }
+      });
+      
+      // Simple concurrency limiter - process max 3 accounts in parallel
+      const CONCURRENCY_LIMIT = 3;
+      const results: any[] = [];
+      let completed = 0;
+      
+      for (let i = 0; i < gmailAccounts.length; i += CONCURRENCY_LIMIT) {
+        const batch = gmailAccounts.slice(i, i + CONCURRENCY_LIMIT);
+        
+        const batchResults = await Promise.allSettled(
+          batch.map(account => processGmailAccount(userId, account, emailSyncDays))
+        );
+        
+        results.push(...batchResults);
+        completed += batch.length;
+        
+        // Send progress update after each batch
+        const progressPercentage = Math.round((completed / gmailAccounts.length) * 90);
+        sendProgressUpdate(userId, {
+          stage: 'accounts_syncing',
+          progress: progressPercentage,
+          message: `Synced ${completed} of ${gmailAccounts.length} accounts...`,
+          details: { 
+            completed,
+            total: gmailAccounts.length
+          }
+        });
+      }
+      
+      // Process results
+      const successfulResults = results
+        .filter(r => r.status === 'fulfilled' && r.value.success)
+        .map(r => r.value);
+      
+      const failedResults = results
+        .filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success))
+        .map(r => {
+          if (r.status === 'rejected') {
+            return {
+              success: false,
+              accountId: 'unknown',
+              gmailEmail: 'unknown',
+              error: r.reason?.message || 'Unknown error'
+            };
+          }
+          return r.value;
+        });
+      
+      // Aggregate metrics
+      const totalEmailsProcessed = successfulResults.reduce((sum, r) => sum + (r.emailsProcessed || 0), 0);
+      const totalSuggestionsGenerated = successfulResults.reduce((sum, r) => sum + (r.suggestionsGenerated || 0), 0);
+      
+      console.log(`\n✅ Multi-account sync complete!`);
+      console.log(`   • Accounts processed: ${gmailAccounts.length}`);
+      console.log(`   • Successful: ${successfulResults.length}`);
+      console.log(`   • Failed: ${failedResults.length}`);
+      console.log(`   • Total emails processed: ${totalEmailsProcessed}`);
+      console.log(`   • Total suggestions generated: ${totalSuggestionsGenerated}`);
+      
       // Send final completion update
       sendProgressUpdate(userId, {
         stage: 'sync_complete',
         progress: 100,
-        message: `Sync complete! Generated ${geminiResults.subscriptions.length} subscription suggestions`,
+        message: `Sync complete! Found ${totalSuggestionsGenerated} subscription suggestions across ${successfulResults.length} accounts`,
         details: { 
-          total: geminiResults.subscriptions.length,
-          confident: geminiResults.totalConfidentSubscriptions,
-          emailsProcessed: savedEmails.length
+          totalAccounts: gmailAccounts.length,
+          successful: successfulResults.length,
+          failed: failedResults.length,
+          suggestionsGenerated: totalSuggestionsGenerated
         }
       });
       
+      // Return structured response
       res.json({
         success: true,
-        message: "Enhanced LLM sync completed - review suggestions",
-        suggestionsGenerated: savedSuggestions.length,
-        redirectToSuggestions: savedSuggestions.length > 0,
-        emailsProcessed: savedEmails.length,
-        candidateEmails: aiApprovedIds.length,
-        totalEmails: emailMetadata.length,
-        llmSuggestions: geminiResults.subscriptions.length,
-        confidentSuggestions: geminiResults.totalConfidentSubscriptions,
-        analysisDate: geminiResults.analysisDate,
-        needsReview: true
+        totalAccounts: gmailAccounts.length,
+        successful: successfulResults.length,
+        failed: failedResults.length,
+        suggestionsGenerated: totalSuggestionsGenerated,
+        emailsProcessed: totalEmailsProcessed,
+        redirectToSuggestions: totalSuggestionsGenerated > 0,
+        results: results.map((r, index) => {
+          if (r.status === 'fulfilled') {
+            return {
+              accountId: r.value.accountId,
+              gmailEmail: r.value.gmailEmail,
+              success: r.value.success,
+              error: r.value.error,
+              emailsProcessed: r.value.emailsProcessed,
+              suggestionsGenerated: r.value.suggestionsGenerated
+            };
+          } else {
+            return {
+              accountId: gmailAccounts[index]?.id || 'unknown',
+              gmailEmail: gmailAccounts[index]?.gmailEmail || 'unknown',
+              success: false,
+              error: r.reason?.message || 'Unknown error'
+            };
+          }
+        })
       });
 
     } catch (error) {
-      console.error("Enhanced sync error:", error);
+      console.error("Multi-account sync error:", error);
       res.status(500).json({ 
-        message: "Failed to perform enhanced sync",
+        message: "Failed to perform multi-account sync",
         error: error instanceof Error ? error.message : 'Unknown error'
       });
     }
