@@ -112,6 +112,58 @@ USER APPROVAL: ⏳ Pending
 
 ### Recent Changes
 
+**November 14, 2025 - Multi-Account Gmail Support (v2.0.0)**
+
+Implemented comprehensive multi-account Gmail integration, allowing users to connect unlimited Gmail accounts with independent management:
+
+**Key Features:**
+- **Unlimited Accounts**: Users can connect multiple Gmail accounts for comprehensive subscription tracking
+- **Account Management**: Individual connect/disconnect controls per account in Settings page
+- **Source Attribution**: Each subscription and suggestion is tagged with its source Gmail account
+- **Independent Tokens**: Each account maintains its own OAuth tokens with automatic refresh handling
+- **Account Status Tracking**: Per-account sync status (idle, syncing, error) and error messages
+
+**Database Schema:**
+- New `gmail_accounts` table with columns: id, userId, gmailEmail, accessToken, refreshToken, tokenExpiry, lastSync, syncStatus, syncError, createdAt
+- Added `gmailAccountId` foreign key to `emails`, `subscriptions`, and `subscription_suggestions` tables
+- Indexes added for performance: userId, gmailEmail, syncStatus
+- Nullable gmailAccountId for backward compatibility during migration
+
+**API Endpoints:**
+- GET `/api/gmail/accounts` - List all connected accounts for authenticated user
+- GET `/api/gmail/accounts/:id` - Get single account details with ownership validation
+- DELETE `/api/gmail/accounts/:id` - Disconnect specific account with security checks
+- OAuth callback updated to handle missing refresh_token on repeat authorization
+
+**Frontend Updates:**
+- **Settings Page**: Multi-account list view with empty state, individual disconnect buttons, status badges (idle/syncing/error), sync error messages, and "Add Another Account" button
+- **Subscription Detail**: Shows source Gmail account email in "About Subscription" section when gmailAccountId exists
+- **Status Badges**: Color-coded badges for account states (green for ready/idle, blue for syncing, red for error)
+
+**Data Migration:**
+Successfully migrated existing data from single-account (users table) to multi-account structure (gmail_accounts table):
+- 1 user migrated
+- 63 emails linked to Gmail account
+- 13 subscriptions linked to Gmail account  
+- 18 suggestions linked to Gmail account
+
+**Security:**
+- Ownership validation on all account operations
+- User-scoped queries prevent cross-user data access
+- Sanitized responses exclude access/refresh tokens from API responses
+
+**Technical Details:**
+- OAuth callback reuses stored refresh_token when Google omits new one (common on repeat auth)
+- Per-account delete state tracking prevents UI blocking on individual account removal
+- Conditional TanStack Query only fetches Gmail account when gmailAccountId exists
+- 204 No Content response handling for DELETE operations
+
+**Remaining Work (Future Enhancement):**
+- Per-account Gemini sync pipeline (currently uses legacy user-based sync)
+- Parallel sync across all accounts using Promise.allSettled()
+- Dashboard global sync indicator showing "Syncing X of Y accounts"
+- Per-account sync buttons with progress indicators
+
 **November 14, 2025 - Tiered Merchant Matching System (v1.2.0)**
 
 Implemented intelligent tiered merchant matching to handle email format variations and regional domain differences:
