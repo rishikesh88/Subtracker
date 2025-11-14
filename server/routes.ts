@@ -159,26 +159,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error("User not found");
       }
 
-      // Update user with Gmail tokens and expiry
-      const updateData: any = {
-        gmailAccessToken: tokens.access_token || null,
-        gmailTokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-        gmailConnected: true,
-        gmailEmail: tokens.scope?.includes('email') ? user.email : null,
-        lastSync: new Date(),
-        updatedAt: new Date()
-      };
-      
-      // Only update refresh token if Google provides a new one
-      if (tokens.refresh_token) {
-        updateData.gmailRefreshToken = tokens.refresh_token;
+      if (!tokens.access_token) {
+        throw new Error("No access token received from Google");
       }
-      
-      const updatedUser = await storage.updateUser(user.id, updateData);
 
-      if (!updatedUser) {
-        throw new Error("Failed to update user with Gmail tokens");
+      const userInfo = await gmailService.getUserInfo(tokens.access_token);
+      const gmailEmail = userInfo.email;
+
+      if (!gmailEmail) {
+        throw new Error("Could not retrieve Gmail email address");
       }
+
+      const existingAccount = await storage.getGmailAccountByEmail(userId, gmailEmail);
+      
+      if (existingAccount) {
+        const updateData: any = {
+          accessToken: tokens.access_token,
+          tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+          lastSync: new Date(),
+          syncStatus: 'idle',
+          syncError: null,
+        };
+        
+        if (tokens.refresh_token) {
+          updateData.refreshToken = tokens.refresh_token;
+        }
+        
+        await storage.updateGmailAccount(existingAccount.id, updateData);
+        console.log("Gmail account updated successfully:", gmailEmail);
+      } else {
+        if (!tokens.refresh_token) {
+          throw new Error("No refresh token received for new account - please try reconnecting");
+        }
+        
+        const newAccount = await storage.createGmailAccount({
+          userId,
+          gmailEmail,
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+          lastSync: new Date(),
+          syncStatus: 'idle',
+        });
+        console.log("Gmail account created successfully:", newAccount.gmailEmail);
+      }
+
+      await storage.updateUser(userId, {
+        gmailConnected: true,
+        updatedAt: new Date(),
+      });
 
       console.log("Gmail connected successfully for user:", user.id);
 
@@ -192,7 +221,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Gmail connection management endpoints
+  // Gmail connection management endpoints - disconnect ALL accounts
   app.post("/api/auth/google/disconnect", isAuthenticated, async (req: any, res) => {
     try {
       const userId = req.user.claims.sub;
@@ -206,22 +235,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Clear all Gmail-related data
-      const updatedUser = await storage.updateUser(user.id, {
-        gmailAccessToken: null,
-        gmailRefreshToken: null,
-        gmailTokenExpiry: null,
+      const accounts = await storage.getGmailAccounts(userId);
+      
+      for (const account of accounts) {
+        await storage.deleteGmailAccount(account.id);
+      }
+
+      await storage.updateUser(user.id, {
         gmailConnected: false,
-        gmailEmail: null,
         updatedAt: new Date()
       });
 
-      if (!updatedUser) {
-        return res.status(500).json({ message: "Failed to disconnect Gmail" });
-      }
-
-      console.log("Gmail disconnected successfully for user:", user.id);
-      res.json({ message: "Gmail disconnected successfully", gmailConnected: false });
+      console.log(`Gmail disconnected successfully for user ${user.id} - removed ${accounts.length} account(s)`);
+      res.json({ message: "All Gmail accounts disconnected successfully", gmailConnected: false, accountsRemoved: accounts.length });
     } catch (error) {
       console.error("Gmail disconnect error:", error);
       res.status(500).json({ message: "Failed to disconnect Gmail" });
@@ -290,6 +316,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Gmail reconnection URL generation error:", error);
       res.status(500).json({ message: "Failed to generate reconnection auth URL" });
+    }
+  });
+
+  // Gmail Account Management Routes
+  app.get("/api/gmail/accounts", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      const accounts = await storage.getGmailAccounts(userId);
+      
+      const safeAccounts = accounts.map(account => ({
+        id: account.id,
+        userId: account.userId,
+        gmailEmail: account.gmailEmail,
+        lastSync: account.lastSync,
+        syncStatus: account.syncStatus,
+        syncError: account.syncError,
+        createdAt: account.createdAt,
+      }));
+
+      res.json(safeAccounts);
+    } catch (error) {
+      console.error("Error fetching Gmail accounts:", error);
+      res.status(500).json({ message: "Failed to fetch Gmail accounts" });
+    }
+  });
+
+  app.delete("/api/gmail/accounts/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const accountId = req.params.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      const account = await storage.getGmailAccount(accountId);
+      
+      if (!account) {
+        return res.status(404).json({ message: "Gmail account not found" });
+      }
+
+      if (account.userId !== userId) {
+        return res.status(403).json({ message: "Unauthorized to delete this account" });
+      }
+
+      const deleted = await storage.deleteGmailAccount(accountId);
+      
+      if (!deleted) {
+        return res.status(500).json({ message: "Failed to delete Gmail account" });
+      }
+
+      res.json({ message: "Gmail account disconnected successfully" });
+    } catch (error) {
+      console.error("Error deleting Gmail account:", error);
+      res.status(500).json({ message: "Failed to disconnect Gmail account" });
     }
   });
 
