@@ -145,13 +145,18 @@ export class TransactionDetector {
     const emailLower = email.toLowerCase();
     const nameLower = name.toLowerCase();
 
-    // PRIORITY 1: Check merchant database (80 points - strongest signal)
+    // PRIORITY 1: Check merchant database with tiered scoring
     try {
       const merchantDB = getMerchantDatabase();
-      const knownMerchant = merchantDB.isKnownMerchant(emailLower);
-      if (knownMerchant) {
-        score += 80;
-        reasons.push(`Verified merchant: ${knownMerchant.name}`);
+      const merchantMatch = merchantDB.isKnownMerchantWithScore(emailLower);
+      if (merchantMatch) {
+        score += merchantMatch.score;
+        const matchTypeLabel = {
+          'exact_email': 'exact email',
+          'root_domain': 'domain family',
+          'pattern': 'email pattern'
+        }[merchantMatch.matchType];
+        reasons.push(`Verified merchant: ${merchantMatch.merchant.name} (${matchTypeLabel} match, +${merchantMatch.score} pts)`);
         return { score, reasons };
       }
     } catch (error) {

@@ -16,6 +16,7 @@
 
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { getDomain } from 'tldts';
 
 export interface Merchant {
   name: string;
@@ -25,6 +26,12 @@ export interface Merchant {
   products: string;
   frequency: string;
   regions: string;
+}
+
+export interface MerchantMatch {
+  merchant: Merchant;
+  matchType: 'exact_email' | 'root_domain' | 'pattern';
+  score: number; // 80 for exact, 60 for domain, 45 for pattern
 }
 
 export class MerchantDatabase {
@@ -52,9 +59,15 @@ export class MerchantDatabase {
         const fields = this.parseCSVLine(line);
         if (fields.length < 6) continue;
         
+        const rawDomain = fields[1].trim().toLowerCase();
+        
+        // Parse pipe-separated domains: airtel.com|airtel.in → ['airtel.com', 'airtel.in']
+        const websiteDomains = rawDomain.split('|').map(d => d.trim()).filter(d => d);
+        
         const merchant: Merchant = {
           name: fields[0].trim(),
-          websiteDomain: fields[1].trim().toLowerCase(),
+          websiteDomain: websiteDomains[0] || rawDomain, // Primary domain
+          websiteDomains: websiteDomains,
           billingEmailDomain: fields[2].trim().toLowerCase(),
           products: fields[3].trim(),
           frequency: fields[4].trim(),
@@ -63,13 +76,24 @@ export class MerchantDatabase {
         
         this.merchants.push(merchant);
         
-        // Create lookups
-        // Website domain lookup: stripe.com → Stripe
-        if (merchant.websiteDomain) {
-          this.domainMap.set(merchant.websiteDomain, merchant);
-          // Also add without www
-          const withoutWww = merchant.websiteDomain.replace(/^www\./, '');
-          this.domainMap.set(withoutWww, merchant);
+        // Create lookups for all website domains
+        for (const domain of merchant.websiteDomains) {
+          if (!domain) continue;
+          
+          // Exact domain lookup: stripe.com → Stripe
+          this.domainMap.set(domain, merchant);
+          
+          // Without www: www.stripe.com → stripe.com
+          const withoutWww = domain.replace(/^www\./, '');
+          if (withoutWww !== domain) {
+            this.domainMap.set(withoutWww, merchant);
+          }
+          
+          // Root domain index: airtel.com → Airtel, airtel.in → Airtel
+          const rootDomain = this.extractRootDomain(domain);
+          if (rootDomain) {
+            this.rootDomainMap.set(rootDomain, merchant);
+          }
         }
         
         // Email domain lookup: billing@stripe.com → Stripe
@@ -124,10 +148,103 @@ export class MerchantDatabase {
     return match ? match[1].toLowerCase() : null;
   }
 
+  private extractRootDomain(domain: string): string | null {
+    // Extract root domain using public suffix list to handle multi-level TLDs correctly
+    // Examples:
+    //   - bill.airtel.com → airtel.com ✓
+    //   - vodafone.co.uk → vodafone.co.uk ✓ (not co.uk!)
+    //   - subdomain.example.com.au → example.com.au ✓
+    if (!domain) return null;
+    
+    try {
+      // getDomain extracts the registered domain (eTLD+1)
+      const rootDomain = getDomain(domain);
+      return rootDomain ? rootDomain.toLowerCase() : domain.toLowerCase();
+    } catch (error) {
+      // Fallback: if tldts fails, return the original domain
+      console.warn(`Failed to extract root domain for ${domain}, using original`, error);
+      return domain.toLowerCase();
+    }
+  }
+
   /**
-   * Check if an email sender is from a known merchant
+   * Check if an email sender is from a known merchant with tiered scoring
+   * @param senderEmail Full email address (e.g., "billing@stripe.com")
+   * @returns Merchant match with score, or null if not found
+   */
+  public isKnownMerchantWithScore(senderEmail: string): MerchantMatch | null {
+    if (!senderEmail) return null;
+    
+    const normalizedEmail = senderEmail.toLowerCase().trim();
+    
+    // TIER 1: Exact email match (+80 points - highest confidence)
+    for (const merchant of this.merchants) {
+      if (normalizedEmail === merchant.billingEmailDomain.toLowerCase()) {
+        return { 
+          merchant, 
+          matchType: 'exact_email',
+          score: 80 
+        };
+      }
+    }
+    
+    // TIER 2: Root domain match (+60 points - good confidence)
+    const domain = this.extractDomain(normalizedEmail);
+    if (domain) {
+      const rootDomain = this.extractRootDomain(domain);
+      if (rootDomain) {
+        const merchantByRootDomain = this.rootDomainMap.get(rootDomain);
+        if (merchantByRootDomain) {
+          return {
+            merchant: merchantByRootDomain,
+            matchType: 'root_domain',
+            score: 60
+          };
+        }
+      }
+      
+      // Also check email domain map (for backward compatibility)
+      const merchantByEmailDomain = this.emailDomainMap.get(domain);
+      if (merchantByEmailDomain) {
+        return {
+          merchant: merchantByEmailDomain,
+          matchType: 'root_domain',
+          score: 60
+        };
+      }
+      
+      // Check if domain matches website domain
+      const merchantByWebDomain = this.domainMap.get(domain);
+      if (merchantByWebDomain) {
+        return {
+          merchant: merchantByWebDomain,
+          matchType: 'root_domain',
+          score: 60
+        };
+      }
+    }
+    
+    // TIER 3: Pattern matching (+45 points - moderate confidence)
+    const patterns = Array.from(this.emailPatternMap.entries());
+    for (const [pattern, merchant] of patterns) {
+      const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$', 'i');
+      if (regex.test(normalizedEmail)) {
+        return {
+          merchant,
+          matchType: 'pattern',
+          score: 45
+        };
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Check if an email sender is from a known merchant (legacy method)
    * @param senderEmail Full email address (e.g., "billing@stripe.com")
    * @returns Merchant object if found, null otherwise
+   * @deprecated Use isKnownMerchantWithScore for tiered scoring
    */
   public isKnownMerchant(senderEmail: string): Merchant | null {
     if (!senderEmail) return null;
