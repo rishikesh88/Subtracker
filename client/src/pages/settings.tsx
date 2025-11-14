@@ -5,10 +5,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { User, LogOut, Mail, Unlink, Calendar, Save } from "lucide-react";
+import { User, LogOut, Mail, Unlink, Calendar, Save, Plus, Trash2 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { SafeUser } from "@shared/schema";
+import type { SafeUser, GmailAccount } from "@shared/schema";
 import { useState, useEffect } from "react";
 
 export default function Settings() {
@@ -16,9 +16,15 @@ export default function Settings() {
     queryKey: ['/api/auth/user']
   });
   
+  // Fetch Gmail accounts
+  const { data: gmailAccounts = [], isLoading: accountsLoading } = useQuery<GmailAccount[]>({ 
+    queryKey: ['/api/gmail/accounts']
+  });
+  
   const { toast } = useToast();
   const [emailSyncDays, setEmailSyncDays] = useState<number>(90);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set());
 
   // Initialize emailSyncDays from user data
   useEffect(() => {
@@ -27,30 +33,50 @@ export default function Settings() {
     }
   }, [user]);
 
-  // Gmail disconnect mutation
-  const disconnectGmailMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest('POST', '/api/auth/google/disconnect');
-      return response.json();
+  // Delete Gmail account mutation
+  const deleteAccountMutation = useMutation({
+    mutationFn: async (accountId: string) => {
+      const response = await apiRequest('DELETE', `/api/gmail/accounts/${accountId}`);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Failed to disconnect account' }));
+        throw new Error(errorData.message || 'Failed to disconnect account');
+      }
+      
+      // DELETE returns 204 No Content, so don't try to parse JSON
+      return null;
     },
-    onSuccess: () => {
-      // Invalidate and refetch user data
+    onMutate: (accountId) => {
+      setPendingDeletes(prev => new Set(Array.from(prev).concat(accountId)));
+    },
+    onSuccess: (_data, accountId) => {
+      setPendingDeletes(prev => {
+        const next = new Set(Array.from(prev));
+        next.delete(accountId);
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/accounts'] });
       queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
       toast({
-        title: "Gmail Disconnected",
-        description: "Your Gmail account has been successfully disconnected.",
+        title: "Account Disconnected",
+        description: "Gmail account has been successfully removed.",
       });
     },
-    onError: (error: any) => {
+    onError: (error: any, accountId) => {
+      setPendingDeletes(prev => {
+        const next = new Set(Array.from(prev));
+        next.delete(accountId);
+        return next;
+      });
       toast({
         title: "Disconnect Failed",
-        description: error?.message || "Failed to disconnect Gmail. Please try again.",
+        description: error?.message || "Failed to disconnect Gmail account. Please try again.",
         variant: "destructive",
       });
     },
   });
 
-  // Gmail connect mutation
+  // Gmail connect mutation (reused for adding accounts)
   const connectGmailMutation = useMutation({
     mutationFn: async () => {
       const response = await apiRequest('POST', '/api/auth/google/connect');
@@ -69,12 +95,31 @@ export default function Settings() {
     },
   });
 
-  const handleDisconnectGmail = () => {
-    disconnectGmailMutation.mutate();
+  const handleDisconnectAccount = (accountId: string) => {
+    deleteAccountMutation.mutate(accountId);
   };
 
-  const handleConnectGmail = () => {
+  const handleAddAccount = () => {
     connectGmailMutation.mutate();
+  };
+  
+  const getSyncStatusBadge = (status: string) => {
+    switch (status) {
+      case 'syncing':
+        return <Badge variant="secondary" className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">Syncing</Badge>;
+      case 'error':
+        return <Badge variant="destructive">Error</Badge>;
+      case 'idle':
+        return <Badge variant="outline" className="text-green-600 border-green-200 dark:text-green-400 dark:border-green-800">Ready</Badge>;
+      case 'completed':
+        return <Badge variant="outline" className="text-green-600 border-green-200 dark:text-green-400 dark:border-green-800">Completed</Badge>;
+      case 'disabled':
+        return <Badge variant="secondary" className="text-gray-600 dark:text-gray-400">Disabled</Badge>;
+      case 'pending':
+        return <Badge variant="secondary">Pending</Badge>;
+      default:
+        return <Badge variant="secondary">{status || 'Unknown'}</Badge>;
+    }
   };
 
   // Update settings mutation
@@ -200,72 +245,92 @@ export default function Settings() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Gmail Connection</CardTitle>
-            <CardDescription>
-              Manage your Gmail integration for subscription tracking
-            </CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Gmail Accounts</CardTitle>
+                <CardDescription>
+                  Connect multiple Gmail accounts for comprehensive subscription tracking
+                </CardDescription>
+              </div>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={handleAddAccount}
+                disabled={connectGmailMutation.isPending}
+                data-testid="add-gmail-account-button"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {connectGmailMutation.isPending ? "Connecting..." : "Add Account"}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <Mail className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <p className="font-medium">Gmail Account</p>
-                  <p className="text-sm text-muted-foreground" data-testid="gmail-email-display">
-                    {user?.gmailConnected 
-                      ? (user?.gmailEmail || 'Connected')
-                      : 'Not connected'
-                    }
-                  </p>
-                  {user?.lastSync && (
-                    <p className="text-xs text-muted-foreground">
-                      Last sync: {new Date(user.lastSync).toLocaleDateString()}
-                    </p>
-                  )}
-                </div>
+            {accountsLoading ? (
+              <div className="text-center py-8 text-muted-foreground">
+                Loading accounts...
               </div>
-              <Badge variant={user?.gmailConnected ? "default" : "secondary"} data-testid="gmail-connection-status">
-                {user?.gmailConnected ? "Connected" : "Disconnected"}
-              </Badge>
-            </div>
-            
-            <div className="flex items-center gap-2">
-              {user?.gmailConnected ? (
-                <>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={handleConnectGmail}
-                    disabled={connectGmailMutation.isPending}
-                    data-testid="reconnect-gmail-button"
-                  >
-                    {connectGmailMutation.isPending ? "Connecting..." : "Connect Different Account"}
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
-                    onClick={handleDisconnectGmail}
-                    disabled={disconnectGmailMutation.isPending}
-                    className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
-                    data-testid="disconnect-gmail-button"
-                  >
-                    <Unlink className="mr-2 h-4 w-4" />
-                    {disconnectGmailMutation.isPending ? "Disconnecting..." : "Disconnect"}
-                  </Button>
-                </>
-              ) : (
+            ) : gmailAccounts.length === 0 ? (
+              <div className="text-center py-8 border-2 border-dashed rounded-lg">
+                <Mail className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
+                <p className="font-medium text-muted-foreground mb-2">No Gmail accounts connected</p>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Connect your Gmail account to start tracking subscriptions
+                </p>
                 <Button 
                   variant="outline" 
                   size="sm"
-                  onClick={handleConnectGmail}
+                  onClick={handleAddAccount}
                   disabled={connectGmailMutation.isPending}
-                  data-testid="connect-gmail-button"
+                  data-testid="connect-first-gmail-button"
                 >
                   <Mail className="mr-2 h-4 w-4" />
                   {connectGmailMutation.isPending ? "Connecting..." : "Connect Gmail"}
                 </Button>
-              )}
-            </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {gmailAccounts.map((account) => (
+                  <div 
+                    key={account.id} 
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
+                    data-testid={`gmail-account-${account.id}`}
+                  >
+                    <div className="flex items-center space-x-3 flex-1">
+                      <Mail className="h-5 w-5 text-muted-foreground" />
+                      <div className="flex-1">
+                        <p className="font-medium" data-testid={`gmail-email-${account.id}`}>
+                          {account.gmailEmail}
+                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          {getSyncStatusBadge(account.syncStatus)}
+                          {account.lastSync && (
+                            <span className="text-xs text-muted-foreground">
+                              Last sync: {new Date(account.lastSync).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                        {account.syncError && (
+                          <p className="text-xs text-destructive mt-1" data-testid={`sync-error-${account.id}`}>
+                            {account.syncError}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => handleDisconnectAccount(account.id)}
+                      disabled={pendingDeletes.has(account.id)}
+                      className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
+                      data-testid={`disconnect-account-${account.id}`}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      {pendingDeletes.has(account.id) ? "Removing..." : "Remove"}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
