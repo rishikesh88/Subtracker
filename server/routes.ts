@@ -543,7 +543,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updatedAt: new Date(),
       };
       
-      if (user.onboardingStatus === 'pending' || user.onboardingStatus === 'org_complete') {
+      const wasOnboarding = user.onboardingStatus === 'pending' || user.onboardingStatus === 'org_complete';
+      if (wasOnboarding) {
         updateData.onboardingStatus = 'complete';
         console.log('[Event: onboarding_completed]', { userId, provider: 'gmail' });
       }
@@ -551,6 +552,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.updateUser(userId, updateData);
 
       console.log("Gmail connected successfully for user:", user.id);
+
+      // Trigger background sync after first account connection during onboarding
+      if (wasOnboarding && user.privacyConsentGiven) {
+        console.log('[Event: sync_started]', { userId, provider: 'gmail', trigger: 'onboarding' });
+        // Fire and forget - sync runs in background
+        fetch(`http://localhost:5000/api/sync-emails-llm`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            // Use internal auth bypass for server-to-server call
+            'X-User-Id': userId
+          }
+        }).catch(error => {
+          console.error('Failed to trigger background sync:', error);
+        });
+      }
 
       // Redirect to frontend auth callback
       const redirectUrl = `/auth/callback?provider=gmail&success=true`;
@@ -867,12 +884,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Mark onboarding as complete if this is first account during onboarding
-      if (user.onboardingStatus === 'pending' || user.onboardingStatus === 'org_complete') {
+      const wasOnboarding = user.onboardingStatus === 'pending' || user.onboardingStatus === 'org_complete';
+      if (wasOnboarding) {
         await storage.updateUser(userId, {
           onboardingStatus: 'complete',
           updatedAt: new Date(),
         });
         console.log('[Event: onboarding_completed]', { userId, provider: 'outlook' });
+        
+        // Trigger background sync after first account connection during onboarding
+        if (user.privacyConsentGiven) {
+          console.log('[Event: sync_started]', { userId, provider: 'outlook', trigger: 'onboarding' });
+          // Fire and forget - sync runs in background
+          fetch(`http://localhost:5000/api/sync-emails-llm`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              // Use internal auth bypass for server-to-server call
+              'X-User-Id': userId
+            }
+          }).catch(error => {
+            console.error('Failed to trigger background sync:', error);
+          });
+        }
       }
 
       console.log("Outlook connected successfully for user:", userId);

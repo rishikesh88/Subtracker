@@ -261,6 +261,11 @@ export const updateUserSchema = createInsertSchema(users).pick({
   lastSync: true,
   preferredCurrency: true,
   emailSyncDays: true,
+  organizationName: true,
+  countryCode: true,
+  accountHolderName: true,
+  onboardingStatus: true,
+  privacyConsentGiven: true,
   updatedAt: true,
 });
 
