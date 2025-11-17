@@ -155,6 +155,14 @@ The `emails` table currently has `gmailId` as `notNull` and `unique`, which prev
 
 **Current Workaround:** Background sync processes Gmail accounts only. Outlook accounts are connected and stored in `outlook_accounts` table, but email ingestion is deferred until schema migration completes.
 
+**OAuth Testing Limitation:**
+Google OAuth blocks automated browser testing (Playwright, Selenium) as a security measure. End-to-end testing of the onboarding flow can verify:
+- Organization setup page functionality
+- Privacy modal display and backfill slider
+- OAuth initiation and redirect to Google login page
+
+However, completing the full OAuth → callback → sync → progress panel flow requires manual testing with a real Google account. This is a platform limitation, not an application bug.
+
 ## External Dependencies
 
 ### Core Services
