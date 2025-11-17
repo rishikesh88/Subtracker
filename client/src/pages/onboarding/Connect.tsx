@@ -33,25 +33,25 @@ export default function Connect() {
     if (!selectedProvider) return;
 
     try {
-      console.log('[Event: privacy_consent_given]', { provider: selectedProvider, backfillDays });
+      console.log('[Event: privacy_consent_accepted]', { provider: selectedProvider, backfillDays });
       
-      // Save privacy consent and backfill selection to user record before OAuth
-      await apiRequest("POST", "/api/onboarding/privacy-consent", {
-        privacyConsentGiven: true,
+      // Call unified endpoint that saves consent and returns OAuth URL
+      const data = await apiRequest("POST", "/api/onboarding/connect", {
+        provider: selectedProvider,
         emailSyncDays: backfillDays,
+        privacyConsentGiven: true,
       });
       
-      // Redirect directly to OAuth flow
-      // The backend will handle redirecting to the OAuth provider
-      if (selectedProvider === 'gmail') {
-        window.location.href = '/api/auth/google';
+      if (data?.authUrl) {
+        // Redirect to OAuth provider
+        window.location.href = data.authUrl;
       } else {
-        window.location.href = '/api/auth/outlook/connect';
+        throw new Error("No auth URL received from server");
       }
     } catch (error: any) {
-      console.error('Error saving privacy consent:', error);
+      console.error('Error starting OAuth:', error);
       toast({
-        title: "Failed to save privacy consent",
+        title: "Failed to start OAuth",
         description: error.message || "An error occurred",
         variant: "destructive",
       });

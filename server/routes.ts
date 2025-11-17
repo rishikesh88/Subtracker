@@ -27,7 +27,13 @@ const rejectSuggestionsSchema = z.object({
 });
 
 // Simple in-memory store for OAuth states (in production, use Redis or database)
-const oauthStates = new Map<string, { timestamp: number }>();
+const oauthStates = new Map<string, { 
+  timestamp: number;
+  userId?: string;
+  provider?: 'gmail' | 'outlook';
+  emailSyncDays?: number;
+  privacyConsentGiven?: boolean;
+}>();
 
 // Clean up old states (older than 10 minutes)
 const cleanupOldStates = () => {
@@ -299,6 +305,89 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post('/api/onboarding/skip', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      // Mark onboarding as complete even without connecting accounts
+      // Keep privacyConsentGiven as false since user opted out
+      await storage.updateUser(userId, {
+        onboardingStatus: 'complete',
+        updatedAt: new Date(),
+      });
+
+      console.log('[Event: account_connection_skipped]', { userId });
+
+      res.json({ 
+        success: true,
+        message: "Onboarding skipped, you can connect accounts later" 
+      });
+    } catch (error) {
+      console.error("Error skipping onboarding:", error);
+      res.status(500).json({ message: "Failed to skip onboarding" });
+    }
+  });
+
+  app.post('/api/onboarding/connect', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      const connectSchema = z.object({
+        provider: z.enum(['gmail', 'outlook']),
+        emailSyncDays: z.number().int().min(30).max(180),
+        privacyConsentGiven: z.boolean(),
+      });
+
+      const validationResult = connectSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          message: "Invalid connect request",
+          errors: validationResult.error.errors 
+        });
+      }
+
+      const { provider, emailSyncDays, privacyConsentGiven } = validationResult.data;
+
+      // Save privacy consent and backfill window to user record
+      if (privacyConsentGiven) {
+        await storage.updateUser(userId, {
+          privacyConsentGiven: true,
+          emailSyncDays,
+          updatedAt: new Date(),
+        });
+        console.log('[Event: privacy_consent_given]', { userId, emailSyncDays });
+      }
+
+      // Generate cryptographically random state for CSRF protection
+      // Store metadata with the state so callbacks can hydrate it
+      const state = randomBytes(32).toString('hex');
+      oauthStates.set(state, { 
+        timestamp: Date.now(),
+        userId,
+        provider,
+        emailSyncDays,
+        privacyConsentGiven,
+      });
+
+      // Generate OAuth URL based on provider
+      let authUrl: string;
+      if (provider === 'gmail') {
+        const gmailService = new GmailService();
+        authUrl = gmailService.getAuthUrl(state);
+      } else {
+        const outlookService = new OutlookService();
+        authUrl = outlookService.getAuthUrl(state);
+      }
+
+      console.log(`Generated ${provider} auth URL with state containing metadata`);
+      
+      res.json({ authUrl });
+    } catch (error) {
+      console.error("Error generating OAuth URL:", error);
+      res.status(500).json({ message: "Failed to generate OAuth URL" });
+    }
+  });
+
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
@@ -337,7 +426,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Gmail OAuth routes (separate from user auth)
+  // Gmail OAuth routes (legacy endpoint for reconnect flow)
   app.get("/api/auth/google", isAuthenticated, async (req: any, res) => {
     try {
       console.log("Google Client ID available:", !!process.env.GOOGLE_CLIENT_ID);
@@ -345,9 +434,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Repl Slug:", process.env.REPL_SLUG);
       console.log("Repl Owner:", process.env.REPL_OWNER);
       
+      const userId = req.user.claims.sub;
+      
       // Generate cryptographically random state for CSRF protection
       const state = randomBytes(32).toString('hex');
-      oauthStates.set(state, { timestamp: Date.now() });
+      oauthStates.set(state, { 
+        timestamp: Date.now(),
+        userId,
+        provider: 'gmail',
+        // No emailSyncDays or privacyConsentGiven for reconnect flow
+      });
       
       const gmailService = new GmailService();
       const authUrl = gmailService.getAuthUrl(state);
@@ -366,19 +462,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { code, state } = req.query;
       
       if (!code) {
-        const redirectUrl = `/?gmailConnected=false&error=${encodeURIComponent('Missing authorization code')}`;
+        const redirectUrl = `/auth/callback?provider=gmail&error=${encodeURIComponent('Missing authorization code')}`;
         return res.redirect(redirectUrl);
       }
 
-      // Verify OAuth state for CSRF protection
+      // Verify OAuth state for CSRF protection and extract metadata
       if (!state || typeof state !== 'string' || !oauthStates.has(state)) {
         console.error('Invalid or missing OAuth state parameter');
-        const redirectUrl = `/?gmailConnected=false&error=${encodeURIComponent('Invalid or expired authentication request')}`;
+        const redirectUrl = `/auth/callback?provider=gmail&error=${encodeURIComponent('Invalid or expired authentication request')}`;
         return res.redirect(redirectUrl);
       }
 
-      // Remove used state
-      oauthStates.delete(state);
+      // Extract metadata from state
+      const stateData = oauthStates.get(state);
+      oauthStates.delete(state); // Remove used state to prevent replay
 
       const gmailService = new GmailService();
       const tokens = await gmailService.getTokens(code as string);
@@ -437,6 +534,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           syncStatus: 'idle',
         });
         console.log("Gmail account created successfully:", newAccount.gmailEmail);
+        console.log('[Event: email_connected]', { userId, provider: 'gmail', email: gmailEmail });
       }
 
       // Mark onboarding as complete if this is first account during onboarding
@@ -458,8 +556,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const redirectUrl = `/auth/callback?provider=gmail&success=true`;
       res.redirect(redirectUrl);
     } catch (error) {
-      console.error("OAuth callback error:", error);
-      const redirectUrl = `/?gmailConnected=false&error=${encodeURIComponent(error instanceof Error ? error.message : 'Unknown error')}`;
+      console.error("Gmail OAuth callback error:", error);
+      const redirectUrl = `/auth/callback?provider=gmail&error=${encodeURIComponent(error instanceof Error ? error.message : 'Unknown error')}`;
       res.redirect(redirectUrl);
     }
   });
@@ -658,15 +756,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Outlook OAuth Routes
+  // Outlook OAuth Routes (legacy endpoint for reconnect flow)
   app.get("/api/auth/outlook/connect", isAuthenticated, async (req: any, res) => {
     try {
       console.log("Outlook connection initiated");
       console.log("Microsoft Client ID available:", !!process.env.MICROSOFT_CLIENT_ID);
       console.log("Microsoft Client Secret available:", !!process.env.MICROSOFT_CLIENT_SECRET);
       
+      const userId = req.user.claims.sub;
+      
       const state = randomBytes(32).toString('hex');
-      oauthStates.set(state, { timestamp: Date.now() });
+      oauthStates.set(state, { 
+        timestamp: Date.now(),
+        userId,
+        provider: 'outlook',
+        // No emailSyncDays or privacyConsentGiven for reconnect flow
+      });
       
       const outlookService = new OutlookService();
       const authUrl = outlookService.getAuthUrl(state);
@@ -686,20 +791,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (oauthError) {
         console.error("Outlook OAuth error:", oauthError);
-        return res.redirect(`/?outlookConnected=false&error=${encodeURIComponent(oauthError as string)}`);
+        return res.redirect(`/auth/callback?provider=outlook&error=${encodeURIComponent(oauthError as string)}`);
       }
 
       if (!code || typeof code !== 'string') {
         console.error("No authorization code received from Outlook");
-        return res.redirect('/?outlookConnected=false&error=no_code');
+        return res.redirect('/auth/callback?provider=outlook&error=no_code');
       }
 
+      // Verify OAuth state for CSRF protection and extract metadata
       if (!state || typeof state !== 'string' || !oauthStates.has(state)) {
         console.error("Invalid or missing state parameter");
-        return res.redirect('/?outlookConnected=false&error=invalid_state');
+        return res.redirect('/auth/callback?provider=outlook&error=invalid_state');
       }
 
-      oauthStates.delete(state);
+      // Extract metadata from state
+      const stateData = oauthStates.get(state);
+      oauthStates.delete(state); // Remove used state to prevent replay
 
       const outlookService = new OutlookService();
       const tokens = await outlookService.exchangeToken(code);
@@ -748,6 +856,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           syncStatus: 'idle',
         });
         console.log("Outlook account created successfully:", newAccount.outlookEmail);
+        console.log('[Event: email_connected]', { userId, provider: 'outlook', email: outlookEmail });
       }
 
       // Mark onboarding as complete if this is first account during onboarding
@@ -765,7 +874,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.redirect(redirectUrl);
     } catch (error) {
       console.error("Outlook OAuth callback error:", error);
-      const redirectUrl = `/?outlookConnected=false&error=${encodeURIComponent(error instanceof Error ? error.message : 'Unknown error')}`;
+      const redirectUrl = `/auth/callback?provider=outlook&error=${encodeURIComponent(error instanceof Error ? error.message : 'Unknown error')}`;
       res.redirect(redirectUrl);
     }
   });
