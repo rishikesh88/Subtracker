@@ -29,6 +29,24 @@ export default function Settings() {
   
   const accountsLoading = gmailAccountsLoading || outlookAccountsLoading;
   
+  // Unified account list with proper typing
+  type UnifiedAccount = 
+    | ({ provider: 'gmail' } & GmailAccount)
+    | ({ provider: 'outlook' } & OutlookAccount);
+  
+  const unifiedAccounts: UnifiedAccount[] = [
+    ...gmailAccounts.map(acc => ({ ...acc, provider: 'gmail' as const })),
+    ...outlookAccounts.map(acc => ({ ...acc, provider: 'outlook' as const }))
+  ].sort((a, b) => {
+    // Sort by creation time (most recent first)
+    const dateA = new Date(a.createdAt || 0);
+    const dateB = new Date(b.createdAt || 0);
+    return dateB.getTime() - dateA.getTime();
+  });
+  
+  const totalAccounts = gmailAccounts.length + outlookAccounts.length;
+  const canAddMore = totalAccounts < 4;
+  
   const { toast } = useToast();
   const [emailSyncDays, setEmailSyncDays] = useState<number>(90);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -335,7 +353,7 @@ export default function Settings() {
                   variant="outline" 
                   size="sm"
                   onClick={handleConnectGmail}
-                  disabled={connectGmailMutation.isPending || (gmailAccounts.length >= 2)}
+                  disabled={connectGmailMutation.isPending || (gmailAccounts.length >= 2) || !canAddMore}
                   data-testid="connect-gmail-button"
                   className="gap-1.5"
                 >
@@ -346,7 +364,7 @@ export default function Settings() {
                   variant="outline" 
                   size="sm"
                   onClick={handleConnectOutlook}
-                  disabled={connectOutlookMutation.isPending || (outlookAccounts.length >= 2)}
+                  disabled={connectOutlookMutation.isPending || (outlookAccounts.length >= 2) || !canAddMore}
                   data-testid="connect-outlook-button"
                   className="gap-1.5"
                 >
@@ -361,7 +379,7 @@ export default function Settings() {
               <div className="text-center py-8 text-muted-foreground">
                 Loading accounts...
               </div>
-            ) : gmailAccounts.length === 0 && outlookAccounts.length === 0 ? (
+            ) : unifiedAccounts.length === 0 ? (
               <div className="text-center py-8 border-2 border-dashed rounded-lg">
                 <Mail className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
                 <p className="font-medium text-muted-foreground mb-2">No email accounts connected</p>
@@ -395,96 +413,68 @@ export default function Settings() {
               </div>
             ) : (
               <div className="space-y-3">
-                {gmailAccounts.map((account) => (
-                  <div 
-                    key={`gmail-${account.id}`}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
-                    data-testid={`gmail-account-${account.id}`}
-                  >
-                    <div className="flex items-center space-x-3 flex-1">
-                      <div className="flex items-center justify-center h-8 w-8 rounded bg-primary/10">
-                        <SiGoogle className="h-4 w-4 text-primary" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium" data-testid={`gmail-email-${account.id}`}>
-                            {account.gmailEmail}
-                          </p>
-                          <Badge variant="outline" className="text-xs">Gmail</Badge>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          {getSyncStatusBadge(account.syncStatus)}
-                          {account.lastSync && (
-                            <span className="text-xs text-muted-foreground">
-                              Last sync: {new Date(account.lastSync).toLocaleDateString()}
-                            </span>
+                {unifiedAccounts.map((account) => {
+                  const isGmail = account.provider === 'gmail';
+                  const email = isGmail ? (account as GmailAccount).gmailEmail : (account as OutlookAccount).outlookEmail;
+                  const accountId = account.id;
+                  const testId = isGmail ? `gmail-account-${accountId}` : `outlook-account-${accountId}`;
+                  
+                  return (
+                    <div 
+                      key={`${account.provider}-${accountId}`}
+                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
+                      data-testid={testId}
+                    >
+                      <div className="flex items-center space-x-3 flex-1">
+                        {isGmail ? (
+                          <div className="flex items-center justify-center h-8 w-8 rounded bg-primary/10">
+                            <SiGoogle className="h-4 w-4 text-primary" />
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-center h-8 w-8 rounded bg-blue-100 dark:bg-blue-900">
+                            <Mail className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          </div>
+                        )}
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium" data-testid={isGmail ? `gmail-email-${accountId}` : `outlook-email-${accountId}`}>
+                              {email}
+                            </p>
+                            {isGmail ? (
+                              <Badge variant="outline" className="text-xs">Gmail</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">Outlook</Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1">
+                            {getSyncStatusBadge(account.syncStatus)}
+                            {account.lastSync && (
+                              <span className="text-xs text-muted-foreground">
+                                Last sync: {new Date(account.lastSync).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                          {account.syncError && (
+                            <p className="text-xs text-destructive mt-1" data-testid={`sync-error-${accountId}`}>
+                              {account.syncError}
+                            </p>
                           )}
                         </div>
-                        {account.syncError && (
-                          <p className="text-xs text-destructive mt-1" data-testid={`sync-error-${account.id}`}>
-                            {account.syncError}
-                          </p>
-                        )}
                       </div>
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => isGmail ? handleDisconnectGmailAccount(accountId) : handleDisconnectOutlookAccount(accountId)}
+                        disabled={pendingDeletes.has(accountId)}
+                        className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
+                        data-testid={isGmail ? `disconnect-gmail-${accountId}` : `disconnect-outlook-${accountId}`}
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        {pendingDeletes.has(accountId) ? "Removing..." : "Remove"}
+                      </Button>
                     </div>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => handleDisconnectGmailAccount(account.id)}
-                      disabled={pendingDeletes.has(account.id)}
-                      className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
-                      data-testid={`disconnect-gmail-${account.id}`}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      {pendingDeletes.has(account.id) ? "Removing..." : "Remove"}
-                    </Button>
-                  </div>
-                ))}
-                {outlookAccounts.map((account) => (
-                  <div 
-                    key={`outlook-${account.id}`}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
-                    data-testid={`outlook-account-${account.id}`}
-                  >
-                    <div className="flex items-center space-x-3 flex-1">
-                      <div className="flex items-center justify-center h-8 w-8 rounded bg-blue-100 dark:bg-blue-900">
-                        <Mail className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium" data-testid={`outlook-email-${account.id}`}>
-                            {account.outlookEmail}
-                          </p>
-                          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">Outlook</Badge>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          {getSyncStatusBadge(account.syncStatus)}
-                          {account.lastSync && (
-                            <span className="text-xs text-muted-foreground">
-                              Last sync: {new Date(account.lastSync).toLocaleDateString()}
-                            </span>
-                          )}
-                        </div>
-                        {account.syncError && (
-                          <p className="text-xs text-destructive mt-1" data-testid={`sync-error-${account.id}`}>
-                            {account.syncError}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={() => handleDisconnectOutlookAccount(account.id)}
-                      disabled={pendingDeletes.has(account.id)}
-                      className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
-                      data-testid={`disconnect-outlook-${account.id}`}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      {pendingDeletes.has(account.id) ? "Removing..." : "Remove"}
-                    </Button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

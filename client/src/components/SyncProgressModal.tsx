@@ -15,6 +15,8 @@ interface SyncProgressModalProps {
 
 const stageLabels: Record<string, string> = {
   'starting': 'Initializing',
+  'multi_account_sync_start': 'Starting Multi-Account Sync',
+  'accounts_syncing': 'Syncing Email Accounts',
   'gmail_fetch': 'Fetching Emails',
   'parsing': 'Parsing Content',
   'parsing_complete': 'Processing Complete',
@@ -26,7 +28,9 @@ const stageLabels: Record<string, string> = {
 
 const stageDescriptions: Record<string, string> = {
   'starting': 'Setting up sync process...',
-  'gmail_fetch': 'Retrieving emails from Gmail...',
+  'multi_account_sync_start': 'Processing connected email accounts...',
+  'accounts_syncing': 'Syncing email accounts in parallel...',
+  'gmail_fetch': 'Retrieving emails from provider...',
   'parsing': 'Extracting content and metadata...',
   'parsing_complete': 'Email parsing finished',
   'filtering_complete': 'Selected candidate emails for analysis',
@@ -97,7 +101,16 @@ export function SyncProgressModal({ isOpen, onOpenChange, userId, onComplete }: 
             </p>
 
             {progress.details && (
-              <div className="flex gap-2 text-xs" data-testid="progress-details">
+              <div className="flex gap-2 text-xs flex-wrap" data-testid="progress-details">
+                {progress.details.totalAccounts !== undefined && progress.details.completed !== undefined && (
+                  <Badge variant="secondary">{progress.details.completed}/{progress.details.totalAccounts} accounts</Badge>
+                )}
+                {progress.details.gmailAccounts !== undefined && (
+                  <Badge variant="outline" className="bg-primary/10">{progress.details.gmailAccounts} Gmail</Badge>
+                )}
+                {progress.details.outlookAccounts !== undefined && (
+                  <Badge variant="outline" className="bg-blue-100 dark:bg-blue-900">{progress.details.outlookAccounts} Outlook</Badge>
+                )}
                 {progress.details.emailCount && (
                   <Badge variant="secondary">{progress.details.emailCount} emails</Badge>
                 )}

@@ -37,16 +37,28 @@ export default function SubscriptionDetail() {
     enabled: !!subscriptionId,
   });
   
-  // Fetch Gmail account if subscription has gmailAccountId (legacy) or emailProvider='gmail'
+  // Determine provider and account ID to fetch
+  const isOutlookSubscription = subscription?.emailProvider === 'outlook';
+  const isGmailSubscription = subscription?.emailProvider === 'gmail' || subscription?.gmailAccountId; // Legacy fallback
+  
+  const gmailAccountIdToFetch = isGmailSubscription 
+    ? (subscription?.providerAccountId || subscription?.gmailAccountId)
+    : null;
+  
+  const outlookAccountIdToFetch = isOutlookSubscription
+    ? subscription?.providerAccountId
+    : null;
+
+  // Fetch Gmail account
   const { data: gmailAccount } = useQuery<GmailAccount>({
-    queryKey: [`/api/gmail/accounts/${subscription?.gmailAccountId || subscription?.providerAccountId}`],
-    enabled: !!(subscription?.gmailAccountId || (subscription?.emailProvider === 'gmail' && subscription?.providerAccountId)),
+    queryKey: [`/api/gmail/accounts/${gmailAccountIdToFetch}`],
+    enabled: !!gmailAccountIdToFetch,
   });
 
-  // Fetch Outlook account if subscription has emailProvider='outlook'
+  // Fetch Outlook account
   const { data: outlookAccount } = useQuery<OutlookAccount>({
-    queryKey: [`/api/outlook/accounts/${subscription?.providerAccountId}`],
-    enabled: !!(subscription?.emailProvider === 'outlook' && subscription?.providerAccountId),
+    queryKey: [`/api/outlook/accounts/${outlookAccountIdToFetch}`],
+    enabled: !!outlookAccountIdToFetch,
   });
 
   // Initialize form data when subscription is loaded
