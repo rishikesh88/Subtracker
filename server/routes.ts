@@ -806,6 +806,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Delete a subscription (including related invoices)
+  app.delete("/api/subscriptions/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const { id } = req.params;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      // Verify the subscription belongs to the user
+      const existingSubscription = await storage.getSubscription(id);
+      if (!existingSubscription) {
+        return res.status(404).json({ message: "Subscription not found" });
+      }
+      if (existingSubscription.userId !== userId) {
+        return res.status(403).json({ message: "Unauthorized to delete this subscription" });
+      }
+
+      // Delete the subscription (also deletes related invoices)
+      const deleted = await storage.deleteSubscription(id);
+      
+      if (!deleted) {
+        return res.status(404).json({ message: "Subscription not found" });
+      }
+
+      res.json({ message: "Subscription and related invoices deleted successfully" });
+    } catch (error) {
+      console.error("Delete subscription error:", error);
+      res.status(500).json({ message: "Failed to delete subscription" });
+    }
+  });
+
   // Get subscription detail
   app.get("/api/subscriptions/:id", isAuthenticated, async (req: any, res) => {
     try {

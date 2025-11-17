@@ -355,6 +355,56 @@ export class DatabaseStorage implements IStorage {
 
   async deleteSubscription(id: string): Promise<boolean> {
     try {
+      // First, get all invoices for this subscription
+      const subscriptionInvoices = await this.getInvoices(id);
+      
+      // Delete invoice files from object storage
+      if (subscriptionInvoices.length > 0) {
+        const { ObjectStorageService } = await import('./objectStorage');
+        const objectStorage = new ObjectStorageService();
+        
+        for (const invoice of subscriptionInvoices) {
+          try {
+            let objectPath: string;
+            
+            // Handle normalized /objects/... URLs
+            if (invoice.fileUrl.startsWith('/objects/')) {
+              // Get the file from normalized path to extract bucket/object names
+              const file = await objectStorage.getObjectEntityFile(invoice.fileUrl);
+              const bucketName = file.bucket.name;
+              const objectName = file.name;
+              
+              // Construct the full path for deletion
+              objectPath = `${bucketName}/${objectName}`;
+            } 
+            // Handle direct GCS URLs (https://storage.googleapis.com/bucket/object)
+            else if (invoice.fileUrl.startsWith('https://storage.googleapis.com/')) {
+              const url = new URL(invoice.fileUrl);
+              const pathParts = url.pathname.slice(1).split('/');
+              objectPath = pathParts.join('/');
+            }
+            // Handle any other format - extract the filename and use PRIVATE_OBJECT_DIR
+            else {
+              const urlParts = invoice.fileUrl.split('/');
+              const fileName = urlParts[urlParts.length - 1];
+              objectPath = `${process.env.PRIVATE_OBJECT_DIR}/${fileName}`;
+            }
+            
+            // Delete the file from object storage
+            await objectStorage.deleteObject(objectPath);
+            console.log(`Deleted invoice file: ${objectPath}`);
+          } catch (error) {
+            console.error(`Failed to delete invoice file ${invoice.fileUrl}:`, error);
+            // Continue with deletion even if file deletion fails (file may not exist)
+          }
+        }
+        
+        // Delete invoice records from database (even if some files failed to delete)
+        await this.db.delete(invoices).where(eq(invoices.subscriptionId, id));
+        console.log(`Deleted ${subscriptionInvoices.length} invoice records from database`);
+      }
+      
+      // Finally, delete the subscription
       const result = await this.db.delete(subscriptions).where(eq(subscriptions.id, id));
       return result.rowCount > 0;
     } catch (error) {

@@ -156,6 +156,30 @@ export class ObjectStorageService {
     return normalizedPath;
   }
 
+  /**
+   * Delete an object from object storage
+   * @param fullPath - Full path like "PRIVATE_OBJECT_DIR/uploads/filename"
+   */
+  async deleteObject(fullPath: string): Promise<void> {
+    try {
+      const { bucketName, objectName } = parseObjectPath(fullPath);
+      const bucket = objectStorageClient.bucket(bucketName);
+      const file = bucket.file(objectName);
+
+      // Check if file exists before attempting to delete
+      const [exists] = await file.exists();
+      if (exists) {
+        await file.delete();
+        console.log(`Successfully deleted object: ${fullPath}`);
+      } else {
+        console.warn(`Object not found for deletion: ${fullPath}`);
+      }
+    } catch (error) {
+      console.error(`Error deleting object ${fullPath}:`, error);
+      throw error;
+    }
+  }
+
   // Gets the object entity file from the object path.
   async getObjectEntityFile(objectPath: string): Promise<File> {
     if (!objectPath.startsWith("/objects/")) {

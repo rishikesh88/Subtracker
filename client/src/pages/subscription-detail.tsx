@@ -8,6 +8,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ArrowLeft, Edit, Save, X, Upload, Download, Trash2, FileText, Image, FileIcon, Mail } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import { useState, useEffect } from "react";
@@ -22,6 +32,7 @@ export default function SubscriptionDetail() {
   const { toast } = useToast();
   const [isEditMode, setIsEditMode] = useState(false);
   const [formData, setFormData] = useState<Partial<Subscription>>({});
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const subscriptionId = params?.id;
 
@@ -96,6 +107,30 @@ export default function SubscriptionDetail() {
       toast({
         title: "Error",
         description: "Failed to update subscription",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Delete subscription mutation
+  const deleteSubscriptionMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest('DELETE', `/api/subscriptions/${subscriptionId}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Success",
+        description: "Subscription and related invoices deleted successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+      setLocation('/subscriptions');
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete subscription",
         variant: "destructive",
       });
     },
@@ -237,10 +272,20 @@ export default function SubscriptionDetail() {
         </div>
         <div className="flex space-x-2">
           {!isEditMode ? (
-            <Button onClick={() => setIsEditMode(true)} data-testid="edit-btn">
-              <Edit className="h-4 w-4 mr-2" />
-              Edit
-            </Button>
+            <>
+              <Button
+                variant="destructive"
+                onClick={() => setShowDeleteDialog(true)}
+                data-testid="delete-btn"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </Button>
+              <Button onClick={() => setIsEditMode(true)} data-testid="edit-btn">
+                <Edit className="h-4 w-4 mr-2" />
+                Edit
+              </Button>
+            </>
           ) : (
             <>
               <Button
@@ -490,6 +535,41 @@ export default function SubscriptionDetail() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent data-testid="delete-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Subscription</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p>Are you sure you want to delete this subscription?</p>
+              <p className="font-semibold text-destructive">
+                This action cannot be undone. This will permanently delete:
+              </p>
+              <ul className="list-disc list-inside pl-4 space-y-1">
+                <li>The subscription details</li>
+                <li>All {invoices.length} related invoice{invoices.length !== 1 ? 's' : ''}</li>
+                <li>Invoice files from storage</li>
+              </ul>
+              <p className="mt-2">Your dashboard statistics will be updated automatically.</p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="cancel-delete-btn">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                deleteSubscriptionMutation.mutate();
+                setShowDeleteDialog(false);
+              }}
+              disabled={deleteSubscriptionMutation.isPending}
+              className="bg-destructive hover:bg-destructive/90"
+              data-testid="confirm-delete-btn"
+            >
+              {deleteSubscriptionMutation.isPending ? 'Deleting...' : 'Delete Permanently'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
