@@ -96,42 +96,41 @@ The application supports dual authentication methods:
 
 Gmail and Outlook integrations use the OAuth2 flow for secure email access, managing authorization, token exchange, refresh token handling, and secure storage of credentials.
 
-### Incremental Onboarding Flow (In Progress)
+### Incremental Onboarding Flow
 
-**Current Implementation Status (Partially Complete):**
+**Status: Phases 1-3 Complete** ✅
 
 The application includes a multi-step onboarding flow for new users:
 
-**Phase 1 - Authentication** (✅ Completed):
+**Phase 1 - Authentication** (✅ Complete):
 - Email+password signup and login with secure bcrypt hashing
 - Server-side validation with Zod schemas
 - Protected fields (passwordHash, onboardingStatus, privacyConsentGiven) never exposed to client
 
-**Phase 2 - Organization Setup** (✅ Completed):
+**Phase 2 - Organization Setup** (✅ Complete):
 - `/onboarding/org-setup` page collects organization name, country, and account holder name
 - Country selection automatically maps to default currency (USD, EUR, GBP, etc.)
 - Backend endpoint `/api/onboarding/org-setup` saves data and updates onboardingStatus to 'org_complete'
 
-**Phase 3 - Connect Accounts** (⚠️ Partially Complete):
+**Phase 3 - Connect Accounts** (✅ Complete):
 - `/onboarding/connect` page with Connect Gmail/Outlook buttons
 - Privacy modal explains metadata-only access, read-only permissions, and ability to disconnect
 - Backfill window slider (30/60/90/180 days, default 90)
-- Backend endpoint `/api/onboarding/privacy-consent` saves consent and backfill selection
-- OAuth flow redirects to Google/Microsoft for authorization
+- Unified `/api/onboarding/connect` endpoint that saves consent, mints OAuth state with metadata, and returns authUrl
+- Skip flow with `/api/onboarding/skip` endpoint marks onboarding complete without connecting accounts
+- All OAuth flows redirect consistently to `/auth/callback?provider=X&success=true` or `&error=...`
+- State metadata includes userId, provider, emailSyncDays, and privacyConsentGiven for security
 
-**Known Issues & Remaining Work:**
-The OAuth callback flow has several issues identified by architect review:
-1. Need unified `/api/onboarding/connect` endpoint to mint signed OAuth state with metadata
-2. Gmail and Outlook callbacks need refactoring for consistent behavior:
-   - Validate state and hydrate consent/backfill metadata
-   - Mark onboardingStatus='complete' after first account connection
-   - Redirect to `/auth/callback?provider=X&success=true` consistently
-3. Skip flow needs `/api/onboarding/skip` endpoint to mark onboarding complete without connecting accounts
-4. Error handling needs standardization across all OAuth paths
+**OAuth Flow Architecture:**
+- **Onboarding flow**: Uses `/api/onboarding/connect` with full metadata (emailSyncDays, consent)
+- **Reconnect flow**: Uses `/api/auth/google` or `/api/auth/outlook/connect` with userId and provider
+- All OAuth state creators store consistent metadata in oauthStates Map
+- Callbacks validate state, prefer stateData.userId over session for resilience
+- Error handling standardized across all paths
 
-**Onboarding Status States:**
+**Onboarding Status Transitions:**
 - `pending`: New user, needs to complete org setup
-- `org_complete`: Organization setup done, needs to connect email accounts
+- `org_complete`: Organization setup done, needs to connect email accounts or skip
 - `complete`: Fully onboarded (either connected accounts or skipped)
 
 ## External Dependencies

@@ -480,10 +480,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const gmailService = new GmailService();
       const tokens = await gmailService.getTokens(code as string);
       
-      // Get the current authenticated user
-      const userId = req.user?.claims?.sub;
+      // Get userId from state metadata first, fall back to session
+      const userId = stateData?.userId ?? req.user?.claims?.sub;
       if (!userId) {
-        throw new Error("User not authenticated");
+        throw new Error("User not authenticated and no userId in state");
       }
       
       const user = await storage.getUser(userId);
@@ -646,9 +646,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Google Client ID available:", !!process.env.GOOGLE_CLIENT_ID);
       console.log("Google Client Secret available:", !!process.env.GOOGLE_CLIENT_SECRET);
       
+      const userId = req.user.claims.sub;
+      
       // Generate cryptographically random state for CSRF protection
       const state = randomBytes(32).toString('hex');
-      oauthStates.set(state, { timestamp: Date.now() });
+      oauthStates.set(state, { 
+        timestamp: Date.now(),
+        userId,
+        provider: 'gmail',
+      });
       
       const gmailService = new GmailService();
       const authUrl = gmailService.getAuthUrl(state);
@@ -814,9 +820,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const outlookEmail = await outlookService.getUserEmail(tokens.access_token);
 
-      const userId = req.user?.claims?.sub;
+      // Get userId from state metadata first, fall back to session
+      const userId = stateData?.userId ?? req.user?.claims?.sub;
       if (!userId) {
-        throw new Error("User not authenticated");
+        throw new Error("User not authenticated and no userId in state");
       }
       
       const user = await storage.getUser(userId);
