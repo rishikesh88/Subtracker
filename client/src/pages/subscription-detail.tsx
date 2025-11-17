@@ -1,6 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
-import type { Subscription, Invoice, GmailAccount } from "@shared/schema";
+import type { Subscription, Invoice, GmailAccount, OutlookAccount } from "@shared/schema";
 import type { UploadResult } from "@uppy/core";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Edit, Save, X, Upload, Download, Trash2, FileText, Image, FileIcon } from "lucide-react";
+import { ArrowLeft, Edit, Save, X, Upload, Download, Trash2, FileText, Image, FileIcon, Mail } from "lucide-react";
+import { SiGoogle } from "react-icons/si";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -36,10 +37,16 @@ export default function SubscriptionDetail() {
     enabled: !!subscriptionId,
   });
   
-  // Fetch Gmail account if subscription has gmailAccountId
+  // Fetch Gmail account if subscription has gmailAccountId (legacy) or emailProvider='gmail'
   const { data: gmailAccount } = useQuery<GmailAccount>({
-    queryKey: [`/api/gmail/accounts/${subscription?.gmailAccountId}`],
-    enabled: !!subscription?.gmailAccountId,
+    queryKey: [`/api/gmail/accounts/${subscription?.gmailAccountId || subscription?.providerAccountId}`],
+    enabled: !!(subscription?.gmailAccountId || (subscription?.emailProvider === 'gmail' && subscription?.providerAccountId)),
+  });
+
+  // Fetch Outlook account if subscription has emailProvider='outlook'
+  const { data: outlookAccount } = useQuery<OutlookAccount>({
+    queryKey: [`/api/outlook/accounts/${subscription?.providerAccountId}`],
+    enabled: !!(subscription?.emailProvider === 'outlook' && subscription?.providerAccountId),
   });
 
   // Initialize form data when subscription is loaded
@@ -294,12 +301,31 @@ export default function SubscriptionDetail() {
                 </p>
               )}
             </div>
-            {gmailAccount && (
+            {(gmailAccount || outlookAccount) && (
               <div>
-                <Label>Source Gmail Account</Label>
-                <p className="text-sm text-muted-foreground" data-testid="source-gmail-account">
-                  {gmailAccount.gmailEmail}
-                </p>
+                <Label>Source Email Account</Label>
+                <div className="flex items-center gap-2 mt-1" data-testid="source-email-account">
+                  {gmailAccount && (
+                    <>
+                      <div className="flex items-center justify-center h-5 w-5 rounded bg-primary/10">
+                        <SiGoogle className="h-3 w-3 text-primary" />
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {gmailAccount.gmailEmail}
+                      </p>
+                    </>
+                  )}
+                  {outlookAccount && (
+                    <>
+                      <div className="flex items-center justify-center h-5 w-5 rounded bg-blue-100 dark:bg-blue-900">
+                        <Mail className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        {outlookAccount.outlookEmail}
+                      </p>
+                    </>
+                  )}
+                </div>
               </div>
             )}
           </CardContent>
