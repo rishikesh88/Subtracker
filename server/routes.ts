@@ -680,7 +680,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         accessToken,
         user.gmailRefreshToken || '',
         onTokenRefresh,
-        user.emailSyncDays || 90
+        user.emailSyncDays || 30
       );
 
       let newEmails = 0;
@@ -1440,7 +1440,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         user.gmailAccessToken!,
         user.gmailRefreshToken || '',
         onTokenRefresh,
-        user.emailSyncDays || 90
+        user.emailSyncDays || 30
       );
       
       console.log(`📬 Gmail fetch complete: ${gmailMessages.length} emails retrieved`);

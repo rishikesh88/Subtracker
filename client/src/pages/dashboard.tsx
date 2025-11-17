@@ -502,7 +502,7 @@ export default function Dashboard() {
               
               {/* Email Sync Days Selector */}
               <Select 
-                value={String(user?.emailSyncDays || 90)}
+                value={String(user?.emailSyncDays || 30)}
                 onValueChange={(value) => changeSyncDaysMutation.mutate(parseInt(value))}
                 disabled={changeSyncDaysMutation.isPending}
               >
@@ -511,6 +511,12 @@ export default function Dashboard() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent data-testid="sync-days-dropdown">
+                  <SelectItem value="30" data-testid="sync-days-option-30">
+                    30 days
+                  </SelectItem>
+                  <SelectItem value="60" data-testid="sync-days-option-60">
+                    60 days
+                  </SelectItem>
                   <SelectItem value="90" data-testid="sync-days-option-90">
                     90 days
                   </SelectItem>

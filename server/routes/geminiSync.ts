@@ -698,13 +698,13 @@ export function registerGeminiRoutes(app: Express) {
         return res.status(400).json({ message: "No email accounts connected" });
       }
       
-      // Get user's email sync days setting (default 90, max 180)
+      // Get user's email sync days setting (default 30, max 180)
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
       
-      const emailSyncDays = user.emailSyncDays || 90;
+      const emailSyncDays = user.emailSyncDays || 30;
       
       console.log(`🚀 Starting multi-provider sync: ${gmailAccounts.length} Gmail + ${outlookAccounts.length} Outlook = ${totalAccounts} total accounts`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
