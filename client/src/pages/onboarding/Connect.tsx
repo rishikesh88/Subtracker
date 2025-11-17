@@ -36,11 +36,13 @@ export default function Connect() {
       console.log('[Event: privacy_consent_accepted]', { provider: selectedProvider, backfillDays });
       
       // Call unified endpoint that saves consent and returns OAuth URL
-      const data = await apiRequest("POST", "/api/onboarding/connect", {
+      const response = await apiRequest("POST", "/api/onboarding/connect", {
         provider: selectedProvider,
         emailSyncDays: backfillDays,
         privacyConsentGiven: true,
       });
+      
+      const data = await response.json();
       
       if (data?.authUrl) {
         // Redirect to OAuth provider
