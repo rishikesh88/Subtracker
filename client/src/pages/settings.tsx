@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { User, LogOut, Mail, Unlink, Calendar, Save, Plus, Trash2 } from "lucide-react";
+import { SiGoogle } from "react-icons/si";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { SafeUser, GmailAccount } from "@shared/schema";
+import type { SafeUser, GmailAccount, OutlookAccount } from "@shared/schema";
 import { useState, useEffect } from "react";
 
 export default function Settings() {
@@ -17,9 +18,16 @@ export default function Settings() {
   });
   
   // Fetch Gmail accounts
-  const { data: gmailAccounts = [], isLoading: accountsLoading } = useQuery<GmailAccount[]>({ 
+  const { data: gmailAccounts = [], isLoading: gmailAccountsLoading } = useQuery<GmailAccount[]>({ 
     queryKey: ['/api/gmail/accounts']
   });
+  
+  // Fetch Outlook accounts
+  const { data: outlookAccounts = [], isLoading: outlookAccountsLoading } = useQuery<OutlookAccount[]>({ 
+    queryKey: ['/api/outlook/accounts']
+  });
+  
+  const accountsLoading = gmailAccountsLoading || outlookAccountsLoading;
   
   const { toast } = useToast();
   const [emailSyncDays, setEmailSyncDays] = useState<number>(90);
@@ -34,7 +42,7 @@ export default function Settings() {
   }, [user]);
 
   // Delete Gmail account mutation
-  const deleteAccountMutation = useMutation({
+  const deleteGmailAccountMutation = useMutation({
     mutationFn: async (accountId: string) => {
       const response = await apiRequest('DELETE', `/api/gmail/accounts/${accountId}`);
       
@@ -76,6 +84,49 @@ export default function Settings() {
     },
   });
 
+  // Delete Outlook account mutation
+  const deleteOutlookAccountMutation = useMutation({
+    mutationFn: async (accountId: string) => {
+      const response = await apiRequest('DELETE', `/api/outlook/accounts/${accountId}`);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Failed to disconnect account' }));
+        throw new Error(errorData.message || 'Failed to disconnect account');
+      }
+      
+      // DELETE returns 204 No Content, so don't try to parse JSON
+      return null;
+    },
+    onMutate: (accountId) => {
+      setPendingDeletes(prev => new Set(Array.from(prev).concat(accountId)));
+    },
+    onSuccess: (_data, accountId) => {
+      setPendingDeletes(prev => {
+        const next = new Set(Array.from(prev));
+        next.delete(accountId);
+        return next;
+      });
+      queryClient.invalidateQueries({ queryKey: ['/api/outlook/accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+      toast({
+        title: "Account Disconnected",
+        description: "Outlook account has been successfully removed.",
+      });
+    },
+    onError: (error: any, accountId) => {
+      setPendingDeletes(prev => {
+        const next = new Set(Array.from(prev));
+        next.delete(accountId);
+        return next;
+      });
+      toast({
+        title: "Disconnect Failed",
+        description: error?.message || "Failed to disconnect Outlook account. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Gmail connect mutation (reused for adding accounts)
   const connectGmailMutation = useMutation({
     mutationFn: async () => {
@@ -95,12 +146,39 @@ export default function Settings() {
     },
   });
 
-  const handleDisconnectAccount = (accountId: string) => {
-    deleteAccountMutation.mutate(accountId);
+  // Outlook connect mutation
+  const connectOutlookMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('POST', '/api/auth/outlook/connect');
+      return response.json();
+    },
+    onSuccess: (data: { authUrl: string }) => {
+      // Redirect to Outlook OAuth flow
+      window.location.href = data.authUrl;
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Connection Failed",
+        description: error?.message || "Failed to start Outlook connection. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleDisconnectGmailAccount = (accountId: string) => {
+    deleteGmailAccountMutation.mutate(accountId);
   };
 
-  const handleAddAccount = () => {
+  const handleDisconnectOutlookAccount = (accountId: string) => {
+    deleteOutlookAccountMutation.mutate(accountId);
+  };
+
+  const handleConnectGmail = () => {
     connectGmailMutation.mutate();
+  };
+
+  const handleConnectOutlook = () => {
+    connectOutlookMutation.mutate();
   };
   
   const getSyncStatusBadge = (status: string) => {
@@ -247,21 +325,35 @@ export default function Settings() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Gmail Accounts</CardTitle>
+                <CardTitle>Email Accounts</CardTitle>
                 <CardDescription>
-                  Connect multiple Gmail accounts for comprehensive subscription tracking
+                  Connect multiple Gmail and Outlook accounts for comprehensive subscription tracking (max 4 total)
                 </CardDescription>
               </div>
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={handleAddAccount}
-                disabled={connectGmailMutation.isPending}
-                data-testid="add-gmail-account-button"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                {connectGmailMutation.isPending ? "Connecting..." : "Add Account"}
-              </Button>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={handleConnectGmail}
+                  disabled={connectGmailMutation.isPending || (gmailAccounts.length >= 2)}
+                  data-testid="connect-gmail-button"
+                  className="gap-1.5"
+                >
+                  <SiGoogle className="h-3.5 w-3.5" />
+                  {connectGmailMutation.isPending ? "Connecting..." : "Gmail"}
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={handleConnectOutlook}
+                  disabled={connectOutlookMutation.isPending || (outlookAccounts.length >= 2)}
+                  data-testid="connect-outlook-button"
+                  className="gap-1.5"
+                >
+                  <Mail className="h-3.5 w-3.5" />
+                  {connectOutlookMutation.isPending ? "Connecting..." : "Outlook"}
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -269,38 +361,57 @@ export default function Settings() {
               <div className="text-center py-8 text-muted-foreground">
                 Loading accounts...
               </div>
-            ) : gmailAccounts.length === 0 ? (
+            ) : gmailAccounts.length === 0 && outlookAccounts.length === 0 ? (
               <div className="text-center py-8 border-2 border-dashed rounded-lg">
                 <Mail className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
-                <p className="font-medium text-muted-foreground mb-2">No Gmail accounts connected</p>
+                <p className="font-medium text-muted-foreground mb-2">No email accounts connected</p>
                 <p className="text-sm text-muted-foreground mb-4">
-                  Connect your Gmail account to start tracking subscriptions
+                  Connect your Gmail or Outlook account to start tracking subscriptions
                 </p>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={handleAddAccount}
-                  disabled={connectGmailMutation.isPending}
-                  data-testid="connect-first-gmail-button"
-                >
-                  <Mail className="mr-2 h-4 w-4" />
-                  {connectGmailMutation.isPending ? "Connecting..." : "Connect Gmail"}
-                </Button>
+                <div className="flex gap-2 justify-center">
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handleConnectGmail}
+                    disabled={connectGmailMutation.isPending}
+                    data-testid="connect-first-gmail-button"
+                    className="gap-1.5"
+                  >
+                    <SiGoogle className="h-3.5 w-3.5" />
+                    {connectGmailMutation.isPending ? "Connecting..." : "Connect Gmail"}
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handleConnectOutlook}
+                    disabled={connectOutlookMutation.isPending}
+                    data-testid="connect-first-outlook-button"
+                    className="gap-1.5"
+                  >
+                    <Mail className="h-3.5 w-3.5" />
+                    {connectOutlookMutation.isPending ? "Connecting..." : "Connect Outlook"}
+                  </Button>
+                </div>
               </div>
             ) : (
               <div className="space-y-3">
                 {gmailAccounts.map((account) => (
                   <div 
-                    key={account.id} 
+                    key={`gmail-${account.id}`}
                     className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
                     data-testid={`gmail-account-${account.id}`}
                   >
                     <div className="flex items-center space-x-3 flex-1">
-                      <Mail className="h-5 w-5 text-muted-foreground" />
+                      <div className="flex items-center justify-center h-8 w-8 rounded bg-primary/10">
+                        <SiGoogle className="h-4 w-4 text-primary" />
+                      </div>
                       <div className="flex-1">
-                        <p className="font-medium" data-testid={`gmail-email-${account.id}`}>
-                          {account.gmailEmail}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium" data-testid={`gmail-email-${account.id}`}>
+                            {account.gmailEmail}
+                          </p>
+                          <Badge variant="outline" className="text-xs">Gmail</Badge>
+                        </div>
                         <div className="flex items-center gap-2 mt-1">
                           {getSyncStatusBadge(account.syncStatus)}
                           {account.lastSync && (
@@ -319,10 +430,55 @@ export default function Settings() {
                     <Button 
                       variant="outline" 
                       size="sm"
-                      onClick={() => handleDisconnectAccount(account.id)}
+                      onClick={() => handleDisconnectGmailAccount(account.id)}
                       disabled={pendingDeletes.has(account.id)}
                       className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
-                      data-testid={`disconnect-account-${account.id}`}
+                      data-testid={`disconnect-gmail-${account.id}`}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      {pendingDeletes.has(account.id) ? "Removing..." : "Remove"}
+                    </Button>
+                  </div>
+                ))}
+                {outlookAccounts.map((account) => (
+                  <div 
+                    key={`outlook-${account.id}`}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
+                    data-testid={`outlook-account-${account.id}`}
+                  >
+                    <div className="flex items-center space-x-3 flex-1">
+                      <div className="flex items-center justify-center h-8 w-8 rounded bg-blue-100 dark:bg-blue-900">
+                        <Mail className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium" data-testid={`outlook-email-${account.id}`}>
+                            {account.outlookEmail}
+                          </p>
+                          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">Outlook</Badge>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          {getSyncStatusBadge(account.syncStatus)}
+                          {account.lastSync && (
+                            <span className="text-xs text-muted-foreground">
+                              Last sync: {new Date(account.lastSync).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                        {account.syncError && (
+                          <p className="text-xs text-destructive mt-1" data-testid={`sync-error-${account.id}`}>
+                            {account.syncError}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => handleDisconnectOutlookAccount(account.id)}
+                      disabled={pendingDeletes.has(account.id)}
+                      className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
+                      data-testid={`disconnect-outlook-${account.id}`}
                     >
                       <Trash2 className="mr-2 h-4 w-4" />
                       {pendingDeletes.has(account.id) ? "Removing..." : "Remove"}
