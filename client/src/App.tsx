@@ -12,9 +12,11 @@ import Settings from "@/pages/settings";
 import { Landing } from "@/pages/Landing";
 import AuthCallback from "@/pages/auth";
 import NotFound from "@/pages/not-found";
+import OrgSetup from "@/pages/onboarding/OrgSetup";
+import Connect from "@/pages/onboarding/Connect";
 
 function Router() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -26,6 +28,9 @@ function Router() {
       </div>
     );
   }
+
+  // Check if user needs onboarding (pending or org_complete)
+  const needsOnboarding = isAuthenticated && (user?.onboardingStatus === 'pending' || user?.onboardingStatus === 'org_complete');
 
   return (
     <Switch>
@@ -39,14 +44,26 @@ function Router() {
           <Route path="/dashboard" component={() => { window.location.href = '/'; return null; }} />
           <Route path="/subscriptions" component={() => { window.location.href = '/'; return null; }} />
           <Route path="/settings" component={() => { window.location.href = '/'; return null; }} />
+          <Route path="/onboarding/*" component={() => { window.location.href = '/'; return null; }} />
+        </>
+      ) : needsOnboarding ? (
+        <>
+          {/* Onboarding flow for new users */}
+          <Route path="/onboarding/org-setup" component={OrgSetup} />
+          <Route path="/onboarding/connect" component={Connect} />
+          {/* Redirect any other routes to onboarding start */}
+          <Route path="*" component={() => { window.location.href = '/onboarding/org-setup'; return null; }} />
         </>
       ) : (
         <>
+          {/* Main app for users who completed onboarding */}
           <Route path="/" component={() => <Layout><Dashboard /></Layout>} />
           <Route path="/dashboard" component={() => <Layout><Dashboard /></Layout>} />
           <Route path="/subscriptions" component={() => <Layout><Subscriptions /></Layout>} />
           <Route path="/subscriptions/:id" component={() => <Layout><SubscriptionDetail /></Layout>} />
           <Route path="/settings" component={() => <Layout><Settings /></Layout>} />
+          {/* Redirect onboarding routes to dashboard for completed users */}
+          <Route path="/onboarding/*" component={() => { window.location.href = '/dashboard'; return null; }} />
         </>
       )}
       <Route component={NotFound} />

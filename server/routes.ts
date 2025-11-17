@@ -214,6 +214,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  // Onboarding routes
+  app.post('/api/onboarding/org-setup', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      const orgSetupSchema = z.object({
+        organizationName: z.string().min(1, "Organization name is required"),
+        countryCode: z.string().min(1, "Country is required"),
+        accountHolderName: z.string().min(1, "Account holder name is required"),
+        preferredCurrency: z.string().optional(),
+      });
+
+      const validationResult = orgSetupSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          message: "Invalid organization data",
+          errors: validationResult.error.errors 
+        });
+      }
+
+      const { organizationName, countryCode, accountHolderName, preferredCurrency } = validationResult.data;
+
+      // Update user with organization data and mark org setup as complete
+      await storage.updateUser(userId, {
+        organizationName,
+        countryCode,
+        accountHolderName,
+        preferredCurrency: preferredCurrency || "USD",
+        onboardingStatus: 'org_complete',
+        updatedAt: new Date(),
+      });
+
+      console.log('[Event: org_setup_completed]', { userId, organizationName, countryCode });
+
+      res.json({ 
+        success: true,
+        message: "Organization setup completed" 
+      });
+    } catch (error) {
+      console.error("Error saving organization data:", error);
+      res.status(500).json({ message: "Failed to save organization data" });
+    }
+  });
+
+  app.post('/api/onboarding/privacy-consent', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      const privacyConsentSchema = z.object({
+        privacyConsentGiven: z.boolean(),
+        emailSyncDays: z.number().int().min(30).max(180),
+      });
+
+      const validationResult = privacyConsentSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          message: "Invalid privacy consent data",
+          errors: validationResult.error.errors 
+        });
+      }
+
+      const { privacyConsentGiven, emailSyncDays } = validationResult.data;
+
+      // SECURITY: Only allow setting privacyConsentGiven to true, never false
+      // Once consent is given, it cannot be revoked via this endpoint
+      if (privacyConsentGiven) {
+        await storage.updateUser(userId, {
+          privacyConsentGiven: true,
+          emailSyncDays,
+          updatedAt: new Date(),
+        });
+
+        console.log('[Event: privacy_consent_given]', { userId, emailSyncDays });
+      }
+
+      res.json({ 
+        success: true,
+        message: "Privacy consent saved" 
+      });
+    } catch (error) {
+      console.error("Error saving privacy consent:", error);
+      res.status(500).json({ message: "Failed to save privacy consent" });
+    }
+  });
+
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
@@ -267,7 +352,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const gmailService = new GmailService();
       const authUrl = gmailService.getAuthUrl(state);
       console.log("Generated auth URL with state:", authUrl);
-      res.json({ authUrl });
+      
+      // Redirect to Google OAuth
+      res.redirect(authUrl);
     } catch (error) {
       console.error("Auth URL generation error:", error);
       res.status(500).json({ message: "Failed to generate auth URL" });
@@ -352,15 +439,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log("Gmail account created successfully:", newAccount.gmailEmail);
       }
 
-      await storage.updateUser(userId, {
+      // Mark onboarding as complete if this is first account during onboarding
+      const updateData: any = {
         gmailConnected: true,
         updatedAt: new Date(),
-      });
+      };
+      
+      if (user.onboardingStatus === 'pending' || user.onboardingStatus === 'org_complete') {
+        updateData.onboardingStatus = 'complete';
+        console.log('[Event: onboarding_completed]', { userId, provider: 'gmail' });
+      }
+
+      await storage.updateUser(userId, updateData);
 
       console.log("Gmail connected successfully for user:", user.id);
 
-      // Redirect back to dashboard with success flag
-      const redirectUrl = `/?gmailConnected=true&userId=${encodeURIComponent(user.id)}`;
+      // Redirect to frontend auth callback
+      const redirectUrl = `/auth/callback?provider=gmail&success=true`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error("OAuth callback error:", error);
@@ -564,7 +659,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Outlook OAuth Routes
-  app.post("/api/auth/outlook/connect", isAuthenticated, async (req: any, res) => {
+  app.get("/api/auth/outlook/connect", isAuthenticated, async (req: any, res) => {
     try {
       console.log("Outlook connection initiated");
       console.log("Microsoft Client ID available:", !!process.env.MICROSOFT_CLIENT_ID);
@@ -576,7 +671,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const outlookService = new OutlookService();
       const authUrl = outlookService.getAuthUrl(state);
       console.log("Generated Outlook auth URL with state:", authUrl);
-      res.json({ authUrl });
+      
+      // Redirect to Microsoft OAuth
+      res.redirect(authUrl);
     } catch (error) {
       console.error("Outlook connection URL generation error:", error);
       res.status(500).json({ message: "Failed to generate Outlook auth URL" });
@@ -653,9 +750,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log("Outlook account created successfully:", newAccount.outlookEmail);
       }
 
+      // Mark onboarding as complete if this is first account during onboarding
+      if (user.onboardingStatus === 'pending' || user.onboardingStatus === 'org_complete') {
+        await storage.updateUser(userId, {
+          onboardingStatus: 'complete',
+          updatedAt: new Date(),
+        });
+        console.log('[Event: onboarding_completed]', { userId, provider: 'outlook' });
+      }
+
       console.log("Outlook connected successfully for user:", userId);
 
-      const redirectUrl = `/?outlookConnected=true&userId=${encodeURIComponent(userId)}`;
+      const redirectUrl = `/auth/callback?provider=outlook&success=true`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error("Outlook OAuth callback error:", error);

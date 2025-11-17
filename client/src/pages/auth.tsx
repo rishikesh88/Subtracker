@@ -8,9 +8,10 @@ export default function AuthCallback() {
   const { toast } = useToast();
 
   useEffect(() => {
-    const handleCallback = async () => {
+    const handleCallback = () => {
       const urlParams = new URLSearchParams(window.location.search);
-      const code = urlParams.get("code");
+      const provider = urlParams.get("provider");
+      const success = urlParams.get("success");
       const error = urlParams.get("error");
       
       if (error) {
@@ -19,45 +20,27 @@ export default function AuthCallback() {
           description: error,
           variant: "destructive",
         });
-        setLocation("/");
+        setLocation("/onboarding/connect");
         return;
       }
 
-      if (!code) {
+      if (success === "true" && provider) {
+        console.log('[Event: email_connected]', { provider });
+
+        toast({
+          title: `${provider === 'gmail' ? 'Gmail' : 'Outlook'} Connected`,
+          description: `Successfully connected your ${provider === 'gmail' ? 'Gmail' : 'Outlook'} account`,
+        });
+
+        // Redirect to dashboard (onboarding complete)
+        setLocation("/dashboard");
+      } else {
         toast({
           title: "Authentication Failed",
-          description: "No authorization code received",
+          description: "Invalid callback parameters",
           variant: "destructive",
         });
-        setLocation("/");
-        return;
-      }
-
-      try {
-        // Get userId from localStorage or session
-        const userId = localStorage.getItem("currentUserId");
-        if (!userId) {
-          throw new Error("No user session found");
-        }
-
-        await apiRequest("POST", "/api/auth/google/callback", {
-          code,
-          userId,
-        });
-
-        toast({
-          title: "Gmail Connected",
-          description: "Successfully connected your Gmail account",
-        });
-
-        setLocation("/");
-      } catch (error: any) {
-        toast({
-          title: "Authentication Failed",
-          description: error.message || "Failed to complete authentication",
-          variant: "destructive",
-        });
-        setLocation("/");
+        setLocation("/onboarding/connect");
       }
     };
 
@@ -68,7 +51,7 @@ export default function AuthCallback() {
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="text-center">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-        <p className="text-muted-foreground">Completing Gmail authentication...</p>
+        <p className="text-muted-foreground">Completing email authentication...</p>
       </div>
     </div>
   );
