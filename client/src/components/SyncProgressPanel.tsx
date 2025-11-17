@@ -35,39 +35,90 @@ export function SyncProgressPanel() {
   useEffect(() => {
     if (!user?.id) return;
 
-    // Connect to SSE endpoint for real-time progress
-    const eventSource = new EventSource(`/api/sync-progress/${user.id}`);
+    let eventSource: EventSource | null = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let heartbeatTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    eventSource.onmessage = (event) => {
-      try {
-        const data: SyncProgress = JSON.parse(event.data);
-        
-        if (data.type === 'connected') {
-          console.log('SSE connected for sync progress');
-          return;
-        }
-
-        if (data.type === 'progress') {
-          setSyncProgress(data);
-          setIsClosed(false);
-          
-          // Check if sync is complete
-          if (data.stage === 'suggestions_ready' || data.progress >= 100) {
-            setIsComplete(true);
-          }
-        }
-      } catch (error) {
-        console.error('Error parsing SSE data:', error);
+    const connect = () => {
+      // Clean up existing connection
+      if (eventSource) {
+        eventSource.close();
       }
+
+      // Connect to SSE endpoint for real-time progress
+      eventSource = new EventSource(`/api/sync-progress/${user.id}`);
+
+      // Reset heartbeat on each message
+      eventSource.onmessage = (event) => {
+        // Clear and reset heartbeat timeout
+        if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
+        heartbeatTimeout = setTimeout(() => {
+          console.warn('SSE heartbeat timeout, reconnecting...');
+          if (reconnectAttempts < maxReconnectAttempts) {
+            eventSource?.close();
+            reconnectAttempts++;
+            const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
+            reconnectTimeout = setTimeout(connect, delay);
+          }
+        }, 60000); // 60 second heartbeat timeout
+
+        try {
+          const data: SyncProgress = JSON.parse(event.data);
+          
+          if (data.type === 'connected') {
+            console.log('SSE connected for sync progress');
+            reconnectAttempts = 0; // Reset on successful connection
+            return;
+          }
+
+          if (data.type === 'progress') {
+            setSyncProgress(data);
+            setIsClosed(false);
+            
+            // Check if sync is complete
+            if (data.stage === 'suggestions_ready' || data.progress >= 100) {
+              setIsComplete(true);
+            }
+          }
+        } catch (error) {
+          console.error('Error parsing SSE data:', error);
+        }
+      };
+
+      eventSource.onerror = () => {
+        console.error('SSE connection error');
+        
+        // Clean up heartbeat
+        if (heartbeatTimeout) {
+          clearTimeout(heartbeatTimeout);
+          heartbeatTimeout = null;
+        }
+
+        // Attempt to reconnect with exponential backoff
+        if (reconnectAttempts < maxReconnectAttempts) {
+          reconnectAttempts++;
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
+          console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+          
+          if (reconnectTimeout) clearTimeout(reconnectTimeout);
+          reconnectTimeout = setTimeout(connect, delay);
+        } else {
+          console.error('Max reconnection attempts reached');
+        }
+        
+        eventSource?.close();
+      };
     };
 
-    eventSource.onerror = () => {
-      console.error('SSE connection error');
-      eventSource.close();
-    };
+    // Initial connection
+    connect();
 
     return () => {
-      eventSource.close();
+      if (heartbeatTimeout) clearTimeout(heartbeatTimeout);
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (eventSource) eventSource.close();
     };
   }, [user?.id]);
 

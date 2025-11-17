@@ -7,6 +7,7 @@ import { emailParser } from "./services/emailParser";
 import { EnhancedEmailParser } from "./services/enhancedEmailParser";
 import { subscriptionDetector } from "./services/subscriptionDetector";
 import { GeminiSubscriptionDetector } from "./core/geminiSubscriptionDetector";
+import { triggerEmailSync } from "./services/syncTrigger";
 import { insertEmailSchema, insertUserSchema, updateSettingsSchema, insertSubscriptionSchema, updateSubscriptionSchema, insertInvoiceSchema, signupSchema, loginSchema, type SafeUser } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
@@ -68,12 +69,20 @@ export function sendProgressUpdate(userId: string, data: {
     
     // Send to all SSE connections for this user
     connections.forEach(res => {
-      if (!res.headersSent && !res.destroyed) {
-        res.write(`data: ${eventData}\n\n`);
+      // Only skip if connection is ended or destroyed
+      if (!res.writableEnded && !res.destroyed) {
+        try {
+          res.write(`data: ${eventData}\n\n`);
+        } catch (error) {
+          console.error('Failed to write progress update:', error);
+        }
       }
     });
   }
 }
+
+// Expose sendProgressUpdate globally for use by sync trigger and other services
+(globalThis as any).sendProgressUpdate = sendProgressUpdate;
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup Replit Auth
@@ -555,15 +564,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Trigger background sync after first account connection during onboarding
       if (wasOnboarding && user.privacyConsentGiven) {
-        console.log('[Event: sync_started]', { userId, provider: 'gmail', trigger: 'onboarding' });
         // Fire and forget - sync runs in background
-        fetch(`http://localhost:5000/api/sync-emails-llm`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            // Use internal auth bypass for server-to-server call
-            'X-User-Id': userId
-          }
+        triggerEmailSync(storage, {
+          userId,
+          emailSyncDays: stateData?.emailSyncDays || 90,
+          provider: 'gmail',
+          triggerSource: 'onboarding'
         }).catch(error => {
           console.error('Failed to trigger background sync:', error);
         });
@@ -892,21 +898,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         console.log('[Event: onboarding_completed]', { userId, provider: 'outlook' });
         
-        // Trigger background sync after first account connection during onboarding
-        if (user.privacyConsentGiven) {
-          console.log('[Event: sync_started]', { userId, provider: 'outlook', trigger: 'onboarding' });
-          // Fire and forget - sync runs in background
-          fetch(`http://localhost:5000/api/sync-emails-llm`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              // Use internal auth bypass for server-to-server call
-              'X-User-Id': userId
-            }
-          }).catch(error => {
-            console.error('Failed to trigger background sync:', error);
-          });
-        }
+        // Note: Background sync is currently Gmail-only due to email schema constraints
+        // Outlook email ingestion deferred until schema migration completes (see replit.md)
+        // When schema is ready, trigger sync here with provider: 'outlook'
+        console.log('[Sync] Outlook sync deferred - email schema migration required');
       }
 
       console.log("Outlook connected successfully for user:", userId);
@@ -1986,8 +1981,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       message: 'Connected for real-time sync updates'
     })}\n\n`);
     
+    // Send periodic heartbeat to keep connection alive (every 30 seconds)
+    const heartbeatInterval = setInterval(() => {
+      if (res.writableEnded || res.destroyed) {
+        clearInterval(heartbeatInterval);
+        return;
+      }
+      
+      try {
+        res.write(`data: ${JSON.stringify({
+          type: 'heartbeat',
+          timestamp: new Date().toISOString()
+        })}\n\n`);
+      } catch (error) {
+        console.error('Failed to send heartbeat:', error);
+        clearInterval(heartbeatInterval);
+      }
+    }, 30000);
+    
     // Handle client disconnect
     req.on('close', () => {
+      clearInterval(heartbeatInterval);
       const connections = sseConnections.get(userId);
       if (connections) {
         connections.delete(res);
@@ -1998,9 +2012,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`SSE connection closed for user: ${userId}`);
     });
   });
-  
-  // Make progress update function globally available
-  (globalThis as any).sendProgressUpdate = sendProgressUpdate;
   
   // Register Gemini LLM routes with progress notification support
   registerGeminiRoutes(app);

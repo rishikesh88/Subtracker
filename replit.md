@@ -98,7 +98,7 @@ Gmail and Outlook integrations use the OAuth2 flow for secure email access, mana
 
 ### Incremental Onboarding Flow
 
-**Status: Phases 1-3 Complete** ✅
+**Status: Phases 1-4 Complete** ✅
 
 The application includes a multi-step onboarding flow for new users:
 
@@ -128,10 +128,32 @@ The application includes a multi-step onboarding flow for new users:
 - Callbacks validate state, prefer stateData.userId over session for resilience
 - Error handling standardized across all paths
 
+**Phase 4 - Background Sync & Progress** (✅ Complete):
+- Production-ready sync trigger (`server/services/syncTrigger.ts`) replaces HTTP fetch() with direct function calls
+- OAuth callbacks trigger background sync automatically after onboarding completes
+- Real-time progress updates via Server-Sent Events (SSE) to `/api/sync-progress/:userId`
+- `SyncProgressPanel` component with heartbeat monitoring, auto-reconnect (exponential backoff), and minimize/close controls
+- Displays: emails scanned, candidates found, suggestions generated, with "Review Suggestions" CTA
+- Currently Gmail-only due to email schema constraint (see Known Limitations below)
+
 **Onboarding Status Transitions:**
 - `pending`: New user, needs to complete org setup
 - `org_complete`: Organization setup done, needs to connect email accounts or skip
 - `complete`: Fully onboarded (either connected accounts or skipped)
+
+### Known Limitations
+
+**Email Schema Multi-Provider Support:**
+The `emails` table currently has `gmailId` as `notNull` and `unique`, which prevents storing Outlook emails. While the schema includes `emailProvider` and `providerAccountId` fields for polymorphic support, full multi-provider email storage requires a schema migration:
+
+**Planned Migration (requires user approval):**
+1. Add `providerMessageId` field (non-null, provider-agnostic identifier)
+2. Add composite unique index on `(emailProvider, providerMessageId)`
+3. Backfill existing Gmail emails with provider metadata
+4. Make `gmailId` nullable for backward compatibility
+5. Update storage layer to use polymorphic lookups
+
+**Current Workaround:** Background sync processes Gmail accounts only. Outlook accounts are connected and stored in `outlook_accounts` table, but email ingestion is deferred until schema migration completes.
 
 ## External Dependencies
 
