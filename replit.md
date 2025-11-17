@@ -75,6 +75,19 @@ The system supports multi-account integration for both Gmail and Outlook, with a
 
 The application uses Drizzle ORM with PostgreSQL (hosted on Neon Database) for data persistence. The schema includes tables for Users, Subscriptions, Emails, `subscription_suggestions` for AI-generated recommendations, `gmail_accounts`, `outlook_accounts`, and `invoices` for storing invoice file metadata. Replit Object Storage (GCS-backed) is used for invoice files with ACL enforcement.
 
+### Key Features
+
+**Subscription Deletion with Cascade Cleanup:**
+Users can delete subscriptions from the detail page with a comprehensive cleanup process:
+- Confirmation modal warns about permanent deletion of subscription details, invoices, and invoice files
+- Backend cascade deletion removes:
+  - All related invoice records from the database
+  - Invoice files from Google Cloud Storage (handles both normalized `/objects/...` URLs and direct GCS URLs)
+  - The subscription record
+- Graceful error handling ensures database cleanup proceeds even if some storage files are missing
+- Dashboard statistics automatically refresh after deletion
+- User is redirected to subscriptions list after successful deletion
+
 ### Authentication and Authorization
 
 Gmail and Outlook integrations use the OAuth2 flow for secure email access, managing authorization, token exchange, refresh token handling, and secure storage of credentials.
