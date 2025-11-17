@@ -6,6 +6,8 @@ interface StatsCardsProps {
     activeCount: number;
     emailsAnalyzed: number;
     avgPerService: number;
+    newThisMonth: number;
+    changePercent: number;
   };
   userCurrency?: string;
 }
@@ -36,8 +38,10 @@ export function StatsCards({ stats, userCurrency = "INR" }: StatsCardsProps) {
       title: "Total Monthly",
       value: formatCurrency(stats.totalMonthly, userCurrency),
       icon: DollarSign,
-      change: "12% from last month",
-      changeType: "positive" as const,
+      change: stats.changePercent !== 0 
+        ? `${Math.abs(stats.changePercent)}% from last month`
+        : "No change from last month",
+      changeType: stats.changePercent > 0 ? "neutral" as const : stats.changePercent < 0 ? "positive" as const : "neutral" as const,
       bgColor: "bg-blue-100 dark:bg-blue-950",
       iconColor: "text-blue-600 dark:text-blue-400",
       testId: "stat-total-monthly"
@@ -46,7 +50,9 @@ export function StatsCards({ stats, userCurrency = "INR" }: StatsCardsProps) {
       title: "Active Subscriptions",
       value: stats.activeCount.toString(),
       icon: CheckCircle,
-      change: "2 new this month",
+      change: stats.newThisMonth > 0 
+        ? `${stats.newThisMonth} new this month`
+        : "No new subscriptions",
       changeType: "neutral" as const,
       bgColor: "bg-green-100 dark:bg-green-950",
       iconColor: "text-green-600 dark:text-green-400",
@@ -56,7 +62,7 @@ export function StatsCards({ stats, userCurrency = "INR" }: StatsCardsProps) {
       title: "Emails Analyzed",
       value: stats.emailsAnalyzed.toLocaleString(),
       icon: Mail,
-      change: "Last 6 months",
+      change: stats.emailsAnalyzed > 0 ? "From connected accounts" : "No emails yet",
       changeType: "neutral" as const,
       bgColor: "bg-purple-100 dark:bg-purple-950",
       iconColor: "text-purple-600 dark:text-purple-400",
@@ -66,7 +72,9 @@ export function StatsCards({ stats, userCurrency = "INR" }: StatsCardsProps) {
       title: "Avg. Per Service",
       value: formatCurrency(stats.avgPerService, userCurrency),
       icon: BarChart,
-      change: "Across all subscriptions",
+      change: stats.activeCount > 0 
+        ? `Across ${stats.activeCount} subscription${stats.activeCount !== 1 ? 's' : ''}`
+        : "No active subscriptions",
       changeType: "neutral" as const,
       bgColor: "bg-orange-100 dark:bg-orange-950",
       iconColor: "text-orange-600 dark:text-orange-400",

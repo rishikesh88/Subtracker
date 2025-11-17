@@ -43,11 +43,13 @@ export interface IStorage {
   getEmailsPaginated(userId: string, options?: { page?: number; pageSize?: number }): Promise<{ emails: Email[]; total: number }>;
   
   // Analytics methods
-  getSubscriptionStats(userId: string): Promise<{
+  getSubscriptionStats(userId: string, preferredCurrency?: string): Promise<{
     totalMonthly: number;
     activeCount: number;
     emailsAnalyzed: number;
     avgPerService: number;
+    newThisMonth: number;
+    changePercent: number;
   }>;
   
   // Invoice methods
@@ -785,6 +787,8 @@ export class DatabaseStorage implements IStorage {
     activeCount: number;
     emailsAnalyzed: number;
     avgPerService: number;
+    newThisMonth: number;
+    changePercent: number;
   }> {
     try {
       const [userSubscriptions, emailCount] = await Promise.all([
@@ -794,6 +798,14 @@ export class DatabaseStorage implements IStorage {
       
       const activeSubscriptions = userSubscriptions.filter(sub => sub.status === 'active');
       
+      // Calculate subscriptions added in the last 30 days
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      const newThisMonth = userSubscriptions.filter(sub => 
+        sub.detectedAt && new Date(sub.detectedAt) >= thirtyDaysAgo
+      ).length;
+      
+      // Calculate current month's total
       const totalMonthly = activeSubscriptions.reduce((sum, sub) => {
         const amountNum = Number(sub.amount);
         
@@ -818,6 +830,35 @@ export class DatabaseStorage implements IStorage {
             return sum + convertedAmount; // Already monthly
         }
       }, 0);
+      
+      // Calculate previous month's total (subscriptions created before last 30 days)
+      const previousMonthSubs = activeSubscriptions.filter(sub => 
+        !sub.detectedAt || new Date(sub.detectedAt) < thirtyDaysAgo
+      );
+      
+      const previousMonthTotal = previousMonthSubs.reduce((sum, sub) => {
+        const amountNum = Number(sub.amount);
+        if (!Number.isFinite(amountNum) || amountNum <= 0) return sum;
+        
+        const convertedAmount = convertCurrency(amountNum, sub.currency, preferredCurrency);
+        
+        switch (sub.frequency) {
+          case 'yearly':
+            return sum + (convertedAmount / 12);
+          case 'quarterly':
+            return sum + (convertedAmount / 3);
+          case 'weekly':
+            return sum + (convertedAmount * 4.33);
+          case 'monthly':
+          default:
+            return sum + convertedAmount;
+        }
+      }, 0);
+      
+      // Calculate percentage change
+      const changePercent = previousMonthTotal > 0 
+        ? Math.round(((totalMonthly - previousMonthTotal) / previousMonthTotal) * 100)
+        : 0;
 
       const activeCount = activeSubscriptions.length;
       const emailsAnalyzed = emailCount[0].count;
@@ -827,7 +868,9 @@ export class DatabaseStorage implements IStorage {
         totalMonthly: Math.round(totalMonthly * 100) / 100,
         activeCount,
         emailsAnalyzed,
-        avgPerService: Math.round(avgPerService * 100) / 100
+        avgPerService: Math.round(avgPerService * 100) / 100,
+        newThisMonth,
+        changePercent
       };
     } catch (error) {
       console.error('Error getting subscription stats:', error);

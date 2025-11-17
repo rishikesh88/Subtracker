@@ -84,7 +84,7 @@ export default function Dashboard() {
   // User data is available from useAuth hook
 
   // Fetch subscription stats
-  const { data: stats, isLoading: statsLoading } = useQuery<{totalMonthly: number, activeCount: number, emailsAnalyzed: number, avgPerService: number}>({
+  const { data: stats, isLoading: statsLoading } = useQuery<{totalMonthly: number, activeCount: number, emailsAnalyzed: number, avgPerService: number, newThisMonth: number, changePercent: number}>({
     queryKey: [`/api/stats?userId=${currentUserId}`],
     enabled: !!currentUserId,
   });
@@ -363,6 +363,8 @@ export default function Dashboard() {
     activeCount: 0,
     emailsAnalyzed: 0,
     avgPerService: 0,
+    newThisMonth: 0,
+    changePercent: 0,
   };
 
   if (!currentUserId) {
