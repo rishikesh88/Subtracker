@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { GmailService } from "./services/gmail";
+import { OutlookService } from "./services/outlook";
 import { emailParser } from "./services/emailParser";
 import { EnhancedEmailParser } from "./services/enhancedEmailParser";
 import { subscriptionDetector } from "./services/subscriptionDetector";
@@ -415,6 +416,203 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Outlook OAuth Routes
+  app.post("/api/auth/outlook/connect", isAuthenticated, async (req: any, res) => {
+    try {
+      console.log("Outlook connection initiated");
+      console.log("Microsoft Client ID available:", !!process.env.MICROSOFT_CLIENT_ID);
+      console.log("Microsoft Client Secret available:", !!process.env.MICROSOFT_CLIENT_SECRET);
+      
+      const state = randomBytes(32).toString('hex');
+      oauthStates.set(state, { timestamp: Date.now() });
+      
+      const outlookService = new OutlookService();
+      const authUrl = outlookService.getAuthUrl(state);
+      console.log("Generated Outlook auth URL with state:", authUrl);
+      res.json({ authUrl });
+    } catch (error) {
+      console.error("Outlook connection URL generation error:", error);
+      res.status(500).json({ message: "Failed to generate Outlook auth URL" });
+    }
+  });
+
+  app.get("/api/auth/outlook/callback", isAuthenticated, async (req: any, res) => {
+    try {
+      const { code, state, error: oauthError } = req.query;
+
+      if (oauthError) {
+        console.error("Outlook OAuth error:", oauthError);
+        return res.redirect(`/?outlookConnected=false&error=${encodeURIComponent(oauthError as string)}`);
+      }
+
+      if (!code || typeof code !== 'string') {
+        console.error("No authorization code received from Outlook");
+        return res.redirect('/?outlookConnected=false&error=no_code');
+      }
+
+      if (!state || typeof state !== 'string' || !oauthStates.has(state)) {
+        console.error("Invalid or missing state parameter");
+        return res.redirect('/?outlookConnected=false&error=invalid_state');
+      }
+
+      oauthStates.delete(state);
+
+      const outlookService = new OutlookService();
+      const tokens = await outlookService.exchangeToken(code);
+
+      const outlookEmail = await outlookService.getUserEmail(tokens.access_token);
+
+      const userId = req.user?.claims?.sub;
+      if (!userId) {
+        throw new Error("User not authenticated");
+      }
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        throw new Error("User not found");
+      }
+
+      const existingAccount = await storage.getOutlookAccountByEmail(userId, outlookEmail);
+
+      if (existingAccount) {
+        const updateData: any = {
+          accessToken: tokens.access_token,
+          tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+          lastSync: new Date(),
+          syncStatus: 'idle',
+          syncError: null,
+        };
+        
+        if (tokens.refresh_token) {
+          updateData.refreshToken = tokens.refresh_token;
+        }
+        
+        await storage.updateOutlookAccount(existingAccount.id, updateData);
+        console.log("Outlook account updated successfully:", outlookEmail);
+      } else {
+        if (!tokens.refresh_token) {
+          throw new Error("No refresh token received for new Outlook account");
+        }
+        
+        const newAccount = await storage.createOutlookAccount({
+          userId,
+          outlookEmail,
+          accessToken: tokens.access_token,
+          refreshToken: tokens.refresh_token,
+          tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+          lastSync: new Date(),
+          syncStatus: 'idle',
+        });
+        console.log("Outlook account created successfully:", newAccount.outlookEmail);
+      }
+
+      console.log("Outlook connected successfully for user:", userId);
+
+      const redirectUrl = `/?outlookConnected=true&userId=${encodeURIComponent(userId)}`;
+      res.redirect(redirectUrl);
+    } catch (error) {
+      console.error("Outlook OAuth callback error:", error);
+      const redirectUrl = `/?outlookConnected=false&error=${encodeURIComponent(error instanceof Error ? error.message : 'Unknown error')}`;
+      res.redirect(redirectUrl);
+    }
+  });
+
+  // Outlook Account Management Routes
+  app.get("/api/outlook/accounts", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      const accounts = await storage.getOutlookAccounts(userId);
+      
+      const safeAccounts = accounts.map(account => ({
+        id: account.id,
+        userId: account.userId,
+        outlookEmail: account.outlookEmail,
+        lastSync: account.lastSync,
+        syncStatus: account.syncStatus,
+        syncError: account.syncError,
+        createdAt: account.createdAt,
+      }));
+
+      res.json(safeAccounts);
+    } catch (error) {
+      console.error("Error fetching Outlook accounts:", error);
+      res.status(500).json({ message: "Failed to fetch Outlook accounts" });
+    }
+  });
+
+  app.get("/api/outlook/accounts/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const accountId = req.params.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      const account = await storage.getOutlookAccount(accountId);
+      
+      if (!account) {
+        return res.status(404).json({ message: "Outlook account not found" });
+      }
+
+      if (account.userId !== userId) {
+        return res.status(403).json({ message: "Unauthorized to access this account" });
+      }
+
+      const safeAccount = {
+        id: account.id,
+        userId: account.userId,
+        outlookEmail: account.outlookEmail,
+        lastSync: account.lastSync,
+        syncStatus: account.syncStatus,
+        syncError: account.syncError,
+        createdAt: account.createdAt,
+      };
+
+      res.json(safeAccount);
+    } catch (error) {
+      console.error("Error fetching Outlook account:", error);
+      res.status(500).json({ message: "Failed to fetch Outlook account" });
+    }
+  });
+
+  app.delete("/api/outlook/accounts/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const accountId = req.params.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      const account = await storage.getOutlookAccount(accountId);
+      
+      if (!account) {
+        return res.status(404).json({ message: "Outlook account not found" });
+      }
+
+      if (account.userId !== userId) {
+        return res.status(403).json({ message: "Unauthorized to delete this account" });
+      }
+
+      const deleted = await storage.deleteOutlookAccount(accountId);
+      
+      if (!deleted) {
+        return res.status(500).json({ message: "Failed to delete Outlook account" });
+      }
+
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting Outlook account:", error);
+      res.status(500).json({ message: "Failed to disconnect Outlook account" });
+    }
+  });
+
   // Sync emails and detect subscriptions
   app.post("/api/sync-emails", isAuthenticated, async (req: any, res) => {
     try {
@@ -459,11 +657,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Create token refresh callback to update storage
-      const onTokenRefresh = async (newAccessToken: string) => {
+      const onTokenRefresh = async (tokens: any) => {
         try {
-          await storage.updateUser(user.id, {
-            gmailAccessToken: newAccessToken
-          });
+          const updateData: any = {
+            gmailAccessToken: tokens.access_token
+          };
+          if (tokens.refresh_token) {
+            updateData.gmailRefreshToken = tokens.refresh_token;
+          }
+          if (tokens.expiry_date) {
+            updateData.gmailTokenExpiry = new Date(tokens.expiry_date);
+          }
+          await storage.updateUser(user.id, updateData);
           console.log('Updated access token in storage for user:', user.id);
         } catch (error) {
           console.error('Failed to update access token in storage:', error);
@@ -1211,11 +1416,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const gmailService = new GmailService();
       
       // Create token refresh callback
-      const onTokenRefresh = async (newAccessToken: string) => {
+      const onTokenRefresh = async (tokens: any) => {
         try {
-          await storage.updateUser(user.id, {
-            gmailAccessToken: newAccessToken
-          });
+          const updateData: any = {
+            gmailAccessToken: tokens.access_token
+          };
+          if (tokens.refresh_token) {
+            updateData.gmailRefreshToken = tokens.refresh_token;
+          }
+          if (tokens.expiry_date) {
+            updateData.gmailTokenExpiry = new Date(tokens.expiry_date);
+          }
+          await storage.updateUser(user.id, updateData);
           console.log('Updated access token in storage for user:', user.id);
         } catch (error) {
           console.error('Failed to update access token in storage:', error);

@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { storage } from "../storage";
 import { GmailService } from "../services/gmail";
+import { OutlookService } from "../services/outlook";
 import { EnhancedEmailParser } from "../services/enhancedEmailParser";
 import { GeminiSubscriptionDetector } from "../core/geminiSubscriptionDetector";
 import { TransactionDetector } from "../core/transactionDetector";
@@ -122,8 +123,11 @@ export function registerGeminiRoutes(app: Express) {
       const emailMetadata = await gmailService.getEmailMetadata(
         accessToken,
         gmailAccount.refreshToken,
-        async (newAccessToken: string) => {
-          await storage.updateGmailAccount(gmailAccount.id, { accessToken: newAccessToken });
+        async (tokens) => {
+          const updateData: any = { accessToken: tokens.access_token };
+          if (tokens.refresh_token) updateData.refreshToken = tokens.refresh_token;
+          if (tokens.expiry_date) updateData.tokenExpiry = new Date(tokens.expiry_date);
+          await storage.updateGmailAccount(gmailAccount.id, updateData);
         },
         emailSyncDays
       );
@@ -378,7 +382,303 @@ export function registerGeminiRoutes(app: Express) {
     }
   }
   
-  // Enhanced sync with LLM analysis (AUTHENTICATED) - Multi-Account Support
+  // Helper function to process a single Outlook account through the complete pipeline
+  async function processOutlookAccount(
+    userId: string,
+    outlookAccount: any,
+    emailSyncDays: number
+  ): Promise<{
+    success: boolean;
+    accountId: string;
+    outlookEmail: string;
+    error?: string;
+    emailsProcessed?: number;
+    suggestionsGenerated?: number;
+    candidateEmails?: number;
+    totalEmails?: number;
+  }> {
+    const outlookService = new OutlookService();
+    const geminiDetector = new GeminiSubscriptionDetector();
+    let processingSuccessful = false;
+    let lastErrorMessage: string | null = null;
+    
+    try {
+      console.log(`\n🔄 Processing Outlook account: ${outlookAccount.outlookEmail}`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      
+      // Update account status to syncing
+      await storage.updateOutlookAccount(outlookAccount.id, { 
+        syncStatus: 'syncing',
+        syncError: null
+      });
+      
+      // Check if access token is expired and refresh if needed
+      let accessToken = outlookAccount.accessToken;
+      const now = new Date();
+      const tokenExpiry = outlookAccount.tokenExpiry ? new Date(outlookAccount.tokenExpiry) : null;
+      
+      if (tokenExpiry && now >= tokenExpiry) {
+        console.log(`⚠️  Access token expired for ${outlookAccount.outlookEmail}, refreshing...`);
+        
+        try {
+          const newTokens = await outlookService.refreshToken(outlookAccount.refreshToken);
+          accessToken = newTokens.access_token;
+          
+          // Update account with new tokens
+          const updateData: any = {
+            accessToken: accessToken,
+            tokenExpiry: newTokens.expiry_date ? new Date(newTokens.expiry_date) : null,
+          };
+          if (newTokens.refresh_token) {
+            updateData.refreshToken = newTokens.refresh_token;
+          }
+          
+          await storage.updateOutlookAccount(outlookAccount.id, updateData);
+          
+          console.log(`✅ Access token refreshed for ${outlookAccount.outlookEmail}`);
+        } catch (error) {
+          lastErrorMessage = 'Token refresh failed. Please reconnect this account.';
+          console.error(`❌ ${lastErrorMessage}:`, error);
+          
+          return {
+            success: false,
+            accountId: outlookAccount.id,
+            outlookEmail: outlookAccount.outlookEmail,
+            error: lastErrorMessage
+          };
+        }
+      }
+      
+      console.log(`🚀 TWO-PHASE PROCESSING: ${outlookAccount.outlookEmail}`);
+      
+      // ═══════════════════════════════════════════
+      // PHASE 1: LIGHTWEIGHT SCREENING (FAST)
+      // ═══════════════════════════════════════════
+      
+      console.log(`\n📊 PHASE 1: Lightweight Email Screening`);
+      
+      const emailMetadata = await outlookService.fetchEmailMetadata(
+        accessToken,
+        outlookAccount.refreshToken,
+        async (tokens) => {
+          const updateData: any = { accessToken: tokens.access_token };
+          if (tokens.refresh_token) updateData.refreshToken = tokens.refresh_token;
+          if (tokens.expiry_date) updateData.tokenExpiry = new Date(tokens.expiry_date);
+          await storage.updateOutlookAccount(outlookAccount.id, updateData);
+        },
+        emailSyncDays
+      );
+      
+      console.log(`✅ Fetched metadata for ${emailMetadata.length} emails`);
+      
+      // Phase 1b: Apply enhanced transaction detection to normalized metadata
+      const transactionDetector = new TransactionDetector();
+      const extractedMetadata = emailMetadata.map(msg => ({
+        id: msg.id,
+        subject: msg.subject,
+        fromEmail: msg.fromEmail,
+        fromName: msg.fromName,
+        snippet: msg.snippet,
+        bodyPreview: msg.snippet
+      }));
+      
+      const detectionResults = transactionDetector.filterCandidates(extractedMetadata);
+      
+      console.log(`\n📊 Phase 1 Detection Results:`);
+      console.log(`   ✅ High confidence: ${detectionResults.stats.high}`);
+      console.log(`   ⚠️  Medium confidence: ${detectionResults.stats.medium}`);
+      console.log(`   ⚡ Low confidence: ${detectionResults.stats.low}`);
+      console.log(`   ❌ Rejected: ${detectionResults.stats.rejected}`);
+      
+      // Phase 1c: AI Pre-filter
+      const candidatesWithIds = detectionResults.candidates
+        .filter(c => c.id)
+        .map(c => ({ ...c, id: c.id! }));
+      
+      const aiApprovedIds = await geminiDetector.prefilterCandidates(candidatesWithIds);
+      
+      console.log(`✅ AI approved ${aiApprovedIds.length} emails for deep processing`);
+      
+      // ═══════════════════════════════════════════
+      // PHASE 2: DEEP PROCESSING (TARGETED)
+      // ═══════════════════════════════════════════
+      
+      console.log(`\n📥 PHASE 2: Deep Processing`);
+      
+      // Fetch full emails for AI-approved candidates
+      const fullEmails = await Promise.all(
+        aiApprovedIds.map(msgId => 
+          outlookService.fetchFullEmail(
+            accessToken,
+            outlookAccount.refreshToken,
+            msgId,
+            async (tokens) => {
+              // Update local accessToken for subsequent requests
+              accessToken = tokens.access_token;
+              
+              // Update storage
+              const updateData: any = { accessToken: tokens.access_token };
+              if (tokens.refresh_token) {
+                updateData.refreshToken = tokens.refresh_token;
+                outlookAccount.refreshToken = tokens.refresh_token;
+              }
+              if (tokens.expiry_date) updateData.tokenExpiry = new Date(tokens.expiry_date);
+              await storage.updateOutlookAccount(outlookAccount.id, updateData);
+            }
+          )
+        )
+      );
+      
+      console.log(`✅ Fetched full content for ${fullEmails.length} emails`);
+      
+      // Phase 2b: Save emails to database with provider tags
+      const savedEmails: any[] = [];
+      
+      for (const email of fullEmails) {
+        try {
+          const existingEmail = await storage.getEmailByGmailId(email.id);
+          
+          if (!existingEmail) {
+            const emailData = {
+              userId,
+              emailProvider: 'outlook' as const,
+              providerAccountId: outlookAccount.id,
+              gmailId: email.id, // Reusing gmailId column for Outlook message IDs (legacy field name)
+              subject: email.subject,
+              fromEmail: email.fromEmail,
+              fromName: email.fromName || null,
+              receivedAt: email.receivedAt,
+              content: email.body,
+              attachmentData: email.attachments ? JSON.stringify({ attachments: email.attachments }) : null,
+              isTransaction: true,
+              extractedAmount: null,
+              extractedCurrency: null,
+              merchantName: null,
+              subscriptionId: null,
+              processed: false
+            };
+            
+            const saved = await storage.createEmail(emailData);
+            if (saved) {
+              savedEmails.push(saved);
+            }
+          } else {
+            savedEmails.push(existingEmail);
+          }
+        } catch (error) {
+          console.error('Error saving Outlook email:', error);
+        }
+      }
+      
+      console.log(`✅ Saved ${savedEmails.length} Outlook emails`);
+      
+      // Step 4: LLM Analysis with Gemini
+      console.log(`🤖 Starting Gemini analysis on ${savedEmails.length} emails...`);
+      
+      const geminiResults = await geminiDetector.analyzeEmailsForSubscriptions(savedEmails);
+      
+      console.log(`✅ Gemini analysis complete:`);
+      console.log(`   • Total suggestions: ${geminiResults.subscriptions.length}`);
+      console.log(`   • High confidence: ${geminiResults.subscriptions.filter(s => s.confidence === 'high').length}`);
+      
+      // Step 5: Mark analyzed emails as processed
+      for (const email of savedEmails) {
+        try {
+          await storage.updateEmail(email.id, { processed: true });
+        } catch (error) {
+          console.error(`Failed to mark email ${email.id} as processed:`, error);
+        }
+      }
+      
+      // Step 6: Save suggestions to database with provider tags
+      console.log(`💾 Saving ${geminiResults.subscriptions.length} suggestions...`);
+      
+      const findMatchingEmails = (suggestion: any, emails: any[]): string[] => {
+        const searchTerms = [
+          suggestion.serviceName?.toLowerCase(),
+          suggestion.merchantName?.toLowerCase()
+        ].filter(Boolean);
+        
+        if (searchTerms.length === 0) return [];
+        
+        return emails
+          .filter(email => {
+            const emailText = [
+              email.subject?.toLowerCase(),
+              email.fromEmail?.toLowerCase(),
+              email.fromName?.toLowerCase()
+            ].join(' ');
+            
+            return searchTerms.some(term => emailText.includes(term));
+          })
+          .map(email => email.gmailId)
+          .slice(0, 5);
+      };
+      
+      const suggestionInserts = geminiResults.subscriptions.map(suggestion => ({
+        userId,
+        emailProvider: 'outlook' as const,
+        providerAccountId: outlookAccount.id,
+        serviceName: suggestion.serviceName,
+        serviceKey: generateServiceKey(suggestion.serviceName, suggestion.frequency),
+        merchantName: suggestion.merchantName || null,
+        amount: suggestion.amount.toString(),
+        currency: suggestion.currency || 'INR',
+        frequency: suggestion.frequency,
+        category: suggestion.category || null,
+        confidence: suggestion.confidence,
+        confidenceScore: suggestion.confidence === 'high' ? '0.85' : suggestion.confidence === 'medium' ? '0.65' : '0.45',
+        reasoning: suggestion.reasoning || null,
+        evidenceEmailIds: findMatchingEmails(suggestion, savedEmails),
+        occurrences: 1,
+        recurrenceType: suggestion.frequency,
+        recurrenceScore: suggestion.confidence === 'high' ? 90 : suggestion.confidence === 'medium' ? 70 : 50,
+        recurringKeywords: suggestion.recurringKeywords || [],
+        senderHistory: suggestion.senderHistory ? (typeof suggestion.senderHistory === 'string' ? suggestion.senderHistory : JSON.stringify(suggestion.senderHistory)) : null,
+        attachmentEvidence: suggestion.attachmentEvidence ? (typeof suggestion.attachmentEvidence === 'string' ? suggestion.attachmentEvidence : JSON.stringify(suggestion.attachmentEvidence)) : null,
+        validationChecks: suggestion.validationChecks ? (typeof suggestion.validationChecks === 'string' ? suggestion.validationChecks : JSON.stringify(suggestion.validationChecks)) : null,
+        nextBillingDate: parseValidDate(suggestion.nextBillingDate),
+        lastSeen: new Date(),
+        status: 'pending'
+      }));
+      
+      const savedSuggestions = await storage.createSuggestionsBulk(suggestionInserts);
+      console.log(`✅ Saved ${savedSuggestions.length} suggestions for ${outlookAccount.outlookEmail}`);
+      
+      // Mark as successful before returning
+      processingSuccessful = true;
+      
+      return {
+        success: true,
+        accountId: outlookAccount.id,
+        outlookEmail: outlookAccount.outlookEmail,
+        emailsProcessed: savedEmails.length,
+        suggestionsGenerated: savedSuggestions.length,
+        candidateEmails: aiApprovedIds.length,
+        totalEmails: emailMetadata.length
+      };
+      
+    } catch (error) {
+      lastErrorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`❌ Error processing ${outlookAccount.outlookEmail}:`, error);
+      
+      return {
+        success: false,
+        accountId: outlookAccount.id,
+        outlookEmail: outlookAccount.outlookEmail,
+        error: lastErrorMessage
+      };
+    } finally {
+      // Always update final sync status with error message
+      await storage.updateOutlookAccount(outlookAccount.id, {
+        syncStatus: processingSuccessful ? 'idle' : 'error',
+        lastSync: new Date(),
+        syncError: processingSuccessful ? null : lastErrorMessage
+      });
+    }
+  }
+  
+  // Enhanced sync with LLM analysis (AUTHENTICATED) - Multi-Provider Multi-Account Support
   app.post("/api/sync-emails-llm", isAuthenticated, async (req: any, res) => {
     try {
       // Get userId from authenticated user, ignore request body for security
@@ -388,11 +688,14 @@ export function registerGeminiRoutes(app: Express) {
         return res.status(401).json({ message: "User not authenticated" });
       }
 
-      // Fetch all Gmail accounts for this user
+      // Fetch all Gmail and Outlook accounts for this user
       const gmailAccounts = await storage.getGmailAccounts(userId);
+      const outlookAccounts = await storage.getOutlookAccounts(userId);
       
-      if (!gmailAccounts || gmailAccounts.length === 0) {
-        return res.status(400).json({ message: "No Gmail accounts connected" });
+      const totalAccounts = gmailAccounts.length + outlookAccounts.length;
+      
+      if (totalAccounts === 0) {
+        return res.status(400).json({ message: "No email accounts connected" });
       }
       
       // Get user's email sync days setting (default 90, max 180)
@@ -403,41 +706,79 @@ export function registerGeminiRoutes(app: Express) {
       
       const emailSyncDays = user.emailSyncDays || 90;
       
-      console.log(`🚀 Starting multi-account sync for ${gmailAccounts.length} Gmail account(s)...`);
+      console.log(`🚀 Starting multi-provider sync: ${gmailAccounts.length} Gmail + ${outlookAccounts.length} Outlook = ${totalAccounts} total accounts`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       
       // Send initial progress update
       sendProgressUpdate(userId, {
         stage: 'multi_account_sync_start',
         progress: 0,
-        message: `Starting sync for ${gmailAccounts.length} Gmail account(s)...`,
-        details: { totalAccounts: gmailAccounts.length }
+        message: `Starting sync for ${totalAccounts} account(s) across Gmail and Outlook...`,
+        details: { 
+          totalAccounts,
+          gmailAccounts: gmailAccounts.length,
+          outlookAccounts: outlookAccounts.length
+        }
       });
       
-      // Simple concurrency limiter - process max 3 accounts in parallel
-      const CONCURRENCY_LIMIT = 3;
+      // Multi-provider concurrency: max 4 total (2 per provider)
+      const CONCURRENCY_LIMIT = 4;
+      const PROVIDER_LIMIT = 2;
+      
+      // Create account tasks with provider metadata
+      type AccountTask = {
+        provider: 'gmail' | 'outlook';
+        account: any;
+        process: () => Promise<any>;
+      };
+      
+      const gmailTasks: AccountTask[] = gmailAccounts.map(account => ({
+        provider: 'gmail' as const,
+        account,
+        process: () => processGmailAccount(userId, account, emailSyncDays)
+      }));
+      
+      const outlookTasks: AccountTask[] = outlookAccounts.map(account => ({
+        provider: 'outlook' as const,
+        account,
+        process: () => processOutlookAccount(userId, account, emailSyncDays)
+      }));
+      
+      // Interleave Gmail and Outlook tasks for balanced processing
+      const allTasks: AccountTask[] = [];
+      const maxLength = Math.max(gmailTasks.length, outlookTasks.length);
+      for (let i = 0; i < maxLength; i++) {
+        if (i < gmailTasks.length) allTasks.push(gmailTasks[i]);
+        if (i < outlookTasks.length) allTasks.push(outlookTasks[i]);
+      }
+      
       const results: any[] = [];
       let completed = 0;
       
-      for (let i = 0; i < gmailAccounts.length; i += CONCURRENCY_LIMIT) {
-        const batch = gmailAccounts.slice(i, i + CONCURRENCY_LIMIT);
+      for (let i = 0; i < allTasks.length; i += CONCURRENCY_LIMIT) {
+        const batch = allTasks.slice(i, i + CONCURRENCY_LIMIT);
+        
+        // Enforce per-provider limits within batch
+        const gmailBatch = batch.filter(t => t.provider === 'gmail').slice(0, PROVIDER_LIMIT);
+        const outlookBatch = batch.filter(t => t.provider === 'outlook').slice(0, PROVIDER_LIMIT);
+        const limitedBatch = [...gmailBatch, ...outlookBatch];
         
         const batchResults = await Promise.allSettled(
-          batch.map(account => processGmailAccount(userId, account, emailSyncDays))
+          limitedBatch.map(task => task.process())
         );
         
         results.push(...batchResults);
-        completed += batch.length;
+        completed += limitedBatch.length;
         
         // Send progress update after each batch
-        const progressPercentage = Math.round((completed / gmailAccounts.length) * 90);
+        const progressPercentage = Math.round((completed / totalAccounts) * 90);
         sendProgressUpdate(userId, {
           stage: 'accounts_syncing',
           progress: progressPercentage,
-          message: `Synced ${completed} of ${gmailAccounts.length} accounts...`,
+          message: `Synced ${completed} of ${totalAccounts} accounts...`,
           details: { 
             completed,
-            total: gmailAccounts.length
+            total: totalAccounts
           }
         });
       }
@@ -465,8 +806,8 @@ export function registerGeminiRoutes(app: Express) {
       const totalEmailsProcessed = successfulResults.reduce((sum, r) => sum + (r.emailsProcessed || 0), 0);
       const totalSuggestionsGenerated = successfulResults.reduce((sum, r) => sum + (r.suggestionsGenerated || 0), 0);
       
-      console.log(`\n✅ Multi-account sync complete!`);
-      console.log(`   • Accounts processed: ${gmailAccounts.length}`);
+      console.log(`\n✅ Multi-provider sync complete!`);
+      console.log(`   • Total accounts: ${totalAccounts} (${gmailAccounts.length} Gmail + ${outlookAccounts.length} Outlook)`);
       console.log(`   • Successful: ${successfulResults.length}`);
       console.log(`   • Failed: ${failedResults.length}`);
       console.log(`   • Total emails processed: ${totalEmailsProcessed}`);
@@ -478,27 +819,32 @@ export function registerGeminiRoutes(app: Express) {
         progress: 100,
         message: `Sync complete! Found ${totalSuggestionsGenerated} subscription suggestions across ${successfulResults.length} accounts`,
         details: { 
-          totalAccounts: gmailAccounts.length,
+          totalAccounts,
+          gmailAccounts: gmailAccounts.length,
+          outlookAccounts: outlookAccounts.length,
           successful: successfulResults.length,
           failed: failedResults.length,
           suggestionsGenerated: totalSuggestionsGenerated
         }
       });
       
-      // Return structured response
+      // Return structured response with provider-agnostic formatting
       res.json({
         success: true,
-        totalAccounts: gmailAccounts.length,
+        totalAccounts,
+        gmailAccounts: gmailAccounts.length,
+        outlookAccounts: outlookAccounts.length,
         successful: successfulResults.length,
         failed: failedResults.length,
         suggestionsGenerated: totalSuggestionsGenerated,
         emailsProcessed: totalEmailsProcessed,
         redirectToSuggestions: totalSuggestionsGenerated > 0,
-        results: results.map((r, index) => {
+        results: results.map((r) => {
           if (r.status === 'fulfilled') {
             return {
               accountId: r.value.accountId,
-              gmailEmail: r.value.gmailEmail,
+              email: r.value.gmailEmail || r.value.outlookEmail,
+              provider: r.value.gmailEmail ? 'gmail' : 'outlook',
               success: r.value.success,
               error: r.value.error,
               emailsProcessed: r.value.emailsProcessed,
@@ -506,8 +852,9 @@ export function registerGeminiRoutes(app: Express) {
             };
           } else {
             return {
-              accountId: gmailAccounts[index]?.id || 'unknown',
-              gmailEmail: gmailAccounts[index]?.gmailEmail || 'unknown',
+              accountId: 'unknown',
+              email: 'unknown',
+              provider: 'unknown',
               success: false,
               error: r.reason?.message || 'Unknown error'
             };

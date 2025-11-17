@@ -1,5 +1,4 @@
 import { Client } from '@microsoft/microsoft-graph-client';
-import { ConfidentialClientApplication } from '@azure/identity';
 import { 
   EmailProviderAdapter, 
   OAuthTokens, 
