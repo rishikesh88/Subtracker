@@ -18,7 +18,7 @@ export const sessions = pgTable(
   (table) => [index("IDX_session_expire").on(table.expire)],
 );
 
-// User storage table - Updated for Replit Auth
+// User storage table - Updated for Replit Auth + Email/Password
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: varchar("email").unique(),
@@ -38,6 +38,14 @@ export const users = pgTable("users", {
   preferredCurrency: text("preferred_currency").default("INR").notNull(),
   // Email sync settings
   emailSyncDays: integer("email_sync_days").default(90).notNull(), // Number of days to fetch emails (1-180)
+  // Email+Password authentication
+  passwordHash: text("password_hash"), // bcrypt hash for email+password auth (null for OAuth users)
+  // Onboarding fields
+  organizationName: text("organization_name"),
+  countryCode: text("country_code"), // ISO country code (US, GB, IN, etc.)
+  accountHolderName: text("account_holder_name"),
+  onboardingStatus: text("onboarding_status").default("pending").notNull(), // pending, org_complete, complete
+  privacyConsentGiven: boolean("privacy_consent_given").default(false).notNull(),
 });
 
 // Gmail Accounts table - supports multiple Gmail accounts per user
@@ -192,6 +200,19 @@ export const insertUserSchema = createInsertSchema(users).pick({
   profileImageUrl: true,
 });
 
+// Auth-specific schemas - never expose passwordHash or onboarding fields to client
+export const signupSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+  firstName: z.string().optional(),
+  lastName: z.string().optional(),
+});
+
+export const loginSchema = z.object({
+  email: z.string().email("Invalid email address"),
+  password: z.string().min(1, "Password is required"),
+});
+
 export const upsertUserSchema = createInsertSchema(users).pick({
   id: true,
   email: true,
@@ -260,6 +281,11 @@ export const safeUserSchema = createInsertSchema(users).pick({
   lastSync: true,
   preferredCurrency: true,
   emailSyncDays: true,
+  organizationName: true,
+  countryCode: true,
+  accountHolderName: true,
+  onboardingStatus: true,
+  privacyConsentGiven: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -302,6 +328,8 @@ export const updateSettingsSchema = z.object({
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type UpsertUser = z.infer<typeof upsertUserSchema>;
+export type SignupData = z.infer<typeof signupSchema>;
+export type LoginData = z.infer<typeof loginSchema>;
 export type User = typeof users.$inferSelect;
 export type SafeUser = z.infer<typeof safeUserSchema>;
 export type Subscription = typeof subscriptions.$inferSelect;

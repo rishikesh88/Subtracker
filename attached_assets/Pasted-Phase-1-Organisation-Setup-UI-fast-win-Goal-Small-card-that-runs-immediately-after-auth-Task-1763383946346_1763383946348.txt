@@ -1,0 +1,161 @@
+Phase 1 — Organisation Setup UI (fast win)
+
+Goal: Small card that runs immediately after auth.
+
+Tasks
+
+After signup redirect to /onboarding/org-setup.
+
+UI: single card with Org name, Country dropdown (set currency), Account holder name (pre-filled if available).
+
+Save to DB (User + Org tables) and emit telemetry org_created.
+
+Acceptance
+
+Creating org persists org record, sets currency, navigates to next step /onboarding/connect.
+
+Phase 2 — Connect Accounts UI + Privacy Modal + Backfill slider
+
+Goal: Present email-connect options with clear privacy messaging and backfill choice.
+
+Tasks
+
+/onboarding/connect page: buttons for Connect Gmail, Connect Outlook, Skip.
+
+Privacy modal before OAuth: explain metadata-only storage, read-only scope, disconnect anytime.
+
+Backfill slider UI (30/60/90/180 days; default 90) shown before initiating OAuth, pass choice to backend on consent.
+
+Clicking Skip routes to dashboard (/dashboard) and emits onboarding_skipped_sync.
+
+Acceptance
+
+Privacy modal shown and consent recorded.
+
+Backfill value stored in DB user settings.
+
+OAuth flow initiated with the backfill parameter.
+
+Phase 3 — OAuth callback wiring + minimal sync enqueue
+
+Goal: After successful OAuth, store tokens securely and enqueue a sync job.
+
+Tasks
+
+On OAuth callback, save refresh token (encrypted) and emit email_connected.
+
+Enqueue /api/jobs/sync with {userId, provider, backfillDays}.
+
+Return user to dashboard with sync panel visible.
+
+Acceptance
+
+Tokens saved (encrypted) in DB.
+
+A sync job entry exists in jobs table with status queued.
+
+Telemetry sync_enqueued recorded.
+
+Phase 4 — Background sync runner (MVP)
+
+Goal: Implement the sync runner that scans mailbox metadata and produces candidate records (metadata-only).
+
+Tasks
+
+Implement API job handler /api/jobs/sync/run (simulate Gmail/Outlook calls in dev with fixtures). Real integration later.
+
+Extract metadata: message id, from, subject, date, attachments flag, snippet.
+
+Use existing AI extractor (Gemini) or stub to identify vendor, amount, date, currency, confidence score.
+
+Persist candidate entries with fields: userId, provider, messageId, vendor, amount, date, confidence, invoiceFiles: [] (if attachments detected).
+
+Emit telemetry: sync_started, sync_progress (periodic), sync_finished with counts.
+
+Acceptance
+
+Job transitions queued→running→completed.
+
+Candidate rows appear in DB for the user.
+
+Frontend can fetch job progress via /api/jobs/:id/status.
+
+Phase 5 — Sync Progress UI + Floating Panel + Carousel
+
+Goal: Non-blocking progress UI and feature carousel while sync runs.
+
+Tasks
+
+Add floating panel component showing: emails scanned, candidates detected, ETA (estim).
+
+Add small looping carousel (3 slides) that runs until sync finished, closable/minimizable.
+
+Provide link to /review/candidates.
+
+Acceptance
+
+Panel updates in near real-time via polling or SSE.
+
+User can close and continue exploring; panel persists.
+
+Phase 6 — HITL Review page
+
+Goal: Allow user to review detected candidates grouped by confidence; require confirmation for all.
+
+Tasks
+
+/review/candidates endpoint returns grouped candidates (High / Medium / Low).
+
+UI lists vendor, date, amount, attachments icon; ability to preview metadata and attached invoice (if any).
+
+Approve / Edit / Discard actions per item.
+
+Bulk “Approve All High” button.
+
+On approval, create Subscription records in DB; emit subscription_added telemetry.
+
+Acceptance
+
+Approving items creates subscription rows and links any stored invoice metadata.
+
+Approval requires explicit user action for high-confidence items.
+
+Phase 7 — Dashboard empty-state and recovery paths
+
+Goal: Provide useful CTAs when no subs found.
+
+Tasks
+
+On dashboard if user has zero subscriptions show:
+
+CTA: Add manual subscription (opens add modal)
+
+CTA: Add another account (goes to connect)
+
+CTA: Re-run scan with larger window (opens slider prefilled with 180)
+
+Add small tips box explaining metadata-only policy.
+
+Acceptance
+
+Each CTA navigates correctly.
+
+Re-run triggers a new sync job with selected window.
+
+Phase 8 — Instrumentation, analytics, and minor polish
+
+Goal: Make activation metrics visible (PostHog or minimal event log page).
+
+Tasks
+
+Wire telemetry events to analytics.
+
+Add admin debug page to view user onboarding state and last sync details.
+
+Add copy edits and final privacy link in footer.
+
+Acceptance
+
+Events show up in analytics.
+
+Admin can debug a user flow.

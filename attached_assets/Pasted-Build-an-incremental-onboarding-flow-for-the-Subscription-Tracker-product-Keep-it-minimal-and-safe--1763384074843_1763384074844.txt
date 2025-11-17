@@ -1,0 +1,73 @@
+Build an incremental onboarding flow for the Subscription Tracker product. Keep it minimal and safe to roll out in phases. Requirements:
+
+Support sign-up with Email+Password, Google, and Microsoft.
+
+After sign-up show a single Organisation Setup card (Org name, Country → sets default currency, Account holder name).
+
+Then show Connect Accounts step with three choices: Connect Gmail, Connect Outlook, Skip.
+
+Before any mailbox consent, show a Privacy Modal stating clearly: we store email metadata only (sender, subject, attachments), we do not store full email bodies, read-only access, disconnect anytime.
+
+Let the user choose a backfill window (30 / 60 / 90 / 180 days) via a simple slider before starting a sync. Default = 90 days.
+
+After first connected account, begin a background sync (non-blocking UI). Show a small sync progress panel with: emails scanned, candidates found, and link to review.
+
+Provide a HITL review page that groups detected subscription candidates by confidence (High / Medium / Low). Require explicit user confirmation for every subscription before adding.
+
+If no subscriptions are found, show a helpful empty-state dashboard with CTAs: Add manual subscription, Add another account, Re-run scan with larger window.
+
+Add basic event hooks for: account created, email connected, sync started, sync finished, first review completed, subscriptions approved.
+
+Keep UI copy reassuring and simple. Deliver in small phases so progress can be validated after each phase.
+
+Suggested Phases (simple, incremental):
+
+Phase 1 — Auth & redirect
+
+Implement sign-up/sign-in with Email+Password, Google, Microsoft.
+
+After auth, redirect to Organisation Setup.
+
+Acceptance: user can create account and reach organisation card.
+
+Phase 2 — Organisation Setup
+
+Single card: Org name, Country (sets currency), Account holder name.
+
+Acceptance: org saved and user proceeds to Connect Accounts screen.
+
+Phase 3 — Connect Accounts + Privacy + Backfill
+
+Show Connect Gmail / Connect Outlook / Skip.
+
+Show privacy modal before consent.
+
+Add backfill slider (30/60/90/180 days).
+
+Acceptance: user can choose an option and backfill value is captured.
+
+Phase 4 — Start Sync & Progress UI
+
+After first connect, start a non-blocking background sync.
+
+Show a small floating progress panel (emails scanned, candidates found).
+
+Acceptance: progress panel appears and updates while user can navigate.
+
+Phase 5 — HITL Review
+
+Review page grouping candidates by confidence; show metadata and any attachments; Approve/Edit/Discard actions; bulk approve for High group allowed only as user action.
+
+Acceptance: approving creates subscription records (conceptually) only after explicit approval.
+
+Phase 6 — Empty-State & Recovery
+
+Dashboard empty state with CTAs: manual add, add another account, re-run scan with larger window.
+
+Acceptance: user has clear next steps if no results.
+
+Phase 7 — Basic Telemetry & Polish
+
+Add simple event hooks for the key events listed above.
+
+Tidy copy, privacy link, and ensure flows are skippable/minimizable.

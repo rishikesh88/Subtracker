@@ -7,7 +7,7 @@ import { emailParser } from "./services/emailParser";
 import { EnhancedEmailParser } from "./services/enhancedEmailParser";
 import { subscriptionDetector } from "./services/subscriptionDetector";
 import { GeminiSubscriptionDetector } from "./core/geminiSubscriptionDetector";
-import { insertEmailSchema, insertUserSchema, updateSettingsSchema, insertSubscriptionSchema, updateSubscriptionSchema, insertInvoiceSchema, type SafeUser } from "@shared/schema";
+import { insertEmailSchema, insertUserSchema, updateSettingsSchema, insertSubscriptionSchema, updateSubscriptionSchema, insertInvoiceSchema, signupSchema, loginSchema, type SafeUser } from "@shared/schema";
 import { ObjectStorageService, ObjectNotFoundError } from "./objectStorage";
 import { ObjectPermission } from "./objectAcl";
 import { randomBytes } from "crypto";
@@ -15,6 +15,7 @@ import { z } from "zod";
 import { registerGeminiRoutes } from "./routes/geminiSync";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { generateServiceKey } from "./utils/serviceKey";
+import bcrypt from "bcrypt";
 
 // Request validation schemas
 const approveSuggestionsSchema = z.object({
@@ -72,6 +73,147 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Setup Replit Auth
   await setupAuth(app);
 
+  // Email+Password authentication routes
+  app.post('/api/auth/signup', async (req, res) => {
+    try {
+      // Validate request body with Zod schema
+      const validationResult = signupSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          message: "Invalid request data",
+          errors: validationResult.error.errors
+        });
+      }
+
+      const { email, password, firstName, lastName } = validationResult.data;
+
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(409).json({ message: "Email already exists" });
+      }
+
+      // Hash password server-side only - never accept passwordHash from client
+      const passwordHash = await bcrypt.hash(password, 10);
+      
+      // Create user - onboardingStatus and privacyConsentGiven hardcoded in storage layer
+      const newUser = await storage.createUserWithPassword({
+        email,
+        firstName: firstName || null,
+        lastName: lastName || null,
+        passwordHash,
+      });
+
+      console.log('[Event: account_created]', { userId: newUser.id, email: newUser.email, method: 'email_password' });
+
+      // Create session using passport
+      (req as any).login({ claims: { sub: newUser.id } }, (err: any) => {
+        if (err) {
+          console.error("Session creation error:", err);
+          return res.status(500).json({ message: "Failed to create session" });
+        }
+        
+        const safeUser: SafeUser = {
+          id: newUser.id,
+          email: newUser.email,
+          firstName: newUser.firstName,
+          lastName: newUser.lastName,
+          profileImageUrl: newUser.profileImageUrl,
+          gmailConnected: newUser.gmailConnected,
+          gmailEmail: newUser.gmailEmail,
+          lastSync: newUser.lastSync,
+          preferredCurrency: newUser.preferredCurrency,
+          emailSyncDays: newUser.emailSyncDays,
+          organizationName: newUser.organizationName,
+          countryCode: newUser.countryCode,
+          accountHolderName: newUser.accountHolderName,
+          onboardingStatus: newUser.onboardingStatus,
+          privacyConsentGiven: newUser.privacyConsentGiven,
+          createdAt: newUser.createdAt,
+          updatedAt: newUser.updatedAt,
+        };
+        
+        res.status(201).json(safeUser);
+      });
+    } catch (error) {
+      console.error("Signup error:", error);
+      res.status(500).json({ message: "Failed to create account" });
+    }
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      // Validate request body with Zod schema
+      const validationResult = loginSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          message: "Invalid request data",
+          errors: validationResult.error.errors
+        });
+      }
+
+      const { email, password } = validationResult.data;
+
+      const user = await storage.getUserByEmail(email);
+      if (!user || !user.passwordHash) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      const isValidPassword = await bcrypt.compare(password, user.passwordHash);
+      if (!isValidPassword) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      // Create session using passport
+      (req as any).login({ claims: { sub: user.id } }, (err: any) => {
+        if (err) {
+          console.error("Session creation error:", err);
+          return res.status(500).json({ message: "Failed to create session" });
+        }
+        
+        const safeUser: SafeUser = {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          profileImageUrl: user.profileImageUrl,
+          gmailConnected: user.gmailConnected,
+          gmailEmail: user.gmailEmail,
+          lastSync: user.lastSync,
+          preferredCurrency: user.preferredCurrency,
+          emailSyncDays: user.emailSyncDays,
+          organizationName: user.organizationName,
+          countryCode: user.countryCode,
+          accountHolderName: user.accountHolderName,
+          onboardingStatus: user.onboardingStatus,
+          privacyConsentGiven: user.privacyConsentGiven,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+        };
+        
+        res.json(safeUser);
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ message: "Failed to log in" });
+    }
+  });
+
+  app.post('/api/auth/logout', isAuthenticated, (req, res) => {
+    req.logout((err) => {
+      if (err) {
+        console.error("Logout error:", err);
+        return res.status(500).json({ message: "Failed to log out" });
+      }
+      req.session.destroy((destroyErr) => {
+        if (destroyErr) {
+          console.error("Session destroy error:", destroyErr);
+          return res.status(500).json({ message: "Failed to destroy session" });
+        }
+        res.json({ message: "Logged out successfully" });
+      });
+    });
+  });
+
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
@@ -94,6 +236,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lastSync: user.lastSync,
         preferredCurrency: user.preferredCurrency,
         emailSyncDays: user.emailSyncDays,
+        organizationName: user.organizationName,
+        countryCode: user.countryCode,
+        accountHolderName: user.accountHolderName,
+        onboardingStatus: user.onboardingStatus,
+        privacyConsentGiven: user.privacyConsentGiven,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       };

@@ -12,6 +12,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  createUserWithPassword(userData: { email: string; firstName: string | null; lastName: string | null; passwordHash: string }): Promise<User>;
   upsertUser(user: UpsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<UpdateUser>): Promise<User | undefined>;
   
@@ -130,6 +131,31 @@ export class DatabaseStorage implements IStorage {
       return result[0];
     } catch (error) {
       console.error('Error creating user:', error);
+      throw error;
+    }
+  }
+
+  async createUserWithPassword(userData: { 
+    email: string; 
+    firstName: string | null; 
+    lastName: string | null; 
+    passwordHash: string;
+  }): Promise<User> {
+    try {
+      // Hardcode safe defaults server-side - never accept from client
+      const newUserData = {
+        email: userData.email,
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        passwordHash: userData.passwordHash,
+        onboardingStatus: 'pending', // Always start as pending, never accept from client
+        privacyConsentGiven: false, // Always start false, user must consent during onboarding
+      };
+      
+      const result = await this.db.insert(users).values(newUserData).returning();
+      return result[0];
+    } catch (error) {
+      console.error('Error creating user with password:', error);
       throw error;
     }
   }
