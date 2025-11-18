@@ -90,11 +90,19 @@ Users can delete subscriptions from the detail page with a comprehensive cleanup
 
 ### Authentication and Authorization
 
-The application supports dual authentication methods:
-1. **Replit Auth**: Existing OAuth-based authentication (original method)
-2. **Email+Password Auth**: New signup/login system with bcrypt password hashing, added alongside Replit Auth
+The application supports unified authentication with 4 methods (Notion-style approach):
+1. **Google OAuth**: Sign in with Google using passport-google-oauth20
+2. **Microsoft OAuth**: Sign in with Microsoft using @azure/msal-node
+3. **Replit Auth**: OAuth-based authentication (login-only, not available in signup)
+4. **Email+Password**: Traditional signup/login with bcrypt password hashing
 
-Gmail and Outlook integrations use the OAuth2 flow for secure email access, managing authorization, token exchange, refresh token handling, and secure storage of credentials.
+**Design Choices:**
+- Signup page shows: Google, Microsoft, Email+Password only
+- Login page shows: All 4 methods including Replit Auth
+- Database supports OAuth users without passwords (passwordHash nullable)
+- OAuth credentials require setup via Replit Secrets (see `docs/OAUTH_SETUP.md`)
+
+Gmail and Outlook integrations use separate OAuth2 flows for secure email access (distinct from authentication OAuth), managing authorization, token exchange, refresh token handling, and secure storage of credentials.
 
 ### Incremental Onboarding Flow
 
@@ -135,6 +143,12 @@ The application includes a multi-step onboarding flow for new users:
 - `SyncProgressPanel` component with heartbeat monitoring, auto-reconnect (exponential backoff), and minimize/close controls
 - Displays: emails scanned, candidates found, suggestions generated, with "Review Suggestions" CTA
 - Currently Gmail-only due to email schema constraint (see Known Limitations below)
+- **Auto-Sync Notification UX** (✅ Complete):
+  - Gmail OAuth callback adds `syncing=true` flag when triggering background sync during onboarding
+  - AuthCallback component detects flag and shows immediate toast: "Gmail Connected! Starting email sync..."
+  - Sets localStorage flags (`justOnboarded`, `onboardedAt`) for SyncProgressPanel to detect
+  - SyncProgressPanel auto-opens when flag detected (within 5 minutes), showing "Initializing sync..." state
+  - Provides seamless UX from account connection → sync notification → progress tracking
 
 **Onboarding Status Transitions:**
 - `pending`: New user, needs to complete org setup
