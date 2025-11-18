@@ -41,22 +41,16 @@ export default function VerifyEmail() {
         throw new Error(data.message || "Verification failed");
       }
 
-      // Invalidate user query to refresh emailVerified status
-      queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+      // Refetch user query to get fresh emailVerified status
+      await queryClient.refetchQueries({ queryKey: ['/api/auth/user'] });
 
       toast({
         title: "Email Verified!",
         description: "Your email has been successfully verified.",
       });
 
-      // Redirect to onboarding or dashboard
-      if (user?.onboardingStatus === 'pending') {
-        setLocation('/onboarding/org-setup');
-      } else if (user?.onboardingStatus === 'org_complete') {
-        setLocation('/onboarding/connect');
-      } else {
-        setLocation('/dashboard');
-      }
+      // Redirect to onboarding (App.tsx routing will handle final destination)
+      setLocation('/onboarding/org-setup');
     } catch (err: any) {
       toast({
         title: "Verification Failed",
@@ -96,17 +90,8 @@ export default function VerifyEmail() {
     }
   };
 
-  // If already verified, redirect
-  if (user?.emailVerified) {
-    if (user?.onboardingStatus === 'pending') {
-      setLocation('/onboarding/org-setup');
-    } else if (user?.onboardingStatus === 'org_complete') {
-      setLocation('/onboarding/connect');
-    } else {
-      setLocation('/dashboard');
-    }
-    return null;
-  }
+  // If already verified, App.tsx routing will redirect automatically
+  // No need to manually redirect here
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">

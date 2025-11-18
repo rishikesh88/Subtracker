@@ -133,7 +133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       expiryDate.setMinutes(expiryDate.getMinutes() + 15); // 15 minutes expiry
 
       try {
-        await storage.setEmailVerificationToken(newUser.id, verificationCode, expiryDate);
+        await storage.createVerificationCode(newUser.id, verificationCode, expiryDate);
         await sendVerificationEmail({
           to: newUser.email,
           code: verificationCode,
@@ -152,28 +152,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(500).json({ message: "Failed to create session" });
         }
         
-        const safeUser: SafeUser = {
-          id: newUser.id,
-          email: newUser.email,
-          firstName: newUser.firstName,
-          lastName: newUser.lastName,
-          profileImageUrl: newUser.profileImageUrl,
-          gmailConnected: newUser.gmailConnected,
-          gmailEmail: newUser.gmailEmail,
-          lastSync: newUser.lastSync,
-          preferredCurrency: newUser.preferredCurrency,
-          emailSyncDays: newUser.emailSyncDays,
-          organizationName: newUser.organizationName,
-          countryCode: newUser.countryCode,
-          accountHolderName: newUser.accountHolderName,
-          onboardingStatus: newUser.onboardingStatus,
-          privacyConsentGiven: newUser.privacyConsentGiven,
-          emailVerified: newUser.emailVerified,
-          createdAt: newUser.createdAt,
-          updatedAt: newUser.updatedAt,
-        };
+        console.log('[Session] Created session for user:', newUser.id);
+        console.log('[Session] Session ID:', (req as any).sessionID);
         
-        res.status(201).json(safeUser);
+        // Explicitly save session to ensure it's persisted before response
+        (req as any).session.save((saveErr: any) => {
+          if (saveErr) {
+            console.error('[Session] Failed to save session:', saveErr);
+            return res.status(500).json({ message: "Failed to save session" });
+          }
+          
+          console.log('[Session] Session saved successfully');
+          
+          const safeUser: SafeUser = {
+            id: newUser.id,
+            email: newUser.email,
+            firstName: newUser.firstName,
+            lastName: newUser.lastName,
+            profileImageUrl: newUser.profileImageUrl,
+            gmailConnected: newUser.gmailConnected,
+            gmailEmail: newUser.gmailEmail,
+            lastSync: newUser.lastSync,
+            preferredCurrency: newUser.preferredCurrency,
+            emailSyncDays: newUser.emailSyncDays,
+            organizationName: newUser.organizationName,
+            countryCode: newUser.countryCode,
+            accountHolderName: newUser.accountHolderName,
+            onboardingStatus: newUser.onboardingStatus,
+            privacyConsentGiven: newUser.privacyConsentGiven,
+            emailVerified: newUser.emailVerified,
+            createdAt: newUser.createdAt,
+            updatedAt: newUser.updatedAt,
+          };
+          
+          res.status(201).json(safeUser);
+        });
       });
     } catch (error) {
       console.error("Signup error:", error);
@@ -184,21 +197,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Email verification endpoint
   app.post('/api/auth/verify-email', isAuthenticated, async (req: any, res) => {
     try {
-      const { code } = req.body;
       const userId = req.user.claims.sub;
+      const { code } = req.body;
 
-      if (!code || typeof code !== 'string' || code.length !== 6) {
-        return res.status(400).json({ message: "Invalid verification code format" });
+      if (!code || code.length !== 6) {
+        return res.status(400).json({ message: "Invalid verification code" });
       }
 
-      const verified = await storage.verifyEmailWithToken(userId, code);
-
-      if (!verified) {
-        return res.status(400).json({ message: "Invalid or expired verification code" });
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
       }
 
-      console.log(`[Email] User ${userId} verified their email`);
-      res.json({ message: "Email verified successfully", emailVerified: true });
+      if (user.emailVerified) {
+        return res.status(400).json({ message: "Email already verified" });
+      }
+
+      // Check verification code
+      const verificationRecord = await storage.getVerificationCode(userId, code);
+
+      if (!verificationRecord) {
+        return res.status(400).json({ message: "Invalid verification code" });
+      }
+
+      if (verificationRecord.used) {
+        return res.status(400).json({ message: "Verification code already used" });
+      }
+
+      if (new Date() > verificationRecord.expiresAt) {
+        return res.status(400).json({ message: "Verification code expired" });
+      }
+
+      // Mark code as used and verify email
+      await storage.markVerificationCodeUsed(verificationRecord.id);
+      await storage.setEmailVerified(userId);
+
+      console.log(`[Event: email_verified] User ${userId} verified email`);
+      res.json({ message: "Email verified successfully" });
     } catch (error) {
       console.error("Email verification error:", error);
       res.status(500).json({ message: "Failed to verify email" });
@@ -245,7 +280,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const expiryDate = new Date();
       expiryDate.setMinutes(expiryDate.getMinutes() + 15);
 
-      await storage.setEmailVerificationToken(userId, verificationCode, expiryDate);
+      await storage.createVerificationCode(userId, verificationCode, expiryDate);
       await sendVerificationEmail({
         to: user.email,
         code: verificationCode,

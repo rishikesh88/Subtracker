@@ -45,16 +45,16 @@ export default function Signup() {
 
       const user = await response.json();
       
-      // Invalidate auth query to refresh user data
-      queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
+      // Refetch auth query to get fresh user data (with session cookie)
+      await queryClient.refetchQueries({ queryKey: ['/api/auth/user'] });
 
       toast({
         title: "Account Created",
-        description: "Welcome to SubTracker! Let's set up your organization.",
+        description: "Please verify your email to continue. Check your inbox for the verification code.",
       });
 
-      // New users always start with onboarding
-      setLocation('/onboarding/org-setup');
+      // Redirect to email verification (required before onboarding)
+      setLocation('/verify-email');
     } catch (err: any) {
       setError(err.message || "Failed to create account");
       toast({

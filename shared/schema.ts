@@ -51,6 +51,19 @@ export const users = pgTable("users", {
   privacyConsentGiven: boolean("privacy_consent_given").default(false).notNull(),
 });
 
+// Verification Codes table - for email verification
+export const verificationCodes = pgTable("verification_codes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  code: varchar("code", { length: 6 }).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  used: boolean("used").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => [
+  index("idx_verification_codes_user_id").on(table.userId),
+  index("idx_verification_codes_code").on(table.code),
+]);
+
 // Gmail Accounts table - supports multiple Gmail accounts per user
 export const gmailAccounts = pgTable("gmail_accounts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

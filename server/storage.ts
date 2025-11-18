@@ -15,8 +15,10 @@ export interface IStorage {
   createUserWithPassword(userData: { email: string; firstName: string | null; lastName: string | null; passwordHash: string | null; profileImageUrl?: string | null }): Promise<User>;
   upsertUser(user: UpsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<UpdateUser>): Promise<User | undefined>;
-  setEmailVerificationToken(userId: string, token: string, expiry: Date): Promise<void>;
-  verifyEmailWithToken(userId: string, token: string): Promise<boolean>;
+  createVerificationCode(userId: string, code: string, expiresAt: Date): Promise<void>;
+  getVerificationCode(userId: string, code: string): Promise<{ id: string; expiresAt: Date; used: boolean } | undefined>;
+  markVerificationCodeUsed(id: string): Promise<void>;
+  setEmailVerified(userId: string): Promise<void>;
   
   // Subscription methods
   getSubscriptions(userId: string): Promise<Subscription[]>;
@@ -224,48 +226,69 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async setEmailVerificationToken(userId: string, token: string, expiry: Date): Promise<void> {
+  async createVerificationCode(userId: string, code: string, expiresAt: Date): Promise<void> {
     try {
-      await this.db
-        .update(users)
-        .set({
-          emailVerificationToken: token,
-          emailVerificationExpiry: expiry,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, userId));
+      const { verificationCodes } = await import("@shared/schema");
+      await this.db.insert(verificationCodes).values({
+        userId,
+        code,
+        expiresAt,
+        used: false,
+      });
     } catch (error) {
-      console.error('Error setting email verification token:', error);
+      console.error('Error creating verification code:', error);
       throw error;
     }
   }
 
-  async verifyEmailWithToken(userId: string, token: string): Promise<boolean> {
+  async getVerificationCode(userId: string, code: string): Promise<{ id: string; expiresAt: Date; used: boolean } | undefined> {
     try {
-      const user = await this.getUser(userId);
-      if (!user) return false;
+      const { verificationCodes } = await import("@shared/schema");
+      const result = await this.db
+        .select()
+        .from(verificationCodes)
+        .where(and(
+          eq(verificationCodes.userId, userId),
+          eq(verificationCodes.code, code)
+        ))
+        .orderBy(desc(verificationCodes.createdAt))
+        .limit(1);
+      
+      return result[0] || undefined;
+    } catch (error) {
+      console.error('Error getting verification code:', error);
+      throw error;
+    }
+  }
 
-      // Check if token matches and hasn't expired
-      if (user.emailVerificationToken !== token) return false;
-      if (!user.emailVerificationExpiry || new Date() > user.emailVerificationExpiry) return false;
+  async markVerificationCodeUsed(id: string): Promise<void> {
+    try {
+      const { verificationCodes } = await import("@shared/schema");
+      await this.db
+        .update(verificationCodes)
+        .set({ used: true })
+        .where(eq(verificationCodes.id, id));
+    } catch (error) {
+      console.error('Error marking verification code as used:', error);
+      throw error;
+    }
+  }
 
-      // Mark email as verified and clear token
+  async setEmailVerified(userId: string): Promise<void> {
+    try {
       await this.db
         .update(users)
         .set({
           emailVerified: true,
-          emailVerificationToken: null,
-          emailVerificationExpiry: null,
           updatedAt: new Date(),
         })
         .where(eq(users.id, userId));
-
-      return true;
     } catch (error) {
-      console.error('Error verifying email with token:', error);
+      console.error('Error setting email verified:', error);
       throw error;
     }
   }
+
 
   // Subscription methods
   async getSubscriptions(userId: string): Promise<Subscription[]> {
