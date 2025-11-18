@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button";
 import { type Subscription } from "@shared/schema";
 import { EditSubscriptionModal } from "./EditSubscriptionModal";
+import { EmptyDashboard } from "./EmptyDashboard";
 
 interface SubscriptionListProps {
   subscriptions: Subscription[];
@@ -85,6 +86,11 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
     if (name.includes("verizon") || name.includes("phone") || name.includes("wireless")) return "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400";
     return "bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400";
   };
+
+  // Show EmptyDashboard if there are truly no subscriptions
+  if (subscriptions.length === 0) {
+    return <EmptyDashboard variant="no-subscriptions" />;
+  }
 
   return (
     <div className="space-y-6">
@@ -174,9 +180,7 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
         {filteredSubscriptions.length === 0 ? (
           <div className="p-8 text-center">
             <p className="text-muted-foreground" data-testid="no-subscriptions">
-              {subscriptions.length === 0 
-                ? "No subscriptions found. Connect your Gmail to start detecting subscriptions."
-                : "No subscriptions match your current filters."}
+              No subscriptions match your current filters.
             </p>
           </div>
         ) : (

@@ -29,7 +29,7 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
   const [processingSuggestions, setProcessingSuggestions] = useState<string[]>([]);
 
   // Fetch suggestions with pagination
-  const { data: suggestionsData = { suggestions: [], total: 0 }, isLoading, refetch } = useQuery<{
+  const { data: suggestionsData = { suggestions: [], total: 0 }, isLoading } = useQuery<{
     suggestions: SubscriptionSuggestion[];
     total: number;
   }>({
@@ -38,28 +38,21 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
     refetchOnMount: true, // Always refetch fresh data when modal opens
     staleTime: 0, // Consider data stale immediately to ensure fresh fetches
   });
-  
-  // Force refetch when modal opens
-  useEffect(() => {
-    if (open && userId) {
-      refetch();
-    }
-  }, [open, userId, refetch]);
 
   const { suggestions, total } = suggestionsData;
   const totalPages = Math.ceil(total / pageSize);
 
-  // Reset selection and auto-select high confidence suggestions when page changes or modal opens
+  // Reset selection and auto-select high confidence suggestions when modal opens or data refreshes
   useEffect(() => {
-    if (!isLoading && suggestions.length > 0) {
+    if (open && !isLoading && suggestions.length > 0) {
       const highConfidenceIds = suggestions
         .filter(s => s.confidence === 'high')
         .map(s => s.id);
       setSelectedSuggestions(highConfidenceIds);
-    } else if (!isLoading && suggestions.length === 0) {
+    } else if (open && !isLoading && suggestions.length === 0) {
       setSelectedSuggestions([]);
     }
-  }, [currentPage, isLoading]); // Only depend on page changes and loading state
+  }, [open, suggestions, isLoading]); // Depend on modal state, suggestions array, and loading state
 
   // Approve suggestions mutation with optimistic updates
   const approveMutation = useMutation({
@@ -93,8 +86,8 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
         description: `Successfully approved ${data.approved} suggestions and created subscriptions`,
       });
       
-      refetch();
-      // Invalidate subscription queries to show new subscriptions
+      // Invalidate queries to refetch fresh data
+      queryClient.invalidateQueries({ queryKey: [`/api/suggestions`] });
       queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
       queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${userId}`] });
     },
@@ -146,7 +139,7 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
         description: `Successfully skipped ${data.rejected} suggestions`,
       });
       
-      refetch();
+      queryClient.invalidateQueries({ queryKey: [`/api/suggestions`] });
     },
     onError: (error, variables, context) => {
       // Rollback optimistic update
@@ -177,7 +170,7 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
         description: `Successfully cleared ${data.cleared} suggestions`,
       });
       setSelectedSuggestions([]);
-      refetch();
+      queryClient.invalidateQueries({ queryKey: [`/api/suggestions`] });
     },
     onError: () => {
       toast({
@@ -228,6 +221,11 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
       })
       .map(s => s.id);
     setSelectedSuggestions(aboveThresholdIds);
+  };
+
+  const selectAllSuggestions = () => {
+    // Unconditionally select all suggestions on current page
+    setSelectedSuggestions(suggestions.map(s => s.id));
   };
 
   const clearSelection = () => {
@@ -317,23 +315,58 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
         </DialogHeader>
 
         <div className="flex-1 overflow-hidden">
-          {/* Simplified header */}
-          <div className="flex items-center justify-between mb-4 pb-4 border-b">
-            <div className="flex items-center gap-4">
-              <Checkbox
-                checked={selectedSuggestions.length === suggestions.length && suggestions.length > 0}
-                onCheckedChange={handleSelectAll}
-                data-testid="select-all-suggestions"
-              />
-              <span className="text-sm font-medium">
-                {selectedSuggestions.length} of {suggestions.length} selected
-              </span>
-              {selectedSuggestions.length > 0 && suggestions.some(s => s.confidence === 'high' && selectedSuggestions.includes(s.id)) && (
-                <Badge variant="outline" className="text-xs">
-                  High confidence auto-selected
-                </Badge>
-              )}
+          {/* Enhanced header with batch actions */}
+          <div className="space-y-3 mb-4 pb-4 border-b">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Checkbox
+                  checked={selectedSuggestions.length === suggestions.length && suggestions.length > 0}
+                  onCheckedChange={handleSelectAll}
+                  data-testid="select-all-suggestions"
+                />
+                <span className="text-sm font-medium">
+                  {selectedSuggestions.length} of {suggestions.length} selected
+                </span>
+                {selectedSuggestions.length > 0 && suggestions.some(s => s.confidence === 'high' && selectedSuggestions.includes(s.id)) && (
+                  <Badge variant="outline" className="text-xs bg-green-100 text-green-800 border-green-200">
+                    High confidence auto-selected
+                  </Badge>
+                )}
+              </div>
             </div>
+            
+            {/* Batch Action Buttons */}
+            {suggestions.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={selectHighConfidence}
+                  disabled={suggestions.filter(s => s.confidence === 'high').length === 0}
+                  data-testid="button-select-high-confidence"
+                >
+                  <CheckCircle className="h-4 w-4 mr-1 text-green-600" />
+                  Select High Confidence ({suggestions.filter(s => s.confidence === 'high').length})
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={selectAllSuggestions}
+                  data-testid="button-select-all-batch"
+                >
+                  Select All
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={clearSelection}
+                  disabled={selectedSuggestions.length === 0}
+                  data-testid="button-clear-selection-batch"
+                >
+                  Clear Selection
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Suggestions grid - Scrollable content */}
@@ -359,6 +392,8 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
                       selectedSuggestions.includes(suggestion.id) ? 'ring-2 ring-primary' : ''
                     } ${
                       processingSuggestions.includes(suggestion.id) ? 'opacity-60 scale-95 pointer-events-none' : ''
+                    } ${
+                      suggestion.confidence === 'high' ? 'bg-green-50/50 dark:bg-green-950/10 border-green-200 dark:border-green-800' : ''
                     }`}
                     data-testid={`suggestion-card-${suggestion.id}`}
                   >
@@ -415,6 +450,28 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
                           <span className="capitalize" data-testid={`suggestion-category-${suggestion.id}`}>
                             {suggestion.category || "Other"}
                           </span>
+                        </div>
+                        
+                        {/* Enhanced Metadata Display */}
+                        <div className="flex flex-wrap gap-3 pt-2 mt-2 border-t text-xs text-muted-foreground">
+                          {suggestion.confidenceScore !== null && suggestion.confidenceScore !== undefined && (
+                            <div className="flex items-center gap-1" data-testid={`metadata-confidence-${suggestion.id}`}>
+                              <CheckCircle className="h-3 w-3" />
+                              <span>{Math.round(parseFloat(suggestion.confidenceScore) * 100)}% match</span>
+                            </div>
+                          )}
+                          {suggestion.occurrences && suggestion.occurrences > 1 && (
+                            <div className="flex items-center gap-1" data-testid={`metadata-occurrences-${suggestion.id}`}>
+                              <FileText className="h-3 w-3" />
+                              <span>{suggestion.occurrences} emails</span>
+                            </div>
+                          )}
+                          {suggestion.lastSeen && (
+                            <div className="flex items-center gap-1" data-testid={`metadata-last-seen-${suggestion.id}`}>
+                              <AlertCircle className="h-3 w-3" />
+                              <span>Last: {new Date(suggestion.lastSeen).toLocaleDateString()}</span>
+                            </div>
+                          )}
                         </div>
                         
                         {/* Evidence Details - Expandable Section */}

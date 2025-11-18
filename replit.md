@@ -98,7 +98,7 @@ Gmail and Outlook integrations use the OAuth2 flow for secure email access, mana
 
 ### Incremental Onboarding Flow
 
-**Status: Phases 1-4 Complete** ✅
+**Status: Phases 1-6 Complete** ✅
 
 The application includes a multi-step onboarding flow for new users:
 
@@ -140,6 +140,23 @@ The application includes a multi-step onboarding flow for new users:
 - `pending`: New user, needs to complete org setup
 - `org_complete`: Organization setup done, needs to connect email accounts or skip
 - `complete`: Fully onboarded (either connected accounts or skipped)
+
+**Phase 5 - Enhanced HITL Review** (✅ Complete):
+- **SubscriptionSuggestionsModal Enhancements:**
+  - Auto-selection of high-confidence suggestions on page load
+  - Batch action buttons: "Select High Confidence", "Select All", "Clear Selection" with counts
+  - Visual hierarchy: High-confidence cards styled with green background/border (`bg-green-50/50 border-green-200`)
+  - Enhanced metadata display: Confidence score percentage, email occurrence count, last seen date
+  - Improved high-confidence badge styling with green accents
+- **Note:** Legacy `LLMSuggestionsModal.tsx` exists as dead code (not imported anywhere)
+
+**Phase 6 - Rich Empty States** (✅ Complete):
+- **EmptyDashboard Component** (`client/src/components/EmptyDashboard.tsx`):
+  - Reusable component supporting three variants: `no-accounts`, `no-sync`, `no-subscriptions`
+  - Features: Icon/illustration, contextual messaging, CTA buttons with test IDs
+  - Onboarding progress indicator with step visualization (Connect Email → Sync → Review)
+  - Integrated into `SubscriptionList` for consistent empty state UX
+  - Dashed card border, centered layout, responsive design
 
 ### Known Limitations
 
