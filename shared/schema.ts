@@ -40,6 +40,9 @@ export const users = pgTable("users", {
   emailSyncDays: integer("email_sync_days").default(90).notNull(), // Number of days to fetch emails (1-180)
   // Email+Password authentication
   passwordHash: text("password_hash"), // bcrypt hash for email+password auth (null for OAuth users)
+  emailVerified: boolean("email_verified").default(false).notNull(), // Email verification status
+  emailVerificationToken: text("email_verification_token"), // 6-digit verification code
+  emailVerificationExpiry: timestamp("email_verification_expiry"), // Token expiry time
   // Onboarding fields
   organizationName: text("organization_name"),
   countryCode: text("country_code"), // ISO country code (US, GB, IN, etc.)
