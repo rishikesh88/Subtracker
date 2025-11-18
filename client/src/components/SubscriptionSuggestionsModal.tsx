@@ -86,10 +86,16 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
         description: `Successfully approved ${data.approved} suggestions and created subscriptions`,
       });
       
-      // Invalidate queries to refetch fresh data
-      queryClient.invalidateQueries({ queryKey: [`/api/suggestions`] });
-      queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
-      queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${userId}`] });
+      // Invalidate queries to refetch fresh data (match all suggestions queries regardless of params)
+      queryClient.invalidateQueries({ 
+        predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/suggestions') ?? false
+      });
+      queryClient.invalidateQueries({ 
+        predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/subscriptions') ?? false
+      });
+      queryClient.invalidateQueries({ 
+        predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/stats') ?? false
+      });
     },
     onError: (error, variables, context) => {
       // Rollback optimistic update
@@ -139,7 +145,9 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
         description: `Successfully skipped ${data.rejected} suggestions`,
       });
       
-      queryClient.invalidateQueries({ queryKey: [`/api/suggestions`] });
+      queryClient.invalidateQueries({ 
+        predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/suggestions') ?? false
+      });
     },
     onError: (error, variables, context) => {
       // Rollback optimistic update
@@ -170,7 +178,9 @@ export function SubscriptionSuggestionsModal({ open, onOpenChange }: Subscriptio
         description: `Successfully cleared ${data.cleared} suggestions`,
       });
       setSelectedSuggestions([]);
-      queryClient.invalidateQueries({ queryKey: [`/api/suggestions`] });
+      queryClient.invalidateQueries({ 
+        predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/suggestions') ?? false
+      });
     },
     onError: () => {
       toast({
