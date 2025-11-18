@@ -15,6 +15,8 @@ export interface IStorage {
   createUserWithPassword(userData: { email: string; firstName: string | null; lastName: string | null; passwordHash: string | null; profileImageUrl?: string | null }): Promise<User>;
   upsertUser(user: UpsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<UpdateUser>): Promise<User | undefined>;
+  setEmailVerificationToken(userId: string, token: string, expiry: Date): Promise<void>;
+  verifyEmailWithToken(userId: string, token: string): Promise<boolean>;
   
   // Subscription methods
   getSubscriptions(userId: string): Promise<Subscription[]>;
@@ -218,6 +220,49 @@ export class DatabaseStorage implements IStorage {
       return result[0] || undefined;
     } catch (error) {
       console.error('Error updating user:', error);
+      throw error;
+    }
+  }
+
+  async setEmailVerificationToken(userId: string, token: string, expiry: Date): Promise<void> {
+    try {
+      await this.db
+        .update(users)
+        .set({
+          emailVerificationToken: token,
+          emailVerificationExpiry: expiry,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userId));
+    } catch (error) {
+      console.error('Error setting email verification token:', error);
+      throw error;
+    }
+  }
+
+  async verifyEmailWithToken(userId: string, token: string): Promise<boolean> {
+    try {
+      const user = await this.getUser(userId);
+      if (!user) return false;
+
+      // Check if token matches and hasn't expired
+      if (user.emailVerificationToken !== token) return false;
+      if (!user.emailVerificationExpiry || new Date() > user.emailVerificationExpiry) return false;
+
+      // Mark email as verified and clear token
+      await this.db
+        .update(users)
+        .set({
+          emailVerified: true,
+          emailVerificationToken: null,
+          emailVerificationExpiry: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, userId));
+
+      return true;
+    } catch (error) {
+      console.error('Error verifying email with token:', error);
       throw error;
     }
   }

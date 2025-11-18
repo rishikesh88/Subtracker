@@ -295,6 +295,7 @@ export const safeUserSchema = createInsertSchema(users).pick({
   accountHolderName: true,
   onboardingStatus: true,
   privacyConsentGiven: true,
+  emailVerified: true,
   createdAt: true,
   updatedAt: true,
 });

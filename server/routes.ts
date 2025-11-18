@@ -20,6 +20,7 @@ import bcrypt from "bcrypt";
 import passport from "passport";
 import { setupGoogleAuthStrategy } from "./auth/googleAuthStrategy";
 import { MicrosoftAuthService } from "./auth/microsoftAuthService";
+import { sendVerificationEmail, generateVerificationCode } from "./services/emailVerificationService";
 
 // Request validation schemas
 const approveSuggestionsSchema = z.object({
@@ -126,7 +127,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log('[Event: account_created]', { userId: newUser.id, email: newUser.email, method: 'email_password' });
 
-      // Create session using passport
+      // Generate and send verification code
+      const verificationCode = generateVerificationCode();
+      const expiryDate = new Date();
+      expiryDate.setMinutes(expiryDate.getMinutes() + 15); // 15 minutes expiry
+
+      try {
+        await storage.setEmailVerificationToken(newUser.id, verificationCode, expiryDate);
+        await sendVerificationEmail({
+          to: newUser.email,
+          code: verificationCode,
+          firstName: newUser.firstName,
+        });
+        console.log(`[Email] Verification code sent to ${newUser.email}`);
+      } catch (emailError) {
+        console.error('Failed to send verification email:', emailError);
+        // Don't block signup if email fails - user can resend later
+      }
+
+      // Create session using passport (allow immediate access, but verify later)
       (req as any).login({ claims: { sub: newUser.id } }, (err: any) => {
         if (err) {
           console.error("Session creation error:", err);
@@ -149,6 +168,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           accountHolderName: newUser.accountHolderName,
           onboardingStatus: newUser.onboardingStatus,
           privacyConsentGiven: newUser.privacyConsentGiven,
+          emailVerified: newUser.emailVerified,
           createdAt: newUser.createdAt,
           updatedAt: newUser.updatedAt,
         };
@@ -158,6 +178,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Signup error:", error);
       res.status(500).json({ message: "Failed to create account" });
+    }
+  });
+
+  // Email verification endpoint
+  app.post('/api/auth/verify-email', isAuthenticated, async (req: any, res) => {
+    try {
+      const { code } = req.body;
+      const userId = req.user.claims.sub;
+
+      if (!code || typeof code !== 'string' || code.length !== 6) {
+        return res.status(400).json({ message: "Invalid verification code format" });
+      }
+
+      const verified = await storage.verifyEmailWithToken(userId, code);
+
+      if (!verified) {
+        return res.status(400).json({ message: "Invalid or expired verification code" });
+      }
+
+      console.log(`[Email] User ${userId} verified their email`);
+      res.json({ message: "Email verified successfully", emailVerified: true });
+    } catch (error) {
+      console.error("Email verification error:", error);
+      res.status(500).json({ message: "Failed to verify email" });
+    }
+  });
+
+  // Resend verification email endpoint with rate limiting
+  const resendAttempts = new Map<string, { count: number; resetAt: number }>();
+
+  app.post('/api/auth/resend-verification', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const user = await storage.getUser(userId);
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if (user.emailVerified) {
+        return res.status(400).json({ message: "Email already verified" });
+      }
+
+      // Rate limiting: 3 attempts per hour
+      const now = Date.now();
+      const userAttempts = resendAttempts.get(userId);
+
+      if (userAttempts && userAttempts.resetAt > now) {
+        if (userAttempts.count >= 3) {
+          return res.status(429).json({ 
+            message: "Too many requests. Please try again in 1 hour.",
+            retryAfter: Math.ceil((userAttempts.resetAt - now) / 1000 / 60) // minutes
+          });
+        }
+        userAttempts.count++;
+      } else {
+        resendAttempts.set(userId, {
+          count: 1,
+          resetAt: now + 60 * 60 * 1000 // 1 hour
+        });
+      }
+
+      // Generate new code
+      const verificationCode = generateVerificationCode();
+      const expiryDate = new Date();
+      expiryDate.setMinutes(expiryDate.getMinutes() + 15);
+
+      await storage.setEmailVerificationToken(userId, verificationCode, expiryDate);
+      await sendVerificationEmail({
+        to: user.email,
+        code: verificationCode,
+        firstName: user.firstName,
+      });
+
+      console.log(`[Email] Resent verification code to ${user.email}`);
+      res.json({ message: "Verification email sent successfully" });
+    } catch (error) {
+      console.error("Resend verification error:", error);
+      res.status(500).json({ message: "Failed to resend verification email" });
     }
   });
 
@@ -207,6 +306,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           accountHolderName: user.accountHolderName,
           onboardingStatus: user.onboardingStatus,
           privacyConsentGiven: user.privacyConsentGiven,
+          emailVerified: user.emailVerified,
           createdAt: user.createdAt,
           updatedAt: user.updatedAt,
         };

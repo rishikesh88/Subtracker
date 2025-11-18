@@ -15,6 +15,7 @@ import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
 import AuthCallback from "@/pages/auth";
 import NotFound from "@/pages/not-found";
+import VerifyEmail from "@/pages/VerifyEmail";
 import OrgSetup from "@/pages/onboarding/OrgSetup";
 import Connect from "@/pages/onboarding/Connect";
 
@@ -50,6 +51,13 @@ function Router() {
           <Route path="/subscriptions" component={() => { window.location.href = '/login'; return null; }} />
           <Route path="/settings" component={() => { window.location.href = '/login'; return null; }} />
           <Route path="/onboarding/*" component={() => { window.location.href = '/login'; return null; }} />
+          <Route path="/verify-email" component={() => { window.location.href = '/login'; return null; }} />
+        </>
+      ) : !user?.emailVerified ? (
+        <>
+          {/* Email verification required before proceeding */}
+          <Route path="/verify-email" component={VerifyEmail} />
+          <Route path="*" component={() => { window.location.href = '/verify-email'; return null; }} />
         </>
       ) : needsOnboarding ? (
         <>
