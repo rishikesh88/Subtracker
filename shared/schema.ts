@@ -266,6 +266,7 @@ export const updateUserSchema = createInsertSchema(users).pick({
   accountHolderName: true,
   onboardingStatus: true,
   privacyConsentGiven: true,
+  profileImageUrl: true,
   updatedAt: true,
 });
 

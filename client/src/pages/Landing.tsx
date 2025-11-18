@@ -56,15 +56,15 @@ export function Landing() {
           
           <Button 
             size="lg"
-            onClick={() => window.location.href = '/api/login'}
+            onClick={() => window.location.href = '/login'}
             data-testid="login-button"
             className="px-8 py-3"
           >
-            {isSignedOut ? 'Sign In with Different Account' : 'Get Started - Sign In'}
+            {isSignedOut ? 'Sign In with Different Account' : 'Get Started'}
           </Button>
           
           <p className="text-sm text-muted-foreground">
-            Sign in with Google, GitHub, or email to start tracking your subscriptions
+            Sign in with Google, Microsoft, Replit, or create an account to start tracking your subscriptions
           </p>
         </div>
       </div>

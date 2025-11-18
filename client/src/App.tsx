@@ -11,6 +11,8 @@ import Subscriptions from "@/pages/subscriptions";
 import SubscriptionDetail from "@/pages/subscription-detail";
 import Settings from "@/pages/settings";
 import { Landing } from "@/pages/Landing";
+import Login from "@/pages/Login";
+import Signup from "@/pages/Signup";
 import AuthCallback from "@/pages/auth";
 import NotFound from "@/pages/not-found";
 import OrgSetup from "@/pages/onboarding/OrgSetup";
@@ -41,11 +43,13 @@ function Router() {
       {!isAuthenticated ? (
         <>
           <Route path="/" component={Landing} />
-          {/* Redirect protected routes to landing when not authenticated */}
-          <Route path="/dashboard" component={() => { window.location.href = '/'; return null; }} />
-          <Route path="/subscriptions" component={() => { window.location.href = '/'; return null; }} />
-          <Route path="/settings" component={() => { window.location.href = '/'; return null; }} />
-          <Route path="/onboarding/*" component={() => { window.location.href = '/'; return null; }} />
+          <Route path="/login" component={Login} />
+          <Route path="/signup" component={Signup} />
+          {/* Redirect protected routes to login when not authenticated */}
+          <Route path="/dashboard" component={() => { window.location.href = '/login'; return null; }} />
+          <Route path="/subscriptions" component={() => { window.location.href = '/login'; return null; }} />
+          <Route path="/settings" component={() => { window.location.href = '/login'; return null; }} />
+          <Route path="/onboarding/*" component={() => { window.location.href = '/login'; return null; }} />
         </>
       ) : needsOnboarding ? (
         <>

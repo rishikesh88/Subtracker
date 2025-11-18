@@ -17,6 +17,9 @@ import { registerGeminiRoutes } from "./routes/geminiSync";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { generateServiceKey } from "./utils/serviceKey";
 import bcrypt from "bcrypt";
+import passport from "passport";
+import { setupGoogleAuthStrategy } from "./auth/googleAuthStrategy";
+import { MicrosoftAuthService } from "./auth/microsoftAuthService";
 
 // Request validation schemas
 const approveSuggestionsSchema = z.object({
@@ -87,6 +90,9 @@ export function sendProgressUpdate(userId: string, data: {
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup Replit Auth
   await setupAuth(app);
+
+  // Setup Google OAuth Strategy for authentication
+  setupGoogleAuthStrategy(storage);
 
   // Email+Password authentication routes
   app.post('/api/auth/signup', async (req, res) => {
@@ -227,6 +233,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json({ message: "Logged out successfully" });
       });
     });
+  });
+
+  // Google OAuth Authentication (for user login/signup)
+  app.get('/api/auth/google-login', (req, res, next) => {
+    passport.authenticate('google-auth', {
+      scope: ['openid', 'profile', 'email'],
+    })(req, res, next);
+  });
+
+  app.get('/api/auth/google-login/callback', 
+    passport.authenticate('google-auth', { failureRedirect: '/login?error=google_auth_failed' }),
+    async (req: any, res) => {
+      try {
+        // User is now authenticated via Google
+        const userId = req.user?.claims?.sub;
+        
+        if (!userId) {
+          return res.redirect('/login?error=no_user_id');
+        }
+
+        const user = await storage.getUser(userId);
+        if (!user) {
+          return res.redirect('/login?error=user_not_found');
+        }
+
+        // Check if user needs onboarding
+        if (user.onboardingStatus === 'pending') {
+          return res.redirect('/onboarding/org-setup');
+        } else if (user.onboardingStatus === 'org_complete') {
+          return res.redirect('/onboarding/connect');
+        }
+
+        // User is fully onboarded, redirect to dashboard
+        res.redirect('/dashboard');
+      } catch (error) {
+        console.error("Google auth callback error:", error);
+        res.redirect('/login?error=callback_failed');
+      }
+    }
+  );
+
+  // Microsoft OAuth Authentication (for user login/signup)
+  app.get('/api/auth/microsoft-login', async (req, res) => {
+    try {
+      const microsoftAuthService = new MicrosoftAuthService();
+      
+      // Generate state for CSRF protection
+      const state = randomBytes(32).toString('hex');
+      oauthStates.set(state, { 
+        timestamp: Date.now(),
+      });
+      
+      const authUrl = await microsoftAuthService.getAuthUrl(state);
+      res.redirect(authUrl);
+    } catch (error) {
+      console.error("Microsoft auth initiation error:", error);
+      res.redirect('/login?error=microsoft_auth_init_failed');
+    }
+  });
+
+  app.get('/api/auth/microsoft-login/callback', async (req: any, res) => {
+    try {
+      const { code, state } = req.query;
+
+      if (!code) {
+        return res.redirect('/login?error=no_auth_code');
+      }
+
+      // Verify OAuth state for CSRF protection
+      if (!state || typeof state !== 'string' || !oauthStates.has(state)) {
+        console.error('Invalid or missing OAuth state parameter');
+        return res.redirect('/login?error=invalid_state');
+      }
+
+      oauthStates.delete(state); // Remove used state to prevent replay
+
+      const microsoftAuthService = new MicrosoftAuthService();
+      const { user } = await microsoftAuthService.handleCallback(code as string, storage);
+
+      // Create session using passport
+      (req as any).login({ claims: { sub: user.id } }, async (err: any) => {
+        if (err) {
+          console.error("Session creation error:", err);
+          return res.redirect('/login?error=session_failed');
+        }
+
+        // Check if user needs onboarding
+        if (user.onboardingStatus === 'pending') {
+          return res.redirect('/onboarding/org-setup');
+        } else if (user.onboardingStatus === 'org_complete') {
+          return res.redirect('/onboarding/connect');
+        }
+
+        // User is fully onboarded, redirect to dashboard
+        res.redirect('/dashboard');
+      });
+    } catch (error) {
+      console.error("Microsoft auth callback error:", error);
+      res.redirect('/login?error=callback_failed');
+    }
   });
 
   // Onboarding routes
@@ -563,6 +669,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Gmail connected successfully for user:", user.id);
 
       // Trigger background sync after first account connection during onboarding
+      let syncTriggered = false;
       if (wasOnboarding && user.privacyConsentGiven) {
         // Fire and forget - sync runs in background
         triggerEmailSync(storage, {
@@ -573,10 +680,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }).catch(error => {
           console.error('Failed to trigger background sync:', error);
         });
+        syncTriggered = true;
       }
 
-      // Redirect to frontend auth callback
-      const redirectUrl = `/auth/callback?provider=gmail&success=true`;
+      // Redirect to frontend auth callback with syncing flag if sync was triggered
+      const redirectUrl = syncTriggered 
+        ? `/auth/callback?provider=gmail&success=true&syncing=true`
+        : `/auth/callback?provider=gmail&success=true`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error("Gmail OAuth callback error:", error);

@@ -12,7 +12,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  createUserWithPassword(userData: { email: string; firstName: string | null; lastName: string | null; passwordHash: string }): Promise<User>;
+  createUserWithPassword(userData: { email: string; firstName: string | null; lastName: string | null; passwordHash: string | null; profileImageUrl?: string | null }): Promise<User>;
   upsertUser(user: UpsertUser): Promise<User>;
   updateUser(id: string, updates: Partial<UpdateUser>): Promise<User | undefined>;
   
@@ -139,7 +139,8 @@ export class DatabaseStorage implements IStorage {
     email: string; 
     firstName: string | null; 
     lastName: string | null; 
-    passwordHash: string;
+    passwordHash: string | null; // Allow null for OAuth users
+    profileImageUrl?: string | null;
   }): Promise<User> {
     try {
       // Hardcode safe defaults server-side - never accept from client
@@ -147,7 +148,8 @@ export class DatabaseStorage implements IStorage {
         email: userData.email,
         firstName: userData.firstName,
         lastName: userData.lastName,
-        passwordHash: userData.passwordHash,
+        passwordHash: userData.passwordHash || null,
+        profileImageUrl: userData.profileImageUrl || null,
         onboardingStatus: 'pending', // Always start as pending, never accept from client
         privacyConsentGiven: false, // Always start false, user must consent during onboarding
       };

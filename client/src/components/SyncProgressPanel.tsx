@@ -32,6 +32,32 @@ export function SyncProgressPanel() {
     queryKey: ['/api/auth/user'],
   });
 
+  // Check for justOnboarded flag to auto-open panel
+  useEffect(() => {
+    const justOnboarded = localStorage.getItem('justOnboarded');
+    const onboardedAt = localStorage.getItem('onboardedAt');
+    
+    if (justOnboarded === 'true' && onboardedAt) {
+      const timeSinceOnboarding = Date.now() - parseInt(onboardedAt);
+      
+      // Auto-open if onboarded within last 5 minutes
+      if (timeSinceOnboarding < 5 * 60 * 1000) {
+        setIsClosed(false);
+        setSyncProgress({
+          type: 'progress',
+          stage: 'initializing',
+          progress: 0,
+          message: 'Initializing email sync...',
+          timestamp: new Date().toISOString(),
+        });
+        
+        // Clear the flag after opening
+        localStorage.removeItem('justOnboarded');
+        localStorage.removeItem('onboardedAt');
+      }
+    }
+  }, [user?.id]);
+
   useEffect(() => {
     if (!user?.id) return;
 

@@ -13,6 +13,7 @@ export default function AuthCallback() {
       const provider = urlParams.get("provider");
       const success = urlParams.get("success");
       const error = urlParams.get("error");
+      const syncing = urlParams.get("syncing");
       
       if (error) {
         toast({
@@ -25,12 +26,23 @@ export default function AuthCallback() {
       }
 
       if (success === "true" && provider) {
-        console.log('[Event: email_connected]', { provider });
+        console.log('[Event: email_connected]', { provider, syncing });
 
-        toast({
-          title: `${provider === 'gmail' ? 'Gmail' : 'Outlook'} Connected`,
-          description: `Successfully connected your ${provider === 'gmail' ? 'Gmail' : 'Outlook'} account`,
-        });
+        // If sync is being triggered, set flag for SyncProgressPanel to auto-open
+        if (syncing === "true") {
+          localStorage.setItem('justOnboarded', 'true');
+          localStorage.setItem('onboardedAt', Date.now().toString());
+          
+          toast({
+            title: `${provider === 'gmail' ? 'Gmail' : 'Outlook'} Connected!`,
+            description: `Starting email sync... This may take a few minutes.`,
+          });
+        } else {
+          toast({
+            title: `${provider === 'gmail' ? 'Gmail' : 'Outlook'} Connected`,
+            description: `Successfully connected your ${provider === 'gmail' ? 'Gmail' : 'Outlook'} account`,
+          });
+        }
 
         // Redirect to dashboard (onboarding complete)
         setLocation("/dashboard");
