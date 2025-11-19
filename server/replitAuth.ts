@@ -79,9 +79,16 @@ export async function setupAuth(app: Express) {
     tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
     verified: passport.AuthenticateCallback
   ) => {
-    const user = {};
+    const claims = tokens.claims();
+    if (!claims) {
+      return verified(new Error("No claims in token"));
+    }
+    const user = {
+      authType: 'replit_oidc',
+      userId: claims.sub,
+    } as any;
     updateUserSession(user, tokens);
-    await upsertUser(tokens.claims());
+    await upsertUser(claims);
     verified(null, user);
   };
 
@@ -99,8 +106,16 @@ export async function setupAuth(app: Express) {
     passport.use(strategy);
   }
 
-  passport.serializeUser((user: Express.User, cb) => cb(null, user));
-  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
+  // Unified session serialization for both Replit Auth and email/password
+  passport.serializeUser((user: Express.User, cb) => {
+    // User object shape: { authType, userId, claims?, access_token?, refresh_token?, expires_at? }
+    cb(null, user);
+  });
+  
+  passport.deserializeUser(async (user: Express.User, cb) => {
+    // User is already in normalized format from serialization
+    cb(null, user);
+  });
 
   app.get("/api/login", (req, res, next) => {
     passport.authenticate(`replitauth:${req.hostname}`, {
@@ -130,30 +145,55 @@ export async function setupAuth(app: Express) {
 }
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
-  const user = req.user as any;
-
-  if (!req.isAuthenticated() || !user.expires_at) {
+  if (!req.isAuthenticated()) {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  if (now <= user.expires_at) {
-    return next();
+  const user = req.user as any;
+  
+  // Handle email/password authentication
+  if (user.authType === 'password') {
+    // Email/password sessions rely on cookie expiry (7 days) managed by express-session
+    // No token refresh needed - just verify user still exists in database
+    try {
+      const dbUser = await storage.getUser(user.userId);
+      if (!dbUser) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      // Attach full user data to request for downstream use
+      user.dbUser = dbUser;
+      return next();
+    } catch (error) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
   }
 
-  const refreshToken = user.refresh_token;
-  if (!refreshToken) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
+  // Handle Replit OIDC authentication (with token refresh)
+  if (user.authType === 'replit_oidc') {
+    if (!user.expires_at) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    if (now <= user.expires_at) {
+      return next();
+    }
+
+    const refreshToken = user.refresh_token;
+    if (!refreshToken) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+      const config = await getOidcConfig();
+      const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
+      updateUserSession(user, tokenResponse);
+      return next();
+    } catch (error) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
   }
 
-  try {
-    const config = await getOidcConfig();
-    const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
-    updateUserSession(user, tokenResponse);
-    return next();
-  } catch (error) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
+  // Unknown auth type
+  return res.status(401).json({ message: "Unauthorized" });
 };
