@@ -217,10 +217,20 @@ export default function Dashboard() {
     onSuccess: (data) => {
       toast({
         title: "Sync Range Updated",
-        description: `Email sync will now fetch emails from the past ${data.emailSyncDays} days`,
+        description: `Email sync will now fetch emails from the past ${data.emailSyncDays} days. Starting sync...`,
       });
       // Refresh user data to update preference
       queryClient.invalidateQueries({ queryKey: [`/api/auth/user`] });
+      
+      // Trigger automatic sync with new duration
+      localStorage.setItem('justOnboarded', 'true');
+      localStorage.setItem('onboardedAt', Date.now().toString());
+      setSyncProgressOpen(true);
+      
+      // Dispatch custom event to trigger SyncProgressPanel
+      window.dispatchEvent(new Event('syncTrigger'));
+      
+      syncEmailsMutation.mutate();
     },
     onError: () => {
       toast({
@@ -273,9 +283,11 @@ export default function Dashboard() {
         });
       }
       
-      // Open suggestions modal if suggestions were generated
-      if (data.redirectToSuggestions && totalSuggestions > 0) {
-        setSuggestionsModalOpen(true);
+      // Auto-open suggestions modal if suggestions were generated
+      if (totalSuggestions > 0) {
+        setTimeout(() => {
+          setSuggestionsModalOpen(true);
+        }, 500); // Small delay to allow toast to show first
       }
       
       // Invalidate and refetch all data
@@ -343,7 +355,19 @@ export default function Dashboard() {
       return;
     }
     
+    // Open progress panel and set localStorage flags for auto-open
+    localStorage.setItem('justOnboarded', 'true');
+    localStorage.setItem('onboardedAt', Date.now().toString());
     setSyncProgressOpen(true);
+    
+    // Dispatch custom event to trigger SyncProgressPanel
+    window.dispatchEvent(new Event('syncTrigger'));
+    
+    toast({
+      title: "Sync Started",
+      description: "Analyzing your emails... This may take a few minutes.",
+    });
+    
     syncEmailsMutation.mutate();
   };
   

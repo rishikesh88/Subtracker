@@ -218,6 +218,48 @@ export default function Settings() {
     }
   };
 
+  // Sync emails mutation
+  const syncEmailsMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/sync-emails-llm");
+      const data = await response.json().catch(() => ({ message: 'Invalid response' }));
+      
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to sync emails');
+      }
+      
+      return data;
+    },
+    onSuccess: (data) => {
+      const totalSuggestions = data.suggestionsGenerated || 0;
+      const userId = user?.id;
+      
+      toast({
+        title: "Email Sync Started",
+        description: `Analyzing emails in background...`,
+      });
+      
+      // Invalidate all relevant queries to refresh data (aligned with dashboard)
+      queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
+      if (userId) {
+        queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${userId}`] });
+        queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${userId}`] });
+        queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${userId}`] });
+        queryClient.invalidateQueries({ queryKey: [`/api/users/${userId}`] });
+      }
+      queryClient.invalidateQueries({ queryKey: ['/api/emails'] }); // Non-scoped emails
+      queryClient.invalidateQueries({ queryKey: ['/api/gmail/accounts'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/outlook/accounts'] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Sync Failed",
+        description: error?.message || "Failed to sync emails. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
   // Update settings mutation
   const updateSettingsMutation = useMutation({
     mutationFn: async (settings: { emailSyncDays?: number }) => {
@@ -229,8 +271,17 @@ export default function Settings() {
       setHasUnsavedChanges(false);
       toast({
         title: "Settings Saved",
-        description: "Your preferences have been updated successfully.",
+        description: "Your preferences have been updated successfully. Starting sync...",
       });
+      
+      // Trigger automatic sync with new duration
+      localStorage.setItem('justOnboarded', 'true');
+      localStorage.setItem('onboardedAt', Date.now().toString());
+      
+      // Dispatch custom event to trigger SyncProgressPanel
+      window.dispatchEvent(new Event('syncTrigger'));
+      
+      syncEmailsMutation.mutate();
     },
     onError: (error: any) => {
       toast({

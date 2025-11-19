@@ -32,7 +32,7 @@ export function SyncProgressPanel() {
     queryKey: ['/api/auth/user'],
   });
 
-  // Check for justOnboarded flag to auto-open panel
+  // Check for justOnboarded flag to auto-open panel on mount
   useEffect(() => {
     const justOnboarded = localStorage.getItem('justOnboarded');
     const onboardedAt = localStorage.getItem('onboardedAt');
@@ -40,7 +40,7 @@ export function SyncProgressPanel() {
     if (justOnboarded === 'true' && onboardedAt) {
       const timeSinceOnboarding = Date.now() - parseInt(onboardedAt);
       
-      // Auto-open if onboarded within last 5 minutes
+      // Auto-open if flag set within last 5 minutes
       if (timeSinceOnboarding < 5 * 60 * 1000) {
         setIsClosed(false);
         setSyncProgress({
@@ -57,6 +57,28 @@ export function SyncProgressPanel() {
       }
     }
   }, [user?.id]);
+
+  // Listen for custom sync trigger events (opens panel instantly)
+  useEffect(() => {
+    const handleSyncTrigger = () => {
+      // Reset state and open panel immediately when sync is triggered from any page
+      setIsComplete(false);
+      setIsClosed(false);
+      setSyncProgress({
+        type: 'progress',
+        stage: 'initializing',
+        progress: 0,
+        message: 'Initializing email sync...',
+        timestamp: new Date().toISOString(),
+      });
+    };
+    
+    window.addEventListener('syncTrigger', handleSyncTrigger);
+    
+    return () => {
+      window.removeEventListener('syncTrigger', handleSyncTrigger);
+    };
+  }, []); // No dependencies - always listen
 
   useEffect(() => {
     if (!user?.id) return;
