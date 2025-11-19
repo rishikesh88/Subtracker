@@ -66,8 +66,12 @@ export function setupGoogleAuthStrategy(storage: IStorage) {
             console.log('[Event: user_login_google]', { userId: user.id, email });
           }
 
-          // Return user for session
-          return done(null, { claims: { sub: user.id }, email: user.email });
+          // Return normalized user object for session (consistent with email/password auth)
+          return done(null, { 
+            authType: 'google_oauth',
+            userId: user.id,
+            claims: { sub: user.id, email: user.email }
+          });
         } catch (error) {
           console.error("Google Auth error:", error);
           return done(error);

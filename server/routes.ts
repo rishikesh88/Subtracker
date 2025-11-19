@@ -24,7 +24,9 @@ import { sendVerificationEmail, generateVerificationCode } from "./services/emai
 
 // Helper function to get userId from normalized session structure
 function getUserId(req: any): string {
-  return req.user.authType === 'password' ? req.user.userId : req.user.claims.sub;
+  // For all non-OIDC auth types (password, google_oauth, microsoft_oauth), use userId
+  // For OIDC (replit_oidc), use claims.sub
+  return req.user.authType === 'replit_oidc' ? req.user.claims.sub : req.user.userId;
 }
 
 // Request validation schemas
@@ -208,7 +210,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/auth/verify-email', isAuthenticated, async (req: any, res) => {
     try {
       // Get userId from normalized session structure
-      const userId = req.user.authType === 'password' ? req.user.userId : req.user.claims.sub;
+      const userId = getUserId(req);
       const { code } = req.body;
 
       if (!code || code.length !== 6) {
@@ -257,7 +259,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/auth/resend-verification', isAuthenticated, async (req: any, res) => {
     try {
       // Get userId from normalized session structure
-      const userId = req.user.authType === 'password' ? req.user.userId : req.user.claims.sub;
+      const userId = getUserId(req);
       const user = await storage.getUser(userId);
 
       if (!user) {
@@ -399,7 +401,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req: any, res) => {
       try {
         // User is now authenticated via Google
-        const userId = req.user?.claims?.sub;
+        const userId = getUserId(req);
         
         if (!userId) {
           return res.redirect('/login?error=no_user_id');
@@ -408,6 +410,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const user = await storage.getUser(userId);
         if (!user) {
           return res.redirect('/login?error=user_not_found');
+        }
+
+        // Check if user needs email verification
+        if (!user.emailVerified) {
+          return res.redirect('/verify-email');
         }
 
         // Check if user needs onboarding
@@ -464,11 +471,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const microsoftAuthService = new MicrosoftAuthService();
       const { user } = await microsoftAuthService.handleCallback(code as string, storage);
 
-      // Create session using passport
-      (req as any).login({ claims: { sub: user.id } }, async (err: any) => {
+      // Create session using passport with normalized user object
+      const userSession = {
+        authType: 'microsoft_oauth',
+        userId: user.id,
+        claims: { sub: user.id, email: user.email }
+      };
+      
+      (req as any).login(userSession, async (err: any) => {
         if (err) {
           console.error("Session creation error:", err);
           return res.redirect('/login?error=session_failed');
+        }
+
+        // Check if user needs email verification
+        if (!user.emailVerified) {
+          return res.redirect('/verify-email');
         }
 
         // Check if user needs onboarding
@@ -659,10 +677,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
       // Get userId from normalized session structure
-      const userId = req.user.authType === 'password' ? req.user.userId : req.user.claims.sub;
+      const userId = getUserId(req);
       
-      // For password auth, dbUser is already attached by middleware
-      const user = req.user.authType === 'password' ? req.user.dbUser : await storage.getUser(userId);
+      // For non-OIDC auth types, dbUser is already attached by middleware
+      const user = req.user.authType === 'replit_oidc' ? await storage.getUser(userId) : req.user.dbUser;
       
       if (!user) {
         return res.status(404).json({ message: "User not found" });

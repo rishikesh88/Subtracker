@@ -151,9 +151,9 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
 
   const user = req.user as any;
   
-  // Handle email/password authentication
-  if (user.authType === 'password') {
-    // Email/password sessions rely on cookie expiry (7 days) managed by express-session
+  // Handle email/password and OAuth authentication (non-OIDC)
+  if (user.authType === 'password' || user.authType === 'google_oauth' || user.authType === 'microsoft_oauth') {
+    // These auth types rely on cookie expiry (7 days) managed by express-session
     // No token refresh needed - just verify user still exists in database
     try {
       const dbUser = await storage.getUser(user.userId);
