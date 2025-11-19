@@ -22,6 +22,11 @@ import { setupGoogleAuthStrategy } from "./auth/googleAuthStrategy";
 import { MicrosoftAuthService } from "./auth/microsoftAuthService";
 import { sendVerificationEmail, generateVerificationCode } from "./services/emailVerificationService";
 
+// Helper function to get userId from normalized session structure
+function getUserId(req: any): string {
+  return req.user.authType === 'password' ? req.user.userId : req.user.claims.sub;
+}
+
 // Request validation schemas
 const approveSuggestionsSchema = z.object({
   suggestionIds: z.array(z.string().uuid()).nonempty()
@@ -137,7 +142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await sendVerificationEmail({
           to: newUser.email,
           code: verificationCode,
-          firstName: newUser.firstName,
+          firstName: newUser.firstName || undefined,
         });
         console.log(`[Email] Verification code sent to ${newUser.email}`);
       } catch (emailError) {
@@ -145,8 +150,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Don't block signup if email fails - user can resend later
       }
 
-      // Create session using passport (allow immediate access, but verify later)
-      (req as any).login({ claims: { sub: newUser.id } }, (err: any) => {
+      // Create session using passport with normalized user object
+      const userSession = {
+        authType: 'password',
+        userId: newUser.id,
+      };
+      
+      (req as any).login(userSession, (err: any) => {
         if (err) {
           console.error("Session creation error:", err);
           return res.status(500).json({ message: "Failed to create session" });
@@ -197,7 +207,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Email verification endpoint
   app.post('/api/auth/verify-email', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      // Get userId from normalized session structure
+      const userId = req.user.authType === 'password' ? req.user.userId : req.user.claims.sub;
       const { code } = req.body;
 
       if (!code || code.length !== 6) {
@@ -245,7 +256,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/auth/resend-verification', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      // Get userId from normalized session structure
+      const userId = req.user.authType === 'password' ? req.user.userId : req.user.claims.sub;
       const user = await storage.getUser(userId);
 
       if (!user) {
@@ -284,7 +296,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await sendVerificationEmail({
         to: user.email,
         code: verificationCode,
-        firstName: user.firstName,
+        firstName: user.firstName || undefined,
       });
 
       console.log(`[Email] Resent verification code to ${user.email}`);
@@ -318,8 +330,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "Invalid email or password" });
       }
 
-      // Create session using passport
-      (req as any).login({ claims: { sub: user.id } }, (err: any) => {
+      // Create session using passport with normalized user object
+      const userSession = {
+        authType: 'password',
+        userId: user.id,
+      };
+      
+      (req as any).login(userSession, (err: any) => {
         if (err) {
           console.error("Session creation error:", err);
           return res.status(500).json({ message: "Failed to create session" });
@@ -473,7 +490,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Onboarding routes
   app.post('/api/onboarding/org-setup', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       const orgSetupSchema = z.object({
         organizationName: z.string().min(1, "Organization name is required"),
@@ -516,7 +533,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/onboarding/privacy-consent', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       const privacyConsentSchema = z.object({
         privacyConsentGiven: z.boolean(),
@@ -557,7 +574,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/onboarding/skip', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       // Mark onboarding as complete even without connecting accounts
       // Keep privacyConsentGiven as false since user opted out
@@ -580,7 +597,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post('/api/onboarding/connect', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       const connectSchema = z.object({
         provider: z.enum(['gmail', 'outlook']),
@@ -641,8 +658,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth routes
   app.get('/api/auth/user', isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
-      const user = await storage.getUser(userId);
+      // Get userId from normalized session structure
+      const userId = req.user.authType === 'password' ? req.user.userId : req.user.claims.sub;
+      
+      // For password auth, dbUser is already attached by middleware
+      const user = req.user.authType === 'password' ? req.user.dbUser : await storage.getUser(userId);
       
       if (!user) {
         return res.status(404).json({ message: "User not found" });
@@ -665,6 +685,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         accountHolderName: user.accountHolderName,
         onboardingStatus: user.onboardingStatus,
         privacyConsentGiven: user.privacyConsentGiven,
+        emailVerified: user.emailVerified,
         createdAt: user.createdAt,
         updatedAt: user.updatedAt,
       };
@@ -684,7 +705,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Repl Slug:", process.env.REPL_SLUG);
       console.log("Repl Owner:", process.env.REPL_OWNER);
       
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       // Generate cryptographically random state for CSRF protection
       const state = randomBytes(32).toString('hex');
@@ -833,7 +854,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Gmail connection management endpoints - disconnect ALL accounts
   app.post("/api/auth/google/disconnect", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -866,7 +887,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update user settings
   app.post("/api/settings/update", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -914,7 +935,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Google Client ID available:", !!process.env.GOOGLE_CLIENT_ID);
       console.log("Google Client Secret available:", !!process.env.GOOGLE_CLIENT_SECRET);
       
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       // Generate cryptographically random state for CSRF protection
       const state = randomBytes(32).toString('hex');
@@ -937,7 +958,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Gmail Account Management Routes
   app.get("/api/gmail/accounts", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -964,7 +985,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/gmail/accounts/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       const accountId = req.params.id;
       
       if (!userId) {
@@ -1000,7 +1021,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/gmail/accounts/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       const accountId = req.params.id;
       
       if (!userId) {
@@ -1037,7 +1058,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log("Microsoft Client ID available:", !!process.env.MICROSOFT_CLIENT_ID);
       console.log("Microsoft Client Secret available:", !!process.env.MICROSOFT_CLIENT_SECRET);
       
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       const state = randomBytes(32).toString('hex');
       oauthStates.set(state, { 
@@ -1163,7 +1184,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Outlook Account Management Routes
   app.get("/api/outlook/accounts", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -1190,7 +1211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/outlook/accounts/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       const accountId = req.params.id;
       
       if (!userId) {
@@ -1226,7 +1247,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/outlook/accounts/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       const accountId = req.params.id;
       
       if (!userId) {
@@ -1259,7 +1280,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Sync emails and detect subscriptions
   app.post("/api/sync-emails", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -1374,7 +1395,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get user's subscriptions
   app.get("/api/subscriptions", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -1391,7 +1412,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new subscription manually
   app.post("/api/subscriptions", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -1416,7 +1437,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update an existing subscription
   app.patch("/api/subscriptions/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       const { id } = req.params;
       
       if (!userId) {
@@ -1452,7 +1473,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete a subscription (including related invoices)
   app.delete("/api/subscriptions/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       const { id } = req.params;
       
       if (!userId) {
@@ -1485,7 +1506,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get subscription detail
   app.get("/api/subscriptions/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       const { id } = req.params;
       
       if (!userId) {
@@ -1549,7 +1570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all invoices for a subscription
   app.get("/api/subscriptions/:id/invoices", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       const { id } = req.params;
       
       if (!userId) {
@@ -1576,7 +1597,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create invoice record after file upload
   app.post("/api/subscriptions/:id/invoices", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       const { id } = req.params;
       
       if (!userId) {
@@ -1625,7 +1646,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Delete invoice
   app.delete("/api/invoices/:id", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       const { id } = req.params;
       
       if (!userId) {
@@ -1652,7 +1673,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get user settings (currency preference)
   app.get("/api/settings", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -1675,7 +1696,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Update user settings (currency preference)
   app.patch("/api/settings", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -1705,7 +1726,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Clear all data for fresh start
   app.delete("/api/clear-data", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -1786,7 +1807,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Cleanup duplicates endpoint
   app.post("/api/cleanup-duplicates", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -1867,7 +1888,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get subscription stats
   app.get("/api/stats", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -1889,7 +1910,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/emails", isAuthenticated, async (req: any, res) => {
     try {
       const { page, pageSize, limit } = req.query;
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -1917,7 +1938,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/suggestions", isAuthenticated, async (req: any, res) => {
     try {
       const { page, pageSize, minConfidence } = req.query;
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -1950,7 +1971,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { suggestionIds } = validation.data;
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -1987,7 +2008,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const { suggestionIds } = validation.data;
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -2007,7 +2028,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/suggestions/clear", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
@@ -2076,7 +2097,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Enhanced subscription detection endpoint 
   app.post("/api/sync-enhanced", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = req.user.claims.sub;
+      const userId = getUserId(req);
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });
       }
