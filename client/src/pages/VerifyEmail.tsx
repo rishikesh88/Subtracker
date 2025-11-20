@@ -49,16 +49,17 @@ export default function VerifyEmail() {
         description: "Your email has been successfully verified.",
       });
 
+      // Keep loading state during navigation (don't reset isVerifying here)
       // Redirect to onboarding (App.tsx routing will handle final destination)
       setLocation('/onboarding/org-setup');
     } catch (err: any) {
+      // Only clear loading state on error
+      setIsVerifying(false);
       toast({
         title: "Verification Failed",
         description: err.message || "Invalid or expired code. Please try again.",
         variant: "destructive",
       });
-    } finally {
-      setIsVerifying(false);
     }
   };
 
@@ -94,7 +95,17 @@ export default function VerifyEmail() {
   // No need to manually redirect here
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="min-h-screen flex items-center justify-center bg-background p-4 relative">
+      {/* Loading overlay during verification */}
+      {isVerifying && (
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            <p className="text-lg font-medium">Verifying your email...</p>
+          </div>
+        </div>
+      )}
+      
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
           <div className="mx-auto w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center mb-4">

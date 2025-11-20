@@ -54,12 +54,16 @@ export function EmptyDashboard({
           description: "Review AI suggestions or sync more emails to discover subscriptions",
           cta: (
             <div className="flex flex-col sm:flex-row gap-3">
-              <Link href="/suggestions">
-                <Button size="lg" variant="default" className="gap-2" data-testid="button-view-suggestions">
-                  <ListChecks className="h-5 w-5" />
-                  View Suggestions
-                </Button>
-              </Link>
+              <Button 
+                size="lg" 
+                variant="default" 
+                className="gap-2" 
+                data-testid="button-view-suggestions"
+                onClick={() => window.dispatchEvent(new Event('openSuggestionsModal'))}
+              >
+                <ListChecks className="h-5 w-5" />
+                View Suggestions
+              </Button>
               <Button size="lg" variant="outline" className="gap-2" data-testid="button-sync-more">
                 <RefreshCw className="h-5 w-5" />
                 Sync More Emails

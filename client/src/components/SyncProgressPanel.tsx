@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
-import { X, Minimize2, Maximize2, Mail, CheckCircle2, Loader2 } from 'lucide-react';
+import { X, Minimize2, Maximize2, Mail, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Link } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 
 interface SyncProgress {
@@ -27,6 +26,8 @@ export function SyncProgressPanel() {
   const [isClosed, setIsClosed] = useState(true);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [isComplete, setIsComplete] = useState(false);
+  const [isError, setIsError] = useState(false);
+  const [syncStartTime, setSyncStartTime] = useState<number | null>(null);
 
   const { data: user } = useQuery<any>({
     queryKey: ['/api/auth/user'],
@@ -63,7 +64,9 @@ export function SyncProgressPanel() {
     const handleSyncTrigger = () => {
       // Reset state and open panel immediately when sync is triggered from any page
       setIsComplete(false);
+      setIsError(false);
       setIsClosed(false);
+      setSyncStartTime(Date.now()); // Track when sync started
       setSyncProgress({
         type: 'progress',
         stage: 'initializing',
@@ -71,6 +74,9 @@ export function SyncProgressPanel() {
         message: 'Initializing email sync...',
         timestamp: new Date().toISOString(),
       });
+      
+      // Set flag to indicate sync is in progress
+      localStorage.setItem('syncInProgress', 'true');
     };
     
     window.addEventListener('syncTrigger', handleSyncTrigger);
@@ -79,6 +85,36 @@ export function SyncProgressPanel() {
       window.removeEventListener('syncTrigger', handleSyncTrigger);
     };
   }, []); // No dependencies - always listen
+
+  // Clear sync flag when sync completes or errors
+  useEffect(() => {
+    if (isComplete || isError) {
+      localStorage.removeItem('syncInProgress');
+    }
+  }, [isComplete, isError]);
+
+  // Add max duration watchdog for stalled syncs (10 minutes total)
+  useEffect(() => {
+    if (!syncStartTime || isComplete || isError) return;
+
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - syncStartTime;
+      
+      // If sync hasn't completed after 10 minutes, mark as error
+      if (elapsed > 10 * 60 * 1000 && !isComplete && !isError) {
+        console.error('Sync timeout - exceeded 10 minute maximum duration');
+        setIsError(true);
+        setSyncProgress(prev => prev ? {
+          ...prev,
+          stage: 'error',
+          message: 'Sync timed out after 10 minutes. Please try again.',
+        } : null);
+        setSyncStartTime(null);
+      }
+    }, 30000); // Check every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [syncStartTime, isComplete, isError]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -153,7 +189,14 @@ export function SyncProgressPanel() {
           if (reconnectTimeout) clearTimeout(reconnectTimeout);
           reconnectTimeout = setTimeout(connect, delay);
         } else {
-          console.error('Max reconnection attempts reached');
+          console.error('Max reconnection attempts reached - sync failed');
+          // Set error state to clear sync flag and allow retry
+          setIsError(true);
+          setSyncProgress(prev => prev ? {
+            ...prev,
+            stage: 'error',
+            message: 'Sync failed after multiple connection attempts. Please try again.',
+          } : null);
         }
         
         eventSource?.close();
@@ -181,12 +224,14 @@ export function SyncProgressPanel() {
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-base">
-              {isComplete ? (
+              {isError ? (
+                <AlertCircle className="h-5 w-5 text-red-500" data-testid="icon-error" />
+              ) : isComplete ? (
                 <CheckCircle2 className="h-5 w-5 text-green-500" data-testid="icon-complete" />
               ) : (
                 <Loader2 className="h-5 w-5 animate-spin text-blue-500" data-testid="icon-syncing" />
               )}
-              {isComplete ? 'Sync Complete!' : 'Syncing Emails'}
+              {isError ? 'Sync Failed' : isComplete ? 'Sync Complete!' : 'Syncing Emails'}
             </CardTitle>
             <div className="flex gap-1">
               <Button
@@ -255,11 +300,13 @@ export function SyncProgressPanel() {
             )}
 
             {isComplete && syncProgress.details?.suggestionsGenerated && syncProgress.details.suggestionsGenerated > 0 && (
-              <Link href="/suggestions">
-                <Button className="w-full" data-testid="button-review-suggestions">
-                  Review Suggestions
-                </Button>
-              </Link>
+              <Button 
+                className="w-full" 
+                data-testid="button-review-suggestions"
+                onClick={() => window.dispatchEvent(new Event('openSuggestionsModal'))}
+              >
+                Review Suggestions
+              </Button>
             )}
 
             {isComplete && (!syncProgress.details?.suggestionsGenerated || syncProgress.details.suggestionsGenerated === 0) && (

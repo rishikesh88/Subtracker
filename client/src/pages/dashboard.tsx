@@ -28,6 +28,36 @@ export default function Dashboard() {
   const [suggestionsModalOpen, setSuggestionsModalOpen] = useState(false);
   const [syncProgressOpen, setSyncProgressOpen] = useState(false);
   const [addSubscriptionModalOpen, setAddSubscriptionModalOpen] = useState(false);
+  const [isSyncInProgress, setIsSyncInProgress] = useState(false);
+
+  // Track sync progress from localStorage
+  useEffect(() => {
+    const checkSyncProgress = () => {
+      const syncInProgress = localStorage.getItem('syncInProgress') === 'true';
+      setIsSyncInProgress(syncInProgress);
+    };
+
+    // Check initially
+    checkSyncProgress();
+
+    // Poll for changes (simple approach)
+    const interval = setInterval(checkSyncProgress, 500);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  // Listen for event to open suggestions modal
+  useEffect(() => {
+    const handleOpenSuggestionsModal = () => {
+      setSuggestionsModalOpen(true);
+    };
+
+    window.addEventListener('openSuggestionsModal', handleOpenSuggestionsModal);
+
+    return () => {
+      window.removeEventListener('openSuggestionsModal', handleOpenSuggestionsModal);
+    };
+  }, []);
 
   // Handle Gmail OAuth callback
   useEffect(() => {
@@ -54,6 +84,11 @@ export default function Dashboard() {
             
             // Automatically trigger email sync with progress modal after a delay
             setTimeout(() => {
+              // Set sync flags and dispatch event before starting sync
+              localStorage.setItem('justOnboarded', 'true');
+              localStorage.setItem('onboardedAt', Date.now().toString());
+              window.dispatchEvent(new Event('syncTrigger'));
+              
               setSyncProgressOpen(true);
               syncEmailsMutation.mutate();
             }, 1500);
@@ -441,15 +476,20 @@ export default function Dashboard() {
                 <div className="flex gap-2">
                   <Button
                     onClick={handleSyncEmails}
-                    disabled={syncEmailsMutation.isPending}
+                    disabled={syncEmailsMutation.isPending || isSyncInProgress}
                     data-testid="sync-emails"
                   >
-                    {syncEmailsMutation.isPending ? (
-                      <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                    {(syncEmailsMutation.isPending || isSyncInProgress) ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin mr-2" />
+                        Syncing...
+                      </>
                     ) : (
-                      <RefreshCw className="w-4 h-4 mr-2" />
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Sync Emails
+                      </>
                     )}
-                    Sync Emails
                   </Button>
                   <Button
                     variant="outline"
