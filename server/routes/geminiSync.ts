@@ -8,6 +8,13 @@ import { TransactionDetector } from "../core/transactionDetector";
 import { generateServiceKey } from "../utils/serviceKey";
 import { isAuthenticated } from "../replitAuth";
 
+// Helper function to get userId from normalized session structure
+function getUserId(req: any): string {
+  // For all non-OIDC auth types (password, google_oauth, microsoft_oauth), use userId
+  // For OIDC (replit_oidc), use claims.sub
+  return req.user.authType === 'replit_oidc' ? req.user.claims.sub : req.user.userId;
+}
+
 // Store LLM suggestions temporarily for user review
 interface LLMSuggestionSession {
   userId: string;
@@ -682,7 +689,7 @@ export function registerGeminiRoutes(app: Express) {
   app.post("/api/sync-emails-llm", isAuthenticated, async (req: any, res) => {
     try {
       // Get userId from authenticated user, ignore request body for security
-      const userId = req.user?.claims?.sub;
+      const userId = getUserId(req);
       
       if (!userId) {
         return res.status(401).json({ message: "User not authenticated" });

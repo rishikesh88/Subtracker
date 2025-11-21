@@ -142,7 +142,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         await storage.createVerificationCode(newUser.id, verificationCode, expiryDate);
         await sendVerificationEmail({
-          to: newUser.email,
+          to: newUser.email!,
           code: verificationCode,
           firstName: newUser.firstName || undefined,
         });
@@ -296,7 +296,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await storage.createVerificationCode(userId, verificationCode, expiryDate);
       await sendVerificationEmail({
-        to: user.email,
+        to: user.email!,
         code: verificationCode,
         firstName: user.firstName || undefined,
       });
@@ -770,7 +770,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tokens = await gmailService.getTokens(code as string);
       
       // Get userId from state metadata first, fall back to session
-      const userId = stateData?.userId ?? req.user?.claims?.sub;
+      const userId = stateData?.userId ?? (req.user ? getUserId(req) : undefined);
       if (!userId) {
         throw new Error("User not authenticated and no userId in state");
       }
@@ -1128,7 +1128,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const outlookEmail = await outlookService.getUserEmail(tokens.access_token);
 
       // Get userId from state metadata first, fall back to session
-      const userId = stateData?.userId ?? req.user?.claims?.sub;
+      const userId = stateData?.userId ?? (req.user ? getUserId(req) : undefined);
       if (!userId) {
         throw new Error("User not authenticated and no userId in state");
       }
@@ -1550,7 +1550,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Object Storage Routes - Referenced from blueprint:javascript_object_storage
   // Endpoint for serving private invoice files with ACL check
   app.get("/objects/:objectPath(*)", isAuthenticated, async (req: any, res) => {
-    const userId = req.user?.claims?.sub;
+    const userId = getUserId(req);
     const objectStorageService = new ObjectStorageService();
     try {
       const objectFile = await objectStorageService.getObjectEntityFile(req.path);
@@ -2234,7 +2234,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Setup Server-Sent Events endpoint for real-time progress updates
   app.get('/api/sync-progress/:userId', isAuthenticated, (req: any, res) => {
     const { userId } = req.params;
-    const authenticatedUserId = req.user?.claims?.sub;
+    const authenticatedUserId = getUserId(req);
     
     // Verify user can only access their own progress stream
     if (userId !== authenticatedUserId) {
