@@ -440,167 +440,177 @@ export default function Dashboard() {
   return (
     <>
       {/* Header */}
-      <header className="bg-card border-b border-border px-6 py-4">
+      <header className="bg-card border-b border-border px-4 md:px-6 py-4">
+        <div className="space-y-4">
+          {/* Title Section */}
           <div className="flex items-center justify-between">
-            <div>
+            <div className="flex-1">
               <h2 className="text-2xl font-bold text-foreground">Dashboard</h2>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-xs md:text-sm text-muted-foreground">
                 Monitor your subscription spending and patterns
               </p>
             </div>
-            <div className="flex items-center space-x-4">
-              {!user || !user.gmailConnected ? (
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleConnectGmail}
-                    disabled={gmailAuthMutation.isPending}
-                    data-testid="connect-gmail"
-                  >
-                    {gmailAuthMutation.isPending ? (
-                      <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-                    ) : (
-                      <Mail className="w-4 h-4 mr-2" />
-                    )}
-                    Connect Gmail
-                  </Button>
-                  <Button
-                    variant="default"
-                    onClick={() => setAddSubscriptionModalOpen(true)}
-                    data-testid="add-subscription"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Subscription
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex gap-2">
-                  <Button
-                    onClick={handleSyncEmails}
-                    disabled={syncEmailsMutation.isPending || isSyncInProgress}
-                    data-testid="sync-emails"
-                  >
-                    {(syncEmailsMutation.isPending || isSyncInProgress) ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-                        Syncing...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        Sync Emails
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setSuggestionsModalOpen(true)}
-                    data-testid="review-suggestions"
-                  >
-                    📋 Review Suggestions
-                  </Button>
-                  <Button
-                    variant="default"
-                    onClick={() => setAddSubscriptionModalOpen(true)}
-                    data-testid="add-subscription"
-                  >
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Subscription
-                  </Button>
-                </div>
-              )}
-              
-              {/* Cleanup and Clear buttons - always visible for authenticated users */}
-              <div className="flex gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={() => cleanupDuplicatesMutation.mutate()}
-                  disabled={cleanupDuplicatesMutation.isPending}
-                  data-testid="cleanup-duplicates"
-                >
-                  {cleanupDuplicatesMutation.isPending ? (
-                    <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-                  ) : (
-                    "🧹"
-                  )}
-                  Remove Duplicates
-                </Button>
-                
-                <Button
-                  variant="destructive"
-                  onClick={() => clearDataMutation.mutate()}
-                  disabled={clearDataMutation.isPending}
-                  data-testid="clear-data"
-                >
-                  {clearDataMutation.isPending ? (
-                    <RefreshCw className="w-4 h-4 animate-spin mr-2" />
-                  ) : (
-                    "🗑️"
-                  )}
-                  Clear Data
-                </Button>
-              </div>
-              
-              {/* Currency Selector */}
-              <Select 
-                value={user?.preferredCurrency || 'INR'} 
-                onValueChange={(value) => changeCurrencyMutation.mutate(value)}
-                disabled={changeCurrencyMutation.isPending}
-              >
-                <SelectTrigger className="w-20 h-8 data-testid-currency-selector">
-                  <Globe className="w-3 h-3 mr-1" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent data-testid="currency-dropdown">
-                  {supportedCurrencies.map((currency) => (
-                    <SelectItem 
-                      key={currency.code} 
-                      value={currency.code}
-                      data-testid={`currency-option-${currency.code}`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span>{currency.symbol}</span>
-                        <span>{currency.code}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              
-              {/* Email Sync Days Selector */}
-              <Select 
-                value={String(user?.emailSyncDays || 30)}
-                onValueChange={(value) => changeSyncDaysMutation.mutate(parseInt(value))}
-                disabled={changeSyncDaysMutation.isPending}
-              >
-                <SelectTrigger className="w-32 h-8" data-testid="sync-days-selector">
-                  <Mail className="w-3 h-3 mr-1" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent data-testid="sync-days-dropdown">
-                  <SelectItem value="30" data-testid="sync-days-option-30">
-                    30 days
-                  </SelectItem>
-                  <SelectItem value="60" data-testid="sync-days-option-60">
-                    60 days
-                  </SelectItem>
-                  <SelectItem value="90" data-testid="sync-days-option-90">
-                    90 days
-                  </SelectItem>
-                  <SelectItem value="180" data-testid="sync-days-option-180">
-                    180 days
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              
-              <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center">
-                <User className="text-secondary-foreground w-4 h-4" />
-              </div>
+            <div className="w-8 h-8 bg-secondary rounded-full flex items-center justify-center flex-shrink-0">
+              <User className="text-secondary-foreground w-4 h-4" />
             </div>
           </div>
-        </header>
+
+          {/* Main Actions - Responsive Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2 md:gap-3">
+            {!user || !user.gmailConnected ? (
+              <>
+                <Button
+                  onClick={handleConnectGmail}
+                  disabled={gmailAuthMutation.isPending}
+                  data-testid="connect-gmail"
+                  className="text-xs md:text-sm h-9 md:h-10"
+                >
+                  {gmailAuthMutation.isPending ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Mail className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline ml-1">Connect</span>
+                </Button>
+                <Button
+                  variant="default"
+                  onClick={() => setAddSubscriptionModalOpen(true)}
+                  data-testid="add-subscription"
+                  className="text-xs md:text-sm h-9 md:h-10"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span className="hidden sm:inline ml-1">Add</span>
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  onClick={handleSyncEmails}
+                  disabled={syncEmailsMutation.isPending || isSyncInProgress}
+                  data-testid="sync-emails"
+                  className="text-xs md:text-sm h-9 md:h-10"
+                >
+                  {(syncEmailsMutation.isPending || isSyncInProgress) ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline ml-1">Sync</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setSuggestionsModalOpen(true)}
+                  data-testid="review-suggestions"
+                  className="text-xs md:text-sm h-9 md:h-10"
+                >
+                  <span className="hidden sm:inline">📋</span>
+                  <span className="sm:hidden">📋</span>
+                  <span className="hidden md:inline ml-1">Review</span>
+                </Button>
+                <Button
+                  variant="default"
+                  onClick={() => setAddSubscriptionModalOpen(true)}
+                  data-testid="add-subscription"
+                  className="text-xs md:text-sm h-9 md:h-10"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span className="hidden sm:inline ml-1">Add</span>
+                </Button>
+              </>
+            )}
+
+            {/* Cleanup Button */}
+            <Button
+              variant="secondary"
+              onClick={() => cleanupDuplicatesMutation.mutate()}
+              disabled={cleanupDuplicatesMutation.isPending}
+              data-testid="cleanup-duplicates"
+              className="text-xs md:text-sm h-9 md:h-10 hidden md:flex"
+            >
+              {cleanupDuplicatesMutation.isPending ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <span>🧹</span>
+              )}
+              <span className="hidden lg:inline ml-1">Duplicates</span>
+            </Button>
+
+            {/* Clear Data Button */}
+            <Button
+              variant="destructive"
+              onClick={() => clearDataMutation.mutate()}
+              disabled={clearDataMutation.isPending}
+              data-testid="clear-data"
+              className="text-xs md:text-sm h-9 md:h-10 hidden lg:flex"
+            >
+              {clearDataMutation.isPending ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <span>🗑️</span>
+              )}
+              <span className="hidden lg:inline ml-1">Clear</span>
+            </Button>
+          </div>
+
+          {/* Settings Section - Responsive Flex */}
+          <div className="flex flex-col sm:flex-row gap-2 md:gap-3">
+            {/* Currency Selector */}
+            <Select 
+              value={user?.preferredCurrency || 'INR'} 
+              onValueChange={(value) => changeCurrencyMutation.mutate(value)}
+              disabled={changeCurrencyMutation.isPending}
+            >
+              <SelectTrigger className="w-full sm:w-24 h-9 md:h-10 text-xs md:text-sm data-testid-currency-selector">
+                <Globe className="w-3 h-3" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent data-testid="currency-dropdown">
+                {supportedCurrencies.map((currency) => (
+                  <SelectItem 
+                    key={currency.code} 
+                    value={currency.code}
+                    data-testid={`currency-option-${currency.code}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span>{currency.symbol}</span>
+                      <span>{currency.code}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {/* Email Sync Days Selector */}
+            <Select 
+              value={String(user?.emailSyncDays || 30)}
+              onValueChange={(value) => changeSyncDaysMutation.mutate(parseInt(value))}
+              disabled={changeSyncDaysMutation.isPending}
+            >
+              <SelectTrigger className="w-full sm:w-32 h-9 md:h-10 text-xs md:text-sm" data-testid="sync-days-selector">
+                <Mail className="w-3 h-3" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent data-testid="sync-days-dropdown">
+                <SelectItem value="30" data-testid="sync-days-option-30">
+                  30 days
+                </SelectItem>
+                <SelectItem value="60" data-testid="sync-days-option-60">
+                  60 days
+                </SelectItem>
+                <SelectItem value="90" data-testid="sync-days-option-90">
+                  90 days
+                </SelectItem>
+                <SelectItem value="180" data-testid="sync-days-option-180">
+                  180 days
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </header>
 
         {/* Main Content */}
-        <main className="flex-1 p-6 bg-background overflow-auto">
+        <main className="flex-1 p-4 md:p-6 bg-background overflow-auto">
           {/* Stats Cards */}
           {statsLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
