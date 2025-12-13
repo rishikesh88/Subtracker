@@ -4,8 +4,8 @@ import type { IStorage } from "../storage";
 
 // Google OAuth Strategy for user authentication (separate from Gmail email access)
 export function setupGoogleAuthStrategy(storage: IStorage) {
-  const clientId = process.env.GOOGLE_AUTH_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_AUTH_CLIENT_SECRET;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   
   if (!clientId || !clientSecret) {
     console.warn("Google Auth credentials not configured. Google sign-in will be disabled.");
