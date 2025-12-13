@@ -391,6 +391,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Google OAuth Authentication (for user login/signup)
   app.get('/api/auth/google-login', (req, res, next) => {
+    // Check if Google OAuth is configured before attempting authentication
+    if (!process.env.GOOGLE_AUTH_CLIENT_ID || !process.env.GOOGLE_AUTH_CLIENT_SECRET) {
+      return res.status(503).json({ 
+        message: "Google sign-in is not available. Please use email/password or another login method.",
+        code: "GOOGLE_AUTH_NOT_CONFIGURED"
+      });
+    }
+    
     passport.authenticate('google-auth', {
       scope: ['openid', 'profile', 'email'],
     })(req, res, next);
