@@ -1,5 +1,7 @@
 import { google } from 'googleapis';
-import { PDFParse } from 'pdf-parse';
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const pdf = require('pdf-parse');
 import { ObjectStorageService } from '../objectStorage';
 import { randomUUID } from 'crypto';
 import { OAuthTokens } from '../interfaces/emailProviderAdapter';
@@ -533,10 +535,8 @@ export class GmailService {
    */
   private async extractPDFText(buffer: Buffer): Promise<string> {
     try {
-      const parser = new PDFParse({ data: buffer });
-      const result = await parser.getText();
-      await parser.destroy();
-      return result.text || '';
+      const data = await pdf(buffer);
+      return data.text || '';
     } catch (error) {
       console.error('Error extracting PDF text:', error);
       return '';

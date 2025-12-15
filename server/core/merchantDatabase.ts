@@ -17,7 +17,8 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { getDomain } from 'tldts';
-
+import path from "path";
+import { fileURLToPath } from "url";
 export interface Merchant {
   name: string;
   websiteDomain: string;
@@ -45,11 +46,15 @@ export class MerchantDatabase {
     this.loadMerchants();
   }
 
+
   private loadMerchants() {
+
     try {
-      const csvPath = join(import.meta.dirname, '../data/merchants.csv');
+      let __filename = fileURLToPath(import.meta.url);
+      let __dirname = path.dirname(__filename);
+      const csvPath = join(__dirname, '../data/merchants.csv');
       const csvContent = readFileSync(csvPath, 'utf-8');
-      
+
       const lines = csvContent.split('\n').slice(1); // Skip header
       
       for (const line of lines) {

@@ -1,8 +1,20 @@
+import "dotenv/config";
+if (!globalThis.fetch) {
+  const { fetch, Headers, Request, Response } = await import('node-fetch');
+  globalThis.fetch = fetch as any;
+  globalThis.Headers = Headers as any;
+  globalThis.Request = Request as any;
+  globalThis.Response = Response as any;
+}
+import path from 'path';
+import { fileURLToPath } from 'url';
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import fs from "fs";
-import path from "path";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(express.json());
@@ -51,8 +63,9 @@ app.use((req, res, next) => {
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
-  // doesn't interfere with the other routes
-  const distPath = path.resolve(import.meta.dirname, "dist/public");
+  // doesn't interfere with the other routes  
+  const projectRoot = path.resolve(__dirname, "..");
+  const distPath = path.resolve(projectRoot, "dist/public");
   if (fs.existsSync(distPath)) {
     serveStatic(app);
   } else {
