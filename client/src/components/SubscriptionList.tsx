@@ -217,7 +217,7 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
                         <h4 className="text-lg font-bold text-foreground" data-testid={`subscription-name-${subscription.id}`}>
                           {subscription.serviceName}
                         </h4>
-                        <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                        <div className="flex items-center space-x-2 text-sm text-muted-foreground font-sans">
                           <span className="capitalize">{subscription.frequency}</span>
                           <span>•</span>
                           <span className="capitalize">{subscription.category || "Other"}</span>
@@ -238,17 +238,17 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
                   {/* Price and Dates Section - Styled like Review Inbox */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="grid grid-cols-2 gap-3 order-1 md:order-1">
-                      <div className="bg-accent/30 rounded-xl p-3 border border-border/50">
-                        <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">Last Email</p>
-                        <p className="text-sm font-semibold text-foreground">
+                      <div className="bg-accent/30 rounded-xl p-3 border border-border/50 shadow-sm">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 font-sans">Last Email</p>
+                        <p className="text-sm font-semibold text-foreground font-sans">
                           {getOrdinalDate(subscription.lastEmailDate)}
                         </p>
                       </div>
-                      <div className="bg-accent/30 rounded-xl p-3 border border-border/50">
-                        <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">
+                      <div className="bg-accent/30 rounded-xl p-3 border border-border/50 shadow-sm">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 font-sans">
                           {subscription.status === "cancelled" ? "Ended On" : "Next Payment"}
                         </p>
-                        <p className="text-sm font-semibold text-foreground">
+                        <p className="text-sm font-semibold text-foreground font-sans">
                           {subscription.status === "cancelled" 
                             ? getOrdinalDate(subscription.lastEmailDate)
                             : getOrdinalDate(subscription.nextBillingDate)}
@@ -256,9 +256,9 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
                       </div>
                     </div>
 
-                    <div className="bg-accent/30 rounded-xl p-4 flex items-center justify-between border border-border/50 order-2 md:order-2">
-                      <span className="text-sm font-medium text-muted-foreground">Subscription Price</span>
-                      <div className="text-right">
+                    <div className="bg-accent/30 rounded-xl p-4 flex items-center justify-between border border-border/50 shadow-sm order-2 md:order-2">
+                      <span className="text-sm font-medium text-muted-foreground font-sans">Subscription Price</span>
+                      <div className="text-right font-sans">
                         <span className="text-xl font-bold text-foreground" data-testid={`subscription-amount-${subscription.id}`}>
                           {formatCurrency(subscription.amount, subscription.currency)}
                         </span>
