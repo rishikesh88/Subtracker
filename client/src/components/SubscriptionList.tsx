@@ -104,7 +104,7 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {/* Fixed: Filters and Search */}
-      <div className="flex-shrink-0 bg-card rounded-lg border border-border p-6 mb-6">
+      <div className="flex-shrink-0 bg-card rounded-lg border border-border p-6 mb-3">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
           <div className="flex flex-col sm:flex-row gap-4 flex-1">
             {/* Search */}
