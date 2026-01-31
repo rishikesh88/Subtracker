@@ -8,15 +8,17 @@ export default function Subscriptions() {
   });
 
   return (
-    <div className="container mx-auto px-6 py-8" data-testid="subscriptions-page">
-      <div className="mb-8">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="subscriptions-page">
+      <div className="flex-shrink-0 px-6 py-8">
         <h1 className="text-3xl font-bold text-foreground">Your Subscriptions</h1>
         <p className="text-muted-foreground mt-2">
           Manage and track all your recurring subscriptions
         </p>
       </div>
 
-      <SubscriptionList subscriptions={subscriptions || []} />
+      <div className="flex-1 px-6 pb-8 min-h-0 overflow-hidden">
+        <SubscriptionList subscriptions={subscriptions || []} />
+      </div>
     </div>
   );
 }
