@@ -34,11 +34,11 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
       case "active":
-        return "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-200";
+        return "bg-green-100 text-green-800 border border-green-200 dark:bg-green-950/50 dark:text-green-200 dark:border-green-900";
       case "cancelled":
-        return "bg-gray-100 text-gray-800 dark:bg-gray-950 dark:text-gray-200";
+        return "bg-gray-100 text-gray-800 border border-gray-200 dark:bg-gray-800/50 dark:text-gray-200 dark:border-gray-700";
       case "expiring_soon":
-        return "bg-yellow-100 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-200";
+        return "bg-yellow-100 text-yellow-800 border border-yellow-200 dark:bg-yellow-950/50 dark:text-yellow-200 dark:border-yellow-900";
       default:
         return "bg-gray-100 text-gray-800 dark:bg-gray-950 dark:text-gray-200";
     }
@@ -73,6 +73,21 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
       day: "numeric",
       year: "numeric",
     });
+  };
+
+  const getOrdinalDate = (date: Date | null) => {
+    if (!date) return "N/A";
+    const d = new Date(date);
+    const day = d.getDate();
+    const month = d.toLocaleDateString("en-US", { month: "short" });
+    const year = d.getFullYear();
+
+    let suffix = "th";
+    if (day % 10 === 1 && day !== 11) suffix = "st";
+    else if (day % 10 === 2 && day !== 12) suffix = "nd";
+    else if (day % 10 === 3 && day !== 13) suffix = "rd";
+
+    return `${day}${suffix} ${month} ${year}`;
   };
 
   const getServiceIcon = (serviceName: string) => {
@@ -192,49 +207,64 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
                 data-testid={`subscription-${subscription.id}`}
                 onClick={() => setLocation(`/subscriptions/${subscription.id}`)}
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className={`w-12 h-12 ${getServiceIcon(subscription.serviceName)} rounded-lg flex items-center justify-center text-xl font-bold`}>
-                      {subscription.serviceName.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-foreground" data-testid={`subscription-name-${subscription.id}`}>
-                        {subscription.serviceName}
-                      </h4>
-                      <p className="text-sm text-muted-foreground capitalize" data-testid={`subscription-category-${subscription.id}`}>
-                        {subscription.category || "Other"}
-                      </p>
-                      <div className="flex items-center space-x-4 mt-1">
-                        <span
-                          className={`text-xs px-2 py-1 rounded-full ${getStatusBadgeClass(subscription.status)}`}
-                          data-testid={`subscription-status-${subscription.id}`}
-                        >
-                          {subscription.status === "expiring_soon" ? "Expiring Soon" : subscription.status.charAt(0).toUpperCase() + subscription.status.slice(1)}
-                        </span>
-                        <span className="text-xs text-muted-foreground capitalize" data-testid={`subscription-frequency-${subscription.id}`}>
-                          {subscription.frequency}
-                        </span>
+                <div className="flex flex-col space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <div className={`w-12 h-12 ${getServiceIcon(subscription.serviceName)} rounded-lg flex items-center justify-center text-xl font-bold`}>
+                        {subscription.serviceName.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-bold text-foreground" data-testid={`subscription-name-${subscription.id}`}>
+                          {subscription.serviceName}
+                        </h4>
+                        <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+                          <span className="capitalize">{subscription.frequency}</span>
+                          <span>•</span>
+                          <span className="capitalize">{subscription.category || "Other"}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="flex items-center space-x-4">
-                    <div className="text-right">
-                      <p
-                        className={`text-lg font-semibold ${subscription.status === "cancelled" ? "text-muted-foreground line-through" : "text-foreground"}`}
-                        data-testid={`subscription-amount-${subscription.id}`}
+                    <div className="flex items-center space-x-2">
+                      <span
+                        className={`text-xs font-medium px-2.5 py-0.5 rounded-full ${getStatusBadgeClass(subscription.status)}`}
+                        data-testid={`subscription-status-${subscription.id}`}
                       >
-                        {formatCurrency(subscription.amount, subscription.currency)}
-                      </p>
-                      <p className="text-sm text-muted-foreground" data-testid={`subscription-next-billing-${subscription.id}`}>
-                        {subscription.status === "cancelled" 
-                          ? `Ended: ${formatDate(subscription.lastEmailDate)}`
-                          : `Next: ${formatDate(subscription.nextBillingDate)}`}
-                      </p>
-                      <p className="text-xs text-muted-foreground" data-testid={`subscription-last-email-${subscription.id}`}>
-                        Last email: {formatDate(subscription.lastEmailDate)}
-                      </p>
+                        {subscription.status === "expiring_soon" ? "Expiring Soon" : subscription.status.charAt(0).toUpperCase() + subscription.status.slice(1)}
+                      </span>
+                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
                     </div>
-                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                  </div>
+
+                  {/* Price and Dates Section - Styled like Review Inbox */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="bg-accent/30 rounded-xl p-4 flex items-center justify-between border border-border/50">
+                      <span className="text-sm font-medium text-muted-foreground">Subscription Price</span>
+                      <div className="text-right">
+                        <span className="text-xl font-bold text-foreground" data-testid={`subscription-amount-${subscription.id}`}>
+                          {formatCurrency(subscription.amount, subscription.currency)}
+                        </span>
+                        <span className="text-sm text-muted-foreground ml-1">/ {subscription.frequency}</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-accent/30 rounded-xl p-3 border border-border/50">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">
+                          {subscription.status === "cancelled" ? "Ended On" : "Next Payment"}
+                        </p>
+                        <p className="text-sm font-semibold text-foreground">
+                          {subscription.status === "cancelled" 
+                            ? getOrdinalDate(subscription.lastEmailDate)
+                            : getOrdinalDate(subscription.nextBillingDate)}
+                        </p>
+                      </div>
+                      <div className="bg-accent/30 rounded-xl p-3 border border-border/50">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">Last Email</p>
+                        <p className="text-sm font-semibold text-foreground">
+                          {getOrdinalDate(subscription.lastEmailDate)}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
