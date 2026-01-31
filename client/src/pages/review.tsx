@@ -467,24 +467,25 @@ export default function ReviewInbox() {
                           <div className="space-y-2">
                             {suggestion.emailEvidence && suggestion.emailEvidence.length > 0 ? (
                               <>
-                                {suggestion.emailEvidence.slice(0, 3).map((email, idx) => (
-                                  <div key={idx} className="text-sm">
-                                    <p className="truncate text-foreground font-medium italic">"{email.subject}"</p>
-                                    <p className="text-xs text-muted-foreground mt-1">
+                                {/* Show only the latest email */}
+                                <div className="text-sm">
+                                  <p className="truncate text-foreground font-medium italic">"{suggestion.emailEvidence[0].subject}"</p>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <p className="text-xs text-muted-foreground">
                                       Received on {(() => {
-                                        const d = new Date(email.receivedAt);
+                                        const d = new Date(suggestion.emailEvidence[0].receivedAt);
                                         const day = d.getDate();
                                         const suffix = ["th", "st", "nd", "rd"][(day % 10 > 3 || Math.floor(day / 10) === 1) ? 0 : day % 10];
                                         return `${day}${suffix} ${d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
                                       })()}
                                     </p>
+                                    {suggestion.emailEvidence.length > 1 && (
+                                      <Badge variant="secondary" className="text-xs">
+                                        +{suggestion.emailEvidence.length - 1} email{suggestion.emailEvidence.length - 1 > 1 ? 's' : ''}
+                                      </Badge>
+                                    )}
                                   </div>
-                                ))}
-                                {suggestion.emailEvidence.length > 3 && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    +{suggestion.emailEvidence.length - 3} more email{suggestion.emailEvidence.length - 3 > 1 ? 's' : ''}
-                                  </p>
-                                )}
+                                </div>
                               </>
                             ) : (
                               <div className="text-sm">
