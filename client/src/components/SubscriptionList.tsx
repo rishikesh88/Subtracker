@@ -214,7 +214,7 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
                         {subscription.serviceName.charAt(0).toUpperCase()}
                       </div>
                       <div>
-                        <h4 className="text-lg font-bold text-foreground" data-testid={`subscription-name-${subscription.id}`}>
+                        <h4 className="text-lg font-bold text-foreground font-sans" data-testid={`subscription-name-${subscription.id}`}>
                           {subscription.serviceName}
                         </h4>
                         <div className="flex items-center space-x-2 text-sm text-muted-foreground font-sans">
