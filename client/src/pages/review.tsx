@@ -577,12 +577,8 @@ export default function ReviewInbox() {
                               </>
                             ) : (
                               <div className="text-sm">
-                                <p className="truncate text-foreground font-medium italic">
-                                  "{(() => {
-                                    if (!suggestion.reasoning) return `Subscription detected from ${suggestion.serviceName}`;
-                                    const match = suggestion.reasoning.match(/'([^']+)'/);
-                                    return match ? match[1] : suggestion.reasoning.split('.')[0];
-                                  })()}"
+                                <p className="text-muted-foreground italic text-xs">
+                                  Email evidence not available
                                 </p>
                               </div>
                             )}

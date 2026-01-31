@@ -50,9 +50,11 @@ interface BatchAnalysisResult {
   frequency: "weekly" | "monthly" | "quarterly" | "yearly";
   category: string;
   confidence: "high" | "medium" | "low";
+  lastBillingDate?: string;
   nextBillingDate?: string;
   merchantName: string;
   merchantEmail: string;
+  reasoning: string;
 }
 
 export class EnhancedSubscriptionDetector {
@@ -463,7 +465,9 @@ EXTRACT for each email:
 - frequency: monthly/quarterly/yearly/weekly
 - category: telecom/streaming/software/utilities/other
 - confidence: high/medium/low based on subscription evidence
-- nextBillingDate: If mentioned in email
+- lastBillingDate: The date when this payment was made (from email date or mentioned date)
+- nextBillingDate: If explicitly mentioned in email, otherwise null (will be calculated from lastBillingDate + frequency)
+- reasoning: Concise explanation (30-50 words) of WHY this is detected as a subscription. Include: what subscription signals were found in the email (subject keywords, body content, attachments), the detected billing pattern, and confidence justification. Example: "Detected recurring monthly payment of ₹75 to iCloud from subject 'Your receipt from Apple' and body content mentioning '50GB storage plan renewal'. High confidence due to explicit subscription terms."
 
 RETURN: JSON array with exact format:
 [
@@ -476,9 +480,11 @@ RETURN: JSON array with exact format:
     "frequency": "monthly",
     "category": "telecom",
     "confidence": "high",
+    "lastBillingDate": "2025-01-15",
     "nextBillingDate": null,
     "merchantName": "Bharti Airtel",
-    "merchantEmail": "noreply@airtel.com"
+    "merchantEmail": "noreply@airtel.com",
+    "reasoning": "Detected recurring monthly postpaid bill from subject 'Your Airtel Bill' with amount ₹399. Body mentions 'monthly plan renewal'. High confidence due to telecom billing pattern."
   },
   ...
 ]`;
@@ -509,11 +515,13 @@ ${JSON.stringify(emailData, null, 2)}`;
                   frequency: { type: "string", enum: ["monthly", "quarterly", "yearly", "weekly"] },
                   category: { type: "string", enum: ["telecom", "streaming", "software", "utilities", "other"] },
                   confidence: { type: "string", enum: ["high", "medium", "low"] },
-                  nextBillingDate: { type: "string" }, // Simplified from union type
+                  lastBillingDate: { type: "string" },
+                  nextBillingDate: { type: "string" },
                   merchantName: { type: "string" },
-                  merchantEmail: { type: "string" }
+                  merchantEmail: { type: "string" },
+                  reasoning: { type: "string" }
                 },
-                required: ["id", "isSubscription", "serviceName", "amount", "currency", "frequency", "category", "confidence"]
+                required: ["id", "isSubscription", "serviceName", "amount", "currency", "frequency", "category", "confidence", "reasoning"]
               }
             }
           },
@@ -547,6 +555,28 @@ ${JSON.stringify(emailData, null, 2)}`;
           'low': 0.45
         };
         
+        // Calculate nextBillingDate from lastBillingDate if not provided
+        let nextBillingDate: Date | null = null;
+        if (result.nextBillingDate) {
+          nextBillingDate = new Date(result.nextBillingDate);
+        } else if (result.lastBillingDate) {
+          const lastDate = new Date(result.lastBillingDate);
+          switch (result.frequency) {
+            case 'weekly':
+              nextBillingDate = new Date(lastDate.setDate(lastDate.getDate() + 7));
+              break;
+            case 'monthly':
+              nextBillingDate = new Date(lastDate.setMonth(lastDate.getMonth() + 1));
+              break;
+            case 'quarterly':
+              nextBillingDate = new Date(lastDate.setMonth(lastDate.getMonth() + 3));
+              break;
+            case 'yearly':
+              nextBillingDate = new Date(lastDate.setFullYear(lastDate.getFullYear() + 1));
+              break;
+          }
+        }
+        
         suggestions.push({
           userId,
           serviceName: result.serviceName,
@@ -558,12 +588,12 @@ ${JSON.stringify(emailData, null, 2)}`;
           category: result.category || 'other',
           confidence: result.confidence,
           confidenceScore: confidenceScoreMap[result.confidence].toString(),
-          reasoning: `Detailed batch analysis: ${result.confidence} confidence subscription detection`,
+          reasoning: result.reasoning || `Detected ${result.frequency} subscription to ${result.serviceName} from email patterns.`,
           evidenceEmailIds: [email.id],
           occurrences: 1,
           recurrenceType: null,
           recurrenceScore: 0,
-          nextBillingDate: result.nextBillingDate ? new Date(result.nextBillingDate) : null,
+          nextBillingDate,
           lastSeen: new Date(email.receivedAt),
           status: 'pending'
         });
@@ -647,7 +677,7 @@ Respond with valid JSON only:`;
           category: result.category,
           confidence: result.confidence,
           confidenceScore: result.confidenceScore.toString(),
-          reasoning: `Individual email analysis: ${result.reasoning}`,
+          reasoning: result.reasoning || `Detected ${result.frequency} subscription to ${result.serviceName} from email patterns.`,
           evidenceEmailIds: [email.id],
           occurrences: 1,
           recurrenceType: null,
