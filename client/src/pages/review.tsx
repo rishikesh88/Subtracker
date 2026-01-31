@@ -386,6 +386,7 @@ export default function ReviewInbox() {
                           checked={isSelected}
                           onCheckedChange={(checked) => handleSuggestionSelect(suggestion.id, checked as boolean)}
                           disabled={isProcessing}
+                          className="rounded-sm"
                         />
                       </div>
 
