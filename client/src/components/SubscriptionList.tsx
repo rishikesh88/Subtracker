@@ -75,9 +75,12 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
     });
   };
 
-  const getOrdinalDate = (date: Date | null) => {
+  const getOrdinalDate = (date: string | Date | null) => {
     if (!date) return "N/A";
     const d = new Date(date);
+    if (isNaN(d.getTime())) return "N/A";
+    
+    // Use regular date methods but ensure we handle the input consistently
     const day = d.getDate();
     const month = d.toLocaleDateString("en-US", { month: "short" });
     const year = d.getFullYear();

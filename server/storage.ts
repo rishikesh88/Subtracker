@@ -782,7 +782,7 @@ export class DatabaseStorage implements IStorage {
           occurrences: suggestion.occurrences,
           status: 'active' as const,
           nextBillingDate: suggestion.nextBillingDate || null,
-          lastEmailDate: suggestion.lastSeen,
+          lastEmailDate: suggestion.lastSeen || new Date(),
           merchantEmail: null
         };
         
