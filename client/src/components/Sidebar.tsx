@@ -2,6 +2,7 @@ import { Link, useLocation } from "wouter";
 import { BarChart3, List, Mail, Settings, RefreshCw, User, LogOut, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,6 +13,7 @@ import {
 import { cn } from "@/lib/utils";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery } from "@tanstack/react-query";
 import type { SafeUser } from "@shared/schema";
 
 interface SidebarProps {
@@ -22,6 +24,13 @@ interface SidebarProps {
 export function Sidebar({ user, isGmailConnected }: SidebarProps) {
   const [location] = useLocation();
   const { toast } = useToast();
+  
+  // Fetch suggestion count for the Review Inbox badge
+  const { data: suggestionsData } = useQuery<{ suggestions: any[]; total: number }>({
+    queryKey: [`/api/suggestions?userId=${user?.id}`],
+    enabled: !!user?.id,
+  });
+  const pendingSuggestionsCount = suggestionsData?.total ?? 0;
   
   const handleLogout = () => {
     // Clear all cached data before logout for seamless account switching
@@ -63,20 +72,31 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
         <ul className="space-y-2">
           {navigation.map((item) => {
             const isActive = location === item.href;
+            const showBadge = item.name === "Review Inbox";
             return (
               <li key={item.name}>
                 <Link 
                   href={item.href}
                   className={cn(
-                    "flex items-center space-x-3 px-3 py-2 text-sm font-medium rounded-md transition-colors",
+                    "flex items-center justify-between px-3 py-2 text-sm font-medium rounded-md transition-colors",
                     isActive
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:text-foreground hover:bg-accent"
                   )}
                   data-testid={`nav-${item.name.toLowerCase()}`}
                 >
-                  <item.icon className="w-4 h-4" />
-                  <span>{item.name}</span>
+                  <div className="flex items-center space-x-3">
+                    <item.icon className="w-4 h-4" />
+                    <span>{item.name}</span>
+                  </div>
+                  {showBadge && (
+                    <Badge 
+                      variant={pendingSuggestionsCount > 0 ? "default" : "secondary"} 
+                      className="ml-auto text-xs px-2 py-0.5"
+                    >
+                      {pendingSuggestionsCount}
+                    </Badge>
+                  )}
                 </Link>
               </li>
             );

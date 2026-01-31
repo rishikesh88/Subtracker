@@ -54,18 +54,7 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  // Listen for event to open suggestions modal
-  useEffect(() => {
-    const handleOpenSuggestionsModal = () => {
-      setSuggestionsModalOpen(true);
-    };
-
-    window.addEventListener('openSuggestionsModal', handleOpenSuggestionsModal);
-
-    return () => {
-      window.removeEventListener('openSuggestionsModal', handleOpenSuggestionsModal);
-    };
-  }, []);
+  // Legacy event listener removed - suggestions modal replaced with dedicated /review page
 
   // Handle Gmail OAuth callback
   useEffect(() => {
@@ -174,9 +163,9 @@ export default function Dashboard() {
         description: `Generated ${data.suggestionsGenerated || 0} subscription suggestions for your review`,
       });
       
-      // Open suggestions modal if suggestions were generated
+      // Navigate to review page if suggestions were generated
       if (data.redirectToSuggestions && data.suggestionsGenerated > 0) {
-        setSuggestionsModalOpen(true);
+        window.location.href = '/review';
       }
       
       // Refresh all data after sync  
@@ -326,10 +315,10 @@ export default function Dashboard() {
         });
       }
       
-      // Auto-open suggestions modal if suggestions were generated
+      // Navigate to review page if suggestions were generated
       if (totalSuggestions > 0) {
         setTimeout(() => {
-          setSuggestionsModalOpen(true);
+          window.location.href = '/review';
         }, 500); // Small delay to allow toast to show first
       }
       
@@ -421,8 +410,8 @@ export default function Dashboard() {
     queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${currentUserId}`] });
     queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
     
-    // Show suggestions modal if there are suggestions
-    setSuggestionsModalOpen(true);
+    // Navigate to review page to review suggestions
+    window.location.href = '/review';
   };
 
   const defaultStats = {
