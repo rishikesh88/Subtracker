@@ -404,18 +404,8 @@ export default function ReviewInbox() {
                           >
                             {confidencePercent && `${confidencePercent}% `}{suggestion.confidence}
                           </Badge>
-                          {suggestion.nextBillingDate && (
-                            <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
-                              <Calendar className="w-3 h-3 mr-1" />
-                              Next: {new Date(suggestion.nextBillingDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                            </Badge>
-                          )}
                         </div>
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground mt-1">
-                          <span className="font-medium text-foreground">
-                            {formatCurrency(suggestion.amount, suggestion.currency)}
-                          </span>
-                          <span>•</span>
                           <span className="capitalize">{suggestion.frequency}</span>
                           <span>•</span>
                           <span>{formatDetectedTime(suggestion.detectedAt)}</span>
@@ -426,11 +416,6 @@ export default function ReviewInbox() {
                             </>
                           )}
                         </div>
-                        {suggestion.merchantName && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            Merchant: {suggestion.merchantName}
-                          </p>
-                        )}
                       </div>
 
                       {/* Individual Actions */}
@@ -457,60 +442,77 @@ export default function ReviewInbox() {
                       </div>
                     </div>
 
+                    {/* Pricing Section */}
+                    <div className="mt-4 border border-green-200 rounded-lg bg-green-50 dark:bg-green-950/30 dark:border-green-800 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Subscription Price</span>
+                        <span className="text-xl font-bold text-green-700 dark:text-green-400">
+                          {formatCurrency(suggestion.amount, suggestion.currency)}
+                          <span className="text-sm font-normal text-muted-foreground ml-1">/ {suggestion.frequency}</span>
+                        </span>
+                      </div>
+                    </div>
+
                     {/* Evidence Sections */}
-                    <div className="mt-6 grid md:grid-cols-2 gap-6">
-                      {/* Evidence Found */}
-                      <div>
-                        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-                          <Mail className="w-4 h-4" />
-                          Evidence Found
-                        </h4>
-                        
-                        {/* Email Evidence Container */}
-                        <div className="border border-border rounded-lg bg-muted/20 p-3 space-y-1.5">
-                          {suggestion.emailEvidence && suggestion.emailEvidence.length > 0 ? (
-                            <>
-                              {suggestion.emailEvidence.slice(0, 3).map((email, idx) => (
-                                <div key={idx} className="flex items-center gap-2 text-sm">
-                                  <Mail className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                                  <span className="truncate flex-1 text-foreground">{email.subject}</span>
-                                  <span className="text-xs text-muted-foreground flex-shrink-0">
-                                    {new Date(email.receivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                  </span>
-                                </div>
-                              ))}
-                              {suggestion.emailEvidence.length > 3 && (
-                                <p className="text-xs text-muted-foreground pl-5">
-                                  +{suggestion.emailEvidence.length - 3} more
-                                </p>
-                              )}
-                            </>
-                          ) : (
-                            <div className="flex items-center gap-2 text-sm">
-                              <Mail className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                              <span className="text-muted-foreground">
+                    <div className="mt-4 grid md:grid-cols-2 gap-4">
+                      {/* Left Column */}
+                      <div className="space-y-3">
+                        {/* Email Detected Container */}
+                        <div className="border border-border rounded-lg bg-muted/20 p-3">
+                          <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+                            <Mail className="w-3.5 h-3.5" />
+                            Email Detected
+                          </p>
+                          <div className="space-y-2">
+                            {suggestion.emailEvidence && suggestion.emailEvidence.length > 0 ? (
+                              <>
+                                {suggestion.emailEvidence.slice(0, 3).map((email, idx) => (
+                                  <div key={idx} className="text-sm">
+                                    <p className="truncate text-foreground font-medium">{email.subject}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {new Date(email.receivedAt).toLocaleDateString('en-US', { 
+                                        month: 'short', 
+                                        day: 'numeric',
+                                        year: 'numeric'
+                                      })} at {new Date(email.receivedAt).toLocaleTimeString('en-US', {
+                                        hour: 'numeric',
+                                        minute: '2-digit'
+                                      })}
+                                    </p>
+                                  </div>
+                                ))}
+                                {suggestion.emailEvidence.length > 3 && (
+                                  <p className="text-xs text-muted-foreground">
+                                    +{suggestion.emailEvidence.length - 3} more email{suggestion.emailEvidence.length - 3 > 1 ? 's' : ''}
+                                  </p>
+                                )}
+                              </>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">
                                 {(suggestion.occurrences || 1)} email{(suggestion.occurrences || 1) > 1 ? 's' : ''} analyzed
-                              </span>
-                            </div>
-                          )}
+                              </p>
+                            )}
+                          </div>
                         </div>
                         
                         {/* Attachment Evidence */}
                         {attachments.length > 0 && (
-                          <div className="border border-border rounded-lg bg-muted/20 p-3 mt-3 space-y-1.5">
-                            <p className="text-xs font-medium text-muted-foreground mb-2">Documents</p>
-                            {attachments.map((att, idx) => (
-                              <div key={idx} className="flex items-center gap-2 text-sm">
-                                <FileText className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
-                                <span className="truncate flex-1">{att.name}</span>
-                              </div>
-                            ))}
+                          <div className="border border-border rounded-lg bg-muted/20 p-3">
+                            <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+                              <FileText className="w-3.5 h-3.5" />
+                              Documents
+                            </p>
+                            <div className="space-y-1">
+                              {attachments.map((att, idx) => (
+                                <p key={idx} className="text-sm truncate">{att.name}</p>
+                              ))}
+                            </div>
                           </div>
                         )}
                         
                         {/* Keywords Container */}
                         {suggestion.recurringKeywords && suggestion.recurringKeywords.length > 0 && (
-                          <div className="border border-border rounded-lg bg-muted/20 p-3 mt-3">
+                          <div className="border border-border rounded-lg bg-muted/20 p-3">
                             <p className="text-xs font-medium text-muted-foreground mb-2">Keywords Detected</p>
                             <div className="flex flex-wrap gap-1.5">
                               {suggestion.recurringKeywords.slice(0, 5).map((keyword, idx) => (
@@ -521,15 +523,33 @@ export default function ReviewInbox() {
                             </div>
                           </div>
                         )}
+
+                        {/* Next Expected Date Container */}
+                        {suggestion.nextBillingDate && (
+                          <div className="border border-blue-200 rounded-lg bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 p-3">
+                            <p className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5">
+                              <Calendar className="w-3.5 h-3.5" />
+                              Next Expected Payment
+                            </p>
+                            <p className="text-lg font-semibold text-blue-700 dark:text-blue-400">
+                              {new Date(suggestion.nextBillingDate).toLocaleDateString('en-US', { 
+                                weekday: 'short',
+                                month: 'long', 
+                                day: 'numeric',
+                                year: 'numeric'
+                              })}
+                            </p>
+                          </div>
+                        )}
                       </div>
 
-                      {/* AI Reasoning */}
+                      {/* Right Column - AI Reasoning */}
                       <div>
-                        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
-                          <Sparkles className="w-4 h-4" />
-                          AI Reasoning
-                        </h4>
-                        <div className="border border-border rounded-lg bg-muted/20 p-4">
+                        <div className="border border-border rounded-lg bg-muted/20 p-4 h-full">
+                          <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
+                            <Sparkles className="w-3.5 h-3.5" />
+                            AI Reasoning
+                          </p>
                           <p className="text-sm text-foreground leading-relaxed">
                             {suggestion.reasoning || `This appears to be a ${suggestion.frequency} subscription to ${suggestion.serviceName} based on the email patterns detected.`}
                           </p>
