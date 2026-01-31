@@ -52,8 +52,12 @@ app.use((req, res, next) => {
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
   // doesn't interfere with the other routes
-  const distPath = path.resolve(import.meta.dirname, "dist/public");
-  if (fs.existsSync(distPath)) {
+  // In production (running from dist/index.js), public/ is a sibling directory
+  // In development, always use Vite regardless of whether dist exists
+  const isProduction = process.env.NODE_ENV === 'production';
+  const prodPublicPath = path.resolve(import.meta.dirname, "public");
+  
+  if (isProduction && fs.existsSync(prodPublicPath)) {
     serveStatic(app);
   } else {
     await setupVite(app, server);
