@@ -2,10 +2,11 @@
  * Enhanced Subscription Detection Service
  * Combines recurrence analysis with LLM-powered suggestion generation
  * 
- * Hybrid Two-Stage Pipeline:
- * - Stage 1: Batch classification (50 emails per API call)
- * - Stage 2: Detailed batch analysis (8 emails per API call)
- * - Reduces API calls from 23 to 3-5 total
+ * OPTIMIZED Hybrid Two-Stage Pipeline:
+ * - Stage 1: Parallel batch classification (100 emails per API call, 5 concurrent)
+ * - Stage 2: Parallel detailed analysis (15 emails per API call, 5 concurrent)
+ * - Uses gemini-2.5-flash for Stage 1 (faster), gemini-2.5-pro for Stage 2 (accuracy)
+ * - Reduced inter-batch delays for maximum throughput
  */
 
 import { GoogleGenAI } from "@google/genai";
@@ -13,6 +14,9 @@ import { type Email, type InsertSubscriptionSuggestion } from "@shared/schema";
 import { IStorage } from "../storage";
 import { recurrenceAnalyzer, type EmailCluster } from "./recurrenceAnalyzer";
 import { generateServiceKey, amountsAreSimilar } from "../utils/serviceKey";
+
+// Concurrency limit for parallel API calls
+const PARALLEL_CONCURRENCY = 5;
 
 interface SuggestionGenerationResult {
   suggestions: InsertSubscriptionSuggestion[];
@@ -82,8 +86,9 @@ export class EnhancedSubscriptionDetector {
         individualSuggestions.push(...detailedSuggestions);
       }
 
-      const totalApiCalls = Math.ceil(potentialSubscriptionEmails.length / 50) + Math.ceil(subscriptionCandidates.length / 8);
-      console.log(`✅ Hybrid pipeline complete: ${individualSuggestions.length} suggestions generated with only ${totalApiCalls} API calls (${Math.round((1 - totalApiCalls / potentialSubscriptionEmails.length) * 100)}% reduction)`);
+      const totalApiCalls = Math.ceil(potentialSubscriptionEmails.length / 100) + Math.ceil(subscriptionCandidates.length / 15);
+      const pipelineDuration = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`✅ Hybrid pipeline complete: ${individualSuggestions.length} suggestions in ${pipelineDuration}s with ${totalApiCalls} API calls (parallel processing)`);
 
       // Step 3: Analyze recurrence patterns to boost confidence
       console.log(`📊 Step 3: Analyzing recurrence patterns to boost confidence...`);
@@ -165,18 +170,18 @@ export class EnhancedSubscriptionDetector {
 
   /**
    * STAGE 1: Batch classify all emails to identify subscription candidates
-   * Reduces many emails to 1-2 API calls
+   * OPTIMIZED: Uses parallel processing, larger batches, and faster model
    */
   private async batchClassifyEmails(emails: Email[]): Promise<Email[]> {
     if (emails.length === 0) return [];
 
-    const batchSize = 50; // Can handle more emails in classification
-    const candidates: Email[] = [];
-    
-    for (let i = 0; i < emails.length; i += batchSize) {
-      const batch = emails.slice(i, i + batchSize);
-      
-      // Prepare lightweight email data for classification
+    const batchSize = 100; // Increased from 50 for fewer API calls
+    const stageStartTime = Date.now();
+    const totalBatches = Math.ceil(emails.length / batchSize);
+    console.log(`⚡ Stage 1: Processing ${emails.length} emails in ${totalBatches} batches (parallel, ${PARALLEL_CONCURRENCY} concurrent)`);
+
+    // Process a single batch - this function will be called in parallel
+    const processBatch = async (batch: Email[], batchIndex: number): Promise<Email[]> => {
       const emailData = batch.map((email, idx) => ({
         id: idx,
         subject: email.subject,
@@ -185,7 +190,7 @@ export class EnhancedSubscriptionDetector {
         extractedAmount: email.extractedAmount || '',
         extractedCurrency: email.extractedCurrency || '',
         merchantName: email.merchantName || '',
-        contentSnippet: email.content?.substring(0, 200) || ''
+        contentSnippet: email.content?.substring(0, 150) || '' // Reduced for speed
       }));
 
       const systemPrompt = `You are an expert at identifying subscription-related emails. 
@@ -211,7 +216,7 @@ ${JSON.stringify(emailData, null, 2)}`;
 
       try {
         const response = await this.ai.models.generateContent({
-          model: "gemini-2.5-pro",
+          model: "gemini-2.5-flash", // Faster model for classification
           config: {
             systemInstruction: systemPrompt,
             responseMimeType: "application/json",
@@ -233,66 +238,86 @@ ${JSON.stringify(emailData, null, 2)}`;
         });
         
         const results: BatchClassificationResult[] = JSON.parse(response.text || '[]');
+        const batchCandidates: Email[] = [];
           
         // Add high-confidence subscription candidates
         for (const result of results) {
           if (result.isSubscription && (result.confidence === 'high' || result.confidence === 'medium')) {
-            candidates.push(batch[result.id]);
+            batchCandidates.push(batch[result.id]);
           }
         }
         
-        console.log(`📊 Batch ${Math.floor(i/batchSize) + 1}: ${results.filter((r: any) => r.isSubscription).length}/${batch.length} identified as subscriptions`);
+        console.log(`📊 Batch ${batchIndex + 1}: ${results.filter((r: any) => r.isSubscription).length}/${batch.length} identified as subscriptions`);
+        return batchCandidates;
       } catch (error) {
-        console.error(`❌ Classification failed for batch ${Math.floor(i/batchSize) + 1}:`, error);
+        console.error(`❌ Classification failed for batch ${batchIndex + 1}:`, error);
         // Fallback: include all emails if classification fails
-        candidates.push(...batch);
+        return batch;
       }
-      
-      // Rate limiting between classification batches
-      if (i + batchSize < emails.length) {
-        await this.delay(1000);
-      }
-    }
+    };
+
+    // Process all batches in parallel with concurrency limit
+    const batchResults = await this.processInParallel(
+      emails,
+      batchSize,
+      processBatch,
+      200 // Reduced delay between waves (was 1000ms)
+    );
+
+    // Flatten results
+    const candidates = batchResults.flat();
+    const stageDuration = ((Date.now() - stageStartTime) / 1000).toFixed(1);
+    console.log(`⏱️ Stage 1 completed in ${stageDuration}s (${candidates.length} candidates from ${emails.length} emails)`);
     
     return candidates;
   }
 
   /**
    * STAGE 2: Detailed batch analysis of subscription candidates
-   * Processes 8 emails per API call for detailed extraction
+   * OPTIMIZED: Uses parallel processing and larger batches
    */
   private async batchAnalyzeSubscriptionCandidates(candidates: Email[], userId: string): Promise<InsertSubscriptionSuggestion[]> {
     if (candidates.length === 0) return [];
 
-    const suggestions: InsertSubscriptionSuggestion[] = [];
-    const batchSize = 8; // Optimal size for detailed analysis
-    
-    for (let i = 0; i < candidates.length; i += batchSize) {
-      const batch = candidates.slice(i, i + batchSize);
-      
+    const batchSize = 15; // Increased from 8 for fewer API calls
+    const stageStartTime = Date.now();
+    const totalBatches = Math.ceil(candidates.length / batchSize);
+    console.log(`⚡ Stage 2: Processing ${candidates.length} candidates in ${totalBatches} batches (parallel, ${PARALLEL_CONCURRENCY} concurrent)`);
+
+    // Process a single batch - this function will be called in parallel
+    const processBatch = async (batch: Email[], batchIndex: number): Promise<InsertSubscriptionSuggestion[]> => {
       try {
         const batchSuggestions = await this.analyzeBatchDetailed(batch, userId);
-        suggestions.push(...batchSuggestions);
-        
-        console.log(`🎯 Analyzed batch ${Math.floor(i/batchSize) + 1}: ${batchSuggestions.length} suggestions generated`);
+        console.log(`🎯 Analyzed batch ${batchIndex + 1}: ${batchSuggestions.length} suggestions generated`);
+        return batchSuggestions;
       } catch (error) {
-        console.error(`❌ Detailed analysis failed for batch ${Math.floor(i/batchSize) + 1}:`, error);
+        console.error(`❌ Detailed analysis failed for batch ${batchIndex + 1}:`, error);
         // Fallback: try individual analysis for this batch
+        const fallbackSuggestions: InsertSubscriptionSuggestion[] = [];
         for (const email of batch) {
           try {
             const suggestion = await this.analyzeIndividualEmail(email, userId);
-            if (suggestion) suggestions.push(suggestion);
+            if (suggestion) fallbackSuggestions.push(suggestion);
           } catch (individualError) {
             console.error(`❌ Individual fallback failed for ${email.subject}:`, individualError);
           }
         }
+        return fallbackSuggestions;
       }
-      
-      // Rate limiting between analysis batches
-      if (i + batchSize < candidates.length) {
-        await this.delay(2000);
-      }
-    }
+    };
+
+    // Process all batches in parallel with concurrency limit
+    const batchResults = await this.processInParallel(
+      candidates,
+      batchSize,
+      processBatch,
+      500 // Reduced delay between waves (was 2000ms)
+    );
+
+    // Flatten results
+    const suggestions = batchResults.flat();
+    const stageDuration = ((Date.now() - stageStartTime) / 1000).toFixed(1);
+    console.log(`⏱️ Stage 2 completed in ${stageDuration}s (${suggestions.length} suggestions from ${candidates.length} candidates)`);
     
     return suggestions;
   }
@@ -667,6 +692,44 @@ Respond with valid JSON only:`;
    */
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Process batches in parallel with concurrency limit
+   * Runs up to PARALLEL_CONCURRENCY batches simultaneously for faster processing
+   */
+  private async processInParallel<T, R>(
+    items: T[],
+    batchSize: number,
+    processor: (batch: T[], batchIndex: number) => Promise<R>,
+    delayMs: number = 200
+  ): Promise<R[]> {
+    const batches: T[][] = [];
+    for (let i = 0; i < items.length; i += batchSize) {
+      batches.push(items.slice(i, i + batchSize));
+    }
+
+    const results: R[] = [];
+    
+    // Process in waves of PARALLEL_CONCURRENCY
+    for (let wave = 0; wave < batches.length; wave += PARALLEL_CONCURRENCY) {
+      const waveBatches = batches.slice(wave, wave + PARALLEL_CONCURRENCY);
+      const waveStartIndex = wave;
+      
+      const wavePromises = waveBatches.map((batch, idx) => 
+        processor(batch, waveStartIndex + idx)
+      );
+      
+      const waveResults = await Promise.all(wavePromises);
+      results.push(...waveResults);
+      
+      // Small delay between waves to avoid rate limiting
+      if (wave + PARALLEL_CONCURRENCY < batches.length) {
+        await this.delay(delayMs);
+      }
+    }
+    
+    return results;
   }
 }
 
