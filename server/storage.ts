@@ -149,6 +149,8 @@ export class DatabaseStorage implements IStorage {
   }): Promise<User> {
     try {
       // Hardcode safe defaults server-side - never accept from client
+      // OAuth users (no password) have verified emails automatically
+      const isOAuthUser = !userData.passwordHash;
       const newUserData = {
         email: userData.email,
         firstName: userData.firstName,
@@ -157,6 +159,7 @@ export class DatabaseStorage implements IStorage {
         profileImageUrl: userData.profileImageUrl || null,
         onboardingStatus: 'pending', // Always start as pending, never accept from client
         privacyConsentGiven: false, // Always start false, user must consent during onboarding
+        emailVerified: isOAuthUser, // OAuth users have verified emails from provider
       };
       
       const result = await this.db.insert(users).values(newUserData).returning();
