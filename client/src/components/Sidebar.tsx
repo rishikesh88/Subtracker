@@ -56,7 +56,7 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
   ];
 
   return (
-    <div className="w-64 h-screen bg-card border-r border-border flex flex-col overflow-hidden" data-testid="sidebar">
+    <div className="w-64 flex flex-col h-screen bg-card border-r border-border overflow-hidden" data-testid="sidebar">
       {/* Logo and Brand */}
       <div className="flex-shrink-0 p-6 border-b border-border">
         <div className="flex items-center space-x-3">
@@ -102,8 +102,8 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
           })}
         </ul>
       </nav>
-      {/* User Profile */}
-      <div className="flex-shrink-0 p-4 border-t border-border">
+      {/* User Profile & Gmail Status (Fixed Footer) */}
+      <div className="flex-shrink-0 p-4 border-t border-border bg-card">
         <div className="flex items-center space-x-3 mb-4">
           <Avatar className="h-10 w-10">
             <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />

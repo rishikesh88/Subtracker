@@ -436,8 +436,7 @@ export default function Dashboard() {
 
   return (
     <>
-      {/* Header */}
-      <header className="bg-card border-b border-border px-4 md:px-6 py-4">
+      <header className="flex-shrink-0 bg-card border-b border-border px-4 md:px-6 py-4">
         <div className="flex items-center justify-between gap-4">
           {/* Title Section */}
           <div className="flex-1 min-w-0">
@@ -586,7 +585,7 @@ export default function Dashboard() {
           </div>
         </div>
       </header>
-      <main className="flex-1 flex flex-col bg-background overflow-hidden h-full">
+      <main className="flex-1 flex flex-col bg-background min-h-0 overflow-hidden h-full">
         {/* Fixed Section: Stats Cards */}
         <div className="flex-shrink-0 p-4 md:p-6 pb-0 bg-background">
           {statsLoading ? (
