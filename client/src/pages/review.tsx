@@ -469,33 +469,42 @@ export default function ReviewInbox() {
                               <>
                                 {suggestion.emailEvidence.slice(0, 3).map((email, idx) => (
                                   <div key={idx} className="text-sm">
-                                    <p className="truncate text-foreground font-medium">{email.subject}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      {new Date(email.receivedAt).toLocaleDateString('en-US', { 
-                                        month: 'short', 
-                                        day: 'numeric',
-                                        year: 'numeric'
-                                      })} at {new Date(email.receivedAt).toLocaleTimeString('en-US', {
-                                        hour: 'numeric',
-                                        minute: '2-digit'
-                                      })}
+                                    <p className="truncate text-foreground font-medium italic">"{email.subject}"</p>
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Received on {(() => {
+                                        const d = new Date(email.receivedAt);
+                                        const day = d.getDate();
+                                        const suffix = ["th", "st", "nd", "rd"][(day % 10 > 3 || Math.floor(day / 10) === 1) ? 0 : day % 10];
+                                        return `${day}${suffix} ${d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
+                                      })()}
                                     </p>
                                   </div>
                                 ))}
                                 {suggestion.emailEvidence.length > 3 && (
-                                  <p className="text-xs text-muted-foreground">
+                                  <p className="text-xs text-muted-foreground mt-1">
                                     +{suggestion.emailEvidence.length - 3} more email{suggestion.emailEvidence.length - 3 > 1 ? 's' : ''}
                                   </p>
                                 )}
                               </>
                             ) : (
                               <div className="text-sm">
-                                <p className="truncate text-foreground font-medium">
-                                  {suggestion.reasoning ? suggestion.reasoning.split('.')[0] : `Subscription detected from ${suggestion.serviceName}`}
+                                <p className="truncate text-foreground font-medium italic">
+                                  "{(() => {
+                                    if (!suggestion.reasoning) return `Subscription detected from ${suggestion.serviceName}`;
+                                    const match = suggestion.reasoning.match(/'([^']+)'/);
+                                    return match ? match[1] : suggestion.reasoning.split('.')[0];
+                                  })()}"
                                 </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {(suggestion.occurrences || 1)} email{(suggestion.occurrences || 1) > 1 ? 's' : ''} analyzed
-                                </p>
+                                {suggestion.lastSeen && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Received on {(() => {
+                                      const d = new Date(suggestion.lastSeen);
+                                      const day = d.getDate();
+                                      const suffix = ["th", "st", "nd", "rd"][(day % 10 > 3 || Math.floor(day / 10) === 1) ? 0 : day % 10];
+                                      return `${day}${suffix} ${d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
+                                    })()}
+                                  </p>
+                                )}
                               </div>
                             )}
                           </div>
