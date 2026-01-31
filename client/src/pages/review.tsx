@@ -443,10 +443,10 @@ export default function ReviewInbox() {
                     </div>
 
                     {/* Pricing Section */}
-                    <div className="mt-4 border border-green-200 rounded-lg bg-green-50 dark:bg-green-950/30 dark:border-green-800 p-3">
+                    <div className="mt-4 border border-border rounded-lg bg-muted/30 p-3">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Subscription Price</span>
-                        <span className="text-xl font-bold text-green-700 dark:text-green-400">
+                        <span className="text-sm text-muted-foreground font-medium">Subscription Price</span>
+                        <span className="text-xl font-bold text-foreground">
                           {formatCurrency(suggestion.amount, suggestion.currency)}
                           <span className="text-sm font-normal text-muted-foreground ml-1">/ {suggestion.frequency}</span>
                         </span>
@@ -531,12 +531,12 @@ export default function ReviewInbox() {
 
                         {/* Next Expected Date Container */}
                         {suggestion.nextBillingDate && (
-                          <div className="border border-blue-200 rounded-lg bg-blue-50 dark:bg-blue-950/30 dark:border-blue-800 p-3">
+                          <div className="border border-border rounded-lg bg-muted/30 p-3">
                             <p className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5">
                               <Calendar className="w-3.5 h-3.5" />
                               Next Expected Payment
                             </p>
-                            <p className="text-lg font-semibold text-blue-700 dark:text-blue-400">
+                            <p className="text-lg font-semibold text-foreground">
                               {new Date(suggestion.nextBillingDate).toLocaleDateString('en-US', { 
                                 weekday: 'short',
                                 month: 'long', 
