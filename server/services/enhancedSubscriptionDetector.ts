@@ -557,22 +557,28 @@ ${JSON.stringify(emailData, null, 2)}`;
         
         // Calculate nextBillingDate from lastBillingDate if not provided
         let nextBillingDate: Date | null = null;
-        if (result.nextBillingDate) {
+        if (result.nextBillingDate && !isNaN(Date.parse(result.nextBillingDate))) {
           nextBillingDate = new Date(result.nextBillingDate);
-        } else if (result.lastBillingDate) {
-          const lastDate = new Date(result.lastBillingDate);
-          switch (result.frequency) {
+        } else {
+          const lastDate = result.lastBillingDate && !isNaN(Date.parse(result.lastBillingDate))
+            ? new Date(result.lastBillingDate)
+            : new Date(email.receivedAt);
+            
+          const frequency = result.frequency || 'monthly';
+          nextBillingDate = new Date(lastDate);
+          
+          switch (frequency) {
             case 'weekly':
-              nextBillingDate = new Date(lastDate.setDate(lastDate.getDate() + 7));
+              nextBillingDate.setDate(lastDate.getDate() + 7);
               break;
             case 'monthly':
-              nextBillingDate = new Date(lastDate.setMonth(lastDate.getMonth() + 1));
+              nextBillingDate.setMonth(lastDate.getMonth() + 1);
               break;
             case 'quarterly':
-              nextBillingDate = new Date(lastDate.setMonth(lastDate.getMonth() + 3));
+              nextBillingDate.setMonth(lastDate.getMonth() + 3);
               break;
             case 'yearly':
-              nextBillingDate = new Date(lastDate.setFullYear(lastDate.getFullYear() + 1));
+              nextBillingDate.setFullYear(lastDate.getFullYear() + 1);
               break;
           }
         }
@@ -666,6 +672,26 @@ Respond with valid JSON only:`;
       const result = JSON.parse(response.text || '{}');
       
       if (result.isSubscription && result.confidenceScore >= 0.2) {
+        // Calculate next billing date for individual email
+        const lastDate = new Date(email.receivedAt);
+        const frequency = result.frequency || 'monthly';
+        const nextBillingDate = new Date(lastDate);
+        
+        switch (frequency) {
+          case 'weekly':
+            nextBillingDate.setDate(lastDate.getDate() + 7);
+            break;
+          case 'monthly':
+            nextBillingDate.setMonth(lastDate.getMonth() + 1);
+            break;
+          case 'quarterly':
+            nextBillingDate.setMonth(lastDate.getMonth() + 3);
+            break;
+          case 'yearly':
+            nextBillingDate.setFullYear(lastDate.getFullYear() + 1);
+            break;
+        }
+
         const suggestion: InsertSubscriptionSuggestion = {
           userId,
           serviceName: result.serviceName,
@@ -682,7 +708,7 @@ Respond with valid JSON only:`;
           occurrences: 1,
           recurrenceType: null,
           recurrenceScore: 0,
-          nextBillingDate: null,
+          nextBillingDate,
           lastSeen: new Date(email.receivedAt),
           status: 'pending'
         };
