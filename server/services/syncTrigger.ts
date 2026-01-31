@@ -239,7 +239,16 @@ async function executeSync(
       const { emails: allEmails } = await storage.getEmailsPaginated(userId, { page: 1, pageSize: 999999 });
 
       const { enhancedSubscriptionDetector } = await import('./enhancedSubscriptionDetector');
-      const detectionResult = await enhancedSubscriptionDetector.detectSubscriptionSuggestions(allEmails, userId);
+      
+      // Progressive loading: pass SSE callback so suggestions appear in real-time
+      const detectionResult = await enhancedSubscriptionDetector.detectSubscriptionSuggestions(
+        allEmails, 
+        userId,
+        (progressData) => {
+          // Forward progress updates via SSE for real-time UI updates
+          sendProgressUpdate(userId, progressData);
+        }
+      );
 
       console.log(`[Sync] Generated ${detectionResult.suggestions.length} subscription suggestions`);
 

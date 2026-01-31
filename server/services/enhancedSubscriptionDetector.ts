@@ -26,6 +26,14 @@ interface SuggestionGenerationResult {
   processingTime: number;
 }
 
+// Callback for progressive loading - called when each suggestion is saved
+type ProgressCallback = (data: {
+  stage: string;
+  progress: number;
+  message: string;
+  details?: any;
+}) => void;
+
 interface BatchClassificationResult {
   id: number;
   isSubscription: boolean;
@@ -58,8 +66,13 @@ export class EnhancedSubscriptionDetector {
 
   /**
    * Main detection workflow: Hybrid two-stage pipeline for efficient API usage
+   * Now supports progressive loading - suggestions are saved immediately as they're found
    */
-  async detectSubscriptionSuggestions(emails: Email[], userId: string): Promise<SuggestionGenerationResult> {
+  async detectSubscriptionSuggestions(
+    emails: Email[], 
+    userId: string,
+    onProgress?: ProgressCallback
+  ): Promise<SuggestionGenerationResult> {
     const startTime = Date.now();
     console.log(`🤖 Starting enhanced subscription detection for ${emails.length} emails...`);
 
@@ -77,12 +90,26 @@ export class EnhancedSubscriptionDetector {
       const subscriptionCandidates = await this.batchClassifyEmails(potentialSubscriptionEmails);
       console.log(`✅ Stage 1 complete: ${subscriptionCandidates.length} high-confidence subscription candidates identified`);
       
-      // STAGE 2: Detailed Batch Analysis (2-3 API calls total)
+      // Send progress update after Stage 1
+      if (onProgress) {
+        onProgress({
+          stage: 'stage1_complete',
+          progress: 30,
+          message: `Found ${subscriptionCandidates.length} potential subscriptions`,
+          details: { candidates: subscriptionCandidates.length, totalEmails: emails.length }
+        });
+      }
+      
+      // STAGE 2: Detailed Batch Analysis with PROGRESSIVE SAVING
       console.log(`🎯 Stage 2: Detailed batch analysis of ${subscriptionCandidates.length} candidates...`);
       const individualSuggestions: InsertSubscriptionSuggestion[] = [];
       
       if (subscriptionCandidates.length > 0) {
-        const detailedSuggestions = await this.batchAnalyzeSubscriptionCandidates(subscriptionCandidates, userId);
+        const detailedSuggestions = await this.batchAnalyzeSubscriptionCandidatesProgressive(
+          subscriptionCandidates, 
+          userId,
+          onProgress
+        );
         individualSuggestions.push(...detailedSuggestions);
       }
 
@@ -273,7 +300,94 @@ ${JSON.stringify(emailData, null, 2)}`;
   }
 
   /**
-   * STAGE 2: Detailed batch analysis of subscription candidates
+   * STAGE 2: Detailed batch analysis with PROGRESSIVE SAVING
+   * Saves suggestions immediately as batches complete and emits SSE events
+   */
+  private async batchAnalyzeSubscriptionCandidatesProgressive(
+    candidates: Email[], 
+    userId: string,
+    onProgress?: ProgressCallback
+  ): Promise<InsertSubscriptionSuggestion[]> {
+    if (candidates.length === 0) return [];
+
+    const batchSize = 15;
+    const stageStartTime = Date.now();
+    const totalBatches = Math.ceil(candidates.length / batchSize);
+    let totalSavedCount = 0;
+    const allSuggestions: InsertSubscriptionSuggestion[] = [];
+    
+    console.log(`⚡ Stage 2 (Progressive): Processing ${candidates.length} candidates in ${totalBatches} batches`);
+
+    // Process batches and save immediately as they complete
+    const processBatchAndSave = async (batch: Email[], batchIndex: number): Promise<InsertSubscriptionSuggestion[]> => {
+      try {
+        const batchSuggestions = await this.analyzeBatchDetailed(batch, userId);
+        
+        // PROGRESSIVE SAVING: Save each suggestion immediately
+        if (batchSuggestions.length > 0) {
+          const savedSuggestions = await this.saveWithDeduplication(batchSuggestions, userId);
+          totalSavedCount += savedSuggestions.length;
+          
+          // Emit SSE event for each new suggestion found
+          if (onProgress && savedSuggestions.length > 0) {
+            onProgress({
+              stage: 'suggestion_found',
+              progress: Math.round(30 + (batchIndex / totalBatches) * 60),
+              message: `Found ${totalSavedCount} subscriptions so far...`,
+              details: {
+                newSuggestions: savedSuggestions.length,
+                totalSuggestions: totalSavedCount,
+                batchNumber: batchIndex + 1,
+                totalBatches,
+                suggestions: savedSuggestions.map(s => ({
+                  serviceName: s.serviceName,
+                  amount: s.amount,
+                  currency: s.currency,
+                  confidence: s.confidence
+                }))
+              }
+            });
+          }
+          
+          console.log(`🎯 Batch ${batchIndex + 1}: ${savedSuggestions.length} saved (total: ${totalSavedCount})`);
+          return savedSuggestions as InsertSubscriptionSuggestion[];
+        }
+        
+        console.log(`🎯 Batch ${batchIndex + 1}: 0 suggestions`);
+        return [];
+      } catch (error) {
+        console.error(`❌ Batch ${batchIndex + 1} failed:`, error);
+        return [];
+      }
+    };
+
+    // Process all batches in parallel with concurrency limit
+    const batchResults = await this.processInParallel(
+      candidates,
+      batchSize,
+      processBatchAndSave,
+      500
+    );
+
+    allSuggestions.push(...batchResults.flat());
+    const stageDuration = ((Date.now() - stageStartTime) / 1000).toFixed(1);
+    console.log(`⏱️ Stage 2 completed in ${stageDuration}s (${totalSavedCount} saved from ${candidates.length} candidates)`);
+    
+    // Send completion event
+    if (onProgress) {
+      onProgress({
+        stage: 'stage2_complete',
+        progress: 90,
+        message: `Analysis complete! Found ${totalSavedCount} subscriptions`,
+        details: { totalSuggestions: totalSavedCount }
+      });
+    }
+    
+    return allSuggestions;
+  }
+
+  /**
+   * STAGE 2: Detailed batch analysis of subscription candidates (legacy - non-progressive)
    * OPTIMIZED: Uses parallel processing and larger batches
    */
   private async batchAnalyzeSubscriptionCandidates(candidates: Email[], userId: string): Promise<InsertSubscriptionSuggestion[]> {
