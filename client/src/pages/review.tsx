@@ -1,0 +1,670 @@
+import { useState, useEffect } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/useAuth";
+import type { SubscriptionSuggestion } from "@shared/schema";
+
+interface EmailEvidence {
+  id: string;
+  subject: string;
+  fromName: string;
+  receivedAt: Date | string;
+}
+
+interface SuggestionWithEvidence extends SubscriptionSuggestion {
+  emailEvidence?: EmailEvidence[];
+}
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useToast } from "@/hooks/use-toast";
+import { 
+  CheckCircle, 
+  XCircle, 
+  AlertCircle, 
+  ChevronLeft, 
+  ChevronRight, 
+  Mail, 
+  FileText, 
+  Calendar,
+  Sparkles,
+  ArrowLeft,
+  Check,
+  X
+} from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useLocation } from "wouter";
+
+export default function ReviewInbox() {
+  const { user } = useAuth();
+  const userId = user?.id;
+  const { toast } = useToast();
+  const [, setLocation] = useLocation();
+  const [selectedSuggestions, setSelectedSuggestions] = useState<string[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+  const [processingSuggestions, setProcessingSuggestions] = useState<string[]>([]);
+
+  const { data: suggestionsData = { suggestions: [], total: 0 }, isLoading } = useQuery<{
+    suggestions: SuggestionWithEvidence[];
+    total: number;
+  }>({
+    queryKey: [`/api/suggestions?userId=${userId}&page=${currentPage}&pageSize=${pageSize}`],
+    enabled: !!userId,
+    refetchOnMount: true,
+    staleTime: 0,
+  });
+
+  const { suggestions, total } = suggestionsData;
+  const totalPages = Math.ceil(total / pageSize);
+
+  useEffect(() => {
+    if (!isLoading && suggestions.length > 0) {
+      const highConfidenceIds = suggestions
+        .filter(s => s.confidence === 'high')
+        .map(s => s.id);
+      setSelectedSuggestions(highConfidenceIds);
+    }
+  }, [suggestions, isLoading]);
+
+  const approveMutation = useMutation({
+    mutationFn: async (suggestionIds: string[]) => {
+      const response = await apiRequest("POST", "/api/suggestions/approve", {
+        userId,
+        suggestionIds,
+      });
+      return response.json();
+    },
+    onMutate: async (suggestionIds: string[]) => {
+      setProcessingSuggestions(prev => [...prev, ...suggestionIds]);
+      setSelectedSuggestions(prev => prev.filter(id => !suggestionIds.includes(id)));
+    },
+    onSuccess: (data, variables) => {
+      setProcessingSuggestions(prev => prev.filter(id => !variables.includes(id)));
+      toast({
+        title: "Subscription Approved",
+        description: `Successfully approved ${data.approved} subscription${data.approved > 1 ? 's' : ''}`,
+      });
+      queryClient.invalidateQueries({ 
+        predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/suggestions') ?? false
+      });
+      queryClient.invalidateQueries({ 
+        predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/subscriptions') ?? false
+      });
+      queryClient.invalidateQueries({ 
+        predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/stats') ?? false
+      });
+    },
+    onError: (error, variables) => {
+      setProcessingSuggestions(prev => prev.filter(id => !variables.includes(id)));
+      toast({
+        title: "Approval Failed",
+        description: "Failed to approve subscription. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: async (suggestionIds: string[]) => {
+      const response = await apiRequest("POST", "/api/suggestions/reject", {
+        suggestionIds,
+      });
+      return response.json();
+    },
+    onMutate: async (suggestionIds: string[]) => {
+      setProcessingSuggestions(prev => [...prev, ...suggestionIds]);
+      setSelectedSuggestions(prev => prev.filter(id => !suggestionIds.includes(id)));
+    },
+    onSuccess: (data, variables) => {
+      setProcessingSuggestions(prev => prev.filter(id => !variables.includes(id)));
+      toast({
+        title: "Suggestion Rejected",
+        description: `Skipped ${data.rejected} suggestion${data.rejected > 1 ? 's' : ''}`,
+      });
+      queryClient.invalidateQueries({ 
+        predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/suggestions') ?? false
+      });
+    },
+    onError: (error, variables) => {
+      setProcessingSuggestions(prev => prev.filter(id => !variables.includes(id)));
+      toast({
+        title: "Rejection Failed",
+        description: "Failed to reject suggestion. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSuggestionSelect = (suggestionId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedSuggestions(prev => [...prev, suggestionId]);
+    } else {
+      setSelectedSuggestions(prev => prev.filter(id => id !== suggestionId));
+    }
+  };
+
+  const selectHighConfidence = () => {
+    const highConfidenceIds = suggestions.filter(s => s.confidence === 'high').map(s => s.id);
+    setSelectedSuggestions(highConfidenceIds);
+  };
+
+  const selectAll = () => {
+    setSelectedSuggestions(suggestions.map(s => s.id));
+  };
+
+  const clearSelection = () => {
+    setSelectedSuggestions([]);
+  };
+
+  const handleBatchApprove = () => {
+    if (selectedSuggestions.length > 0) {
+      approveMutation.mutate(selectedSuggestions);
+    }
+  };
+
+  const handleBatchReject = () => {
+    if (selectedSuggestions.length > 0) {
+      rejectMutation.mutate(selectedSuggestions);
+    }
+  };
+
+  const getConfidenceColor = (confidence: string) => {
+    switch (confidence) {
+      case 'high': return 'bg-green-100 text-green-800 border-green-300';
+      case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+      case 'low': return 'bg-gray-100 text-gray-600 border-gray-300';
+      default: return 'bg-gray-100 text-gray-600 border-gray-300';
+    }
+  };
+
+  const formatCurrency = (amount: string, currency: string = "INR") => {
+    const num = parseFloat(amount);
+    const validCurrency = currency && currency.length === 3 && currency !== "unknown" 
+      ? currency.toUpperCase() 
+      : "INR";
+    try {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: validCurrency,
+      }).format(num);
+    } catch (error) {
+      return `${validCurrency} ${num.toFixed(2)}`;
+    }
+  };
+
+  const formatDetectedTime = (detectedAt: Date | string | null) => {
+    if (!detectedAt) return "Unknown";
+    const date = new Date(detectedAt);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffDays === 0) return "Detected today";
+    if (diffDays === 1) return "Detected yesterday";
+    if (diffDays < 7) return `Detected ${diffDays} days ago`;
+    if (diffDays < 30) return `Detected ${Math.floor(diffDays / 7)} weeks ago`;
+    return `Detected ${Math.floor(diffDays / 30)} months ago`;
+  };
+
+  const getServiceInitial = (serviceName: string) => {
+    return serviceName.charAt(0).toUpperCase();
+  };
+
+  const getServiceColor = (serviceName: string) => {
+    const colors = [
+      'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500',
+      'bg-pink-500', 'bg-indigo-500', 'bg-teal-500', 'bg-red-500'
+    ];
+    const index = serviceName.charCodeAt(0) % colors.length;
+    return colors[index];
+  };
+
+  const parseAttachmentEvidence = (evidence: string | null): { name: string; date: string }[] => {
+    if (!evidence) return [];
+    try {
+      const parsed = JSON.parse(evidence);
+      if (Array.isArray(parsed)) {
+        return parsed.map(item => ({
+          name: item.filename || item.name || 'Attachment',
+          date: item.date || ''
+        }));
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  };
+
+  if (!userId) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-muted-foreground">Please log in to view suggestions.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full bg-background">
+      {/* Header */}
+      <header className="bg-card border-b border-border px-4 md:px-6 py-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={() => setLocation('/dashboard')}
+              className="md:hidden"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl md:text-2xl font-bold">Review Inbox</h1>
+                {total > 0 && (
+                  <Badge variant="secondary" className="text-xs">
+                    {total} New
+                  </Badge>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Review and approve subscriptions detected from your connected accounts.
+              </p>
+            </div>
+          </div>
+          
+          {/* AI Confidence Indicator */}
+          <div className="hidden md:flex items-center gap-2 text-sm text-muted-foreground">
+            <Sparkles className="w-4 h-4 text-yellow-500" />
+            <span>AI Confidence: High</span>
+          </div>
+        </div>
+
+        {/* Batch Actions */}
+        {suggestions.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-2 mr-4">
+              <span className="text-sm text-muted-foreground">
+                {selectedSuggestions.length} of {suggestions.length} selected
+              </span>
+            </div>
+            <Button variant="outline" size="sm" onClick={selectHighConfidence}>
+              Select High Confidence
+            </Button>
+            <Button variant="outline" size="sm" onClick={selectAll}>
+              Select All
+            </Button>
+            <Button variant="outline" size="sm" onClick={clearSelection}>
+              Clear
+            </Button>
+            {selectedSuggestions.length > 0 && (
+              <>
+                <div className="w-px h-6 bg-border mx-2" />
+                <Button 
+                  size="sm" 
+                  onClick={handleBatchApprove}
+                  disabled={approveMutation.isPending}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  <Check className="w-4 h-4 mr-1" />
+                  Approve ({selectedSuggestions.length})
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleBatchReject}
+                  disabled={rejectMutation.isPending}
+                >
+                  <X className="w-4 h-4 mr-1" />
+                  Reject ({selectedSuggestions.length})
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+      </header>
+
+      {/* Content */}
+      <main className="flex-1 overflow-auto p-4 md:p-6">
+        {isLoading ? (
+          <div className="space-y-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Card key={i} className="p-6">
+                <div className="flex items-start gap-4">
+                  <Skeleton className="w-12 h-12 rounded-full" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-5 w-32" />
+                    <Skeleton className="h-4 w-48" />
+                    <Skeleton className="h-4 w-24" />
+                  </div>
+                  <Skeleton className="h-8 w-20" />
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : suggestions.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16">
+            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
+              <Mail className="w-8 h-8 text-muted-foreground" />
+            </div>
+            <h3 className="text-lg font-medium mb-2">No Suggestions</h3>
+            <p className="text-muted-foreground text-center max-w-md">
+              No subscription suggestions found. Sync your emails to detect new subscriptions.
+            </p>
+            <Button 
+              className="mt-4" 
+              onClick={() => setLocation('/dashboard')}
+            >
+              Go to Dashboard
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {suggestions.map((suggestion) => {
+              const isProcessing = processingSuggestions.includes(suggestion.id);
+              const isSelected = selectedSuggestions.includes(suggestion.id);
+              const attachments = parseAttachmentEvidence(suggestion.attachmentEvidence);
+              const confidencePercent = suggestion.confidenceScore 
+                ? Math.round(parseFloat(suggestion.confidenceScore) * 100) 
+                : null;
+
+              return (
+                <Card 
+                  key={suggestion.id}
+                  className={`transition-all duration-200 ${
+                    isProcessing ? 'opacity-50 scale-[0.99]' : ''
+                  } ${isSelected ? 'ring-2 ring-primary' : ''}`}
+                  data-testid={`suggestion-card-${suggestion.id}`}
+                >
+                  <CardContent className="p-4 md:p-6">
+                    {/* Top Row: Service Info + Actions */}
+                    <div className="flex items-start gap-4">
+                      {/* Checkbox */}
+                      <div className="pt-1">
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={(checked) => handleSuggestionSelect(suggestion.id, checked as boolean)}
+                          disabled={isProcessing}
+                        />
+                      </div>
+
+                      {/* Service Avatar */}
+                      <div className={`w-12 h-12 rounded-full ${getServiceColor(suggestion.serviceName)} flex items-center justify-center text-white font-semibold text-lg flex-shrink-0`}>
+                        {getServiceInitial(suggestion.serviceName)}
+                      </div>
+
+                      {/* Service Details */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-semibold text-lg">{suggestion.serviceName}</h3>
+                          <Badge 
+                            variant="outline" 
+                            className={`text-xs capitalize ${getConfidenceColor(suggestion.confidence)}`}
+                          >
+                            {confidencePercent && `${confidencePercent}% `}{suggestion.confidence}
+                          </Badge>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground mt-1">
+                          <span className="font-medium text-foreground">
+                            {formatCurrency(suggestion.amount, suggestion.currency)}
+                          </span>
+                          <span>•</span>
+                          <span className="capitalize">{suggestion.frequency}</span>
+                          <span>•</span>
+                          <span>{formatDetectedTime(suggestion.detectedAt)}</span>
+                          {(suggestion.occurrences || 1) > 1 && (
+                            <>
+                              <span>•</span>
+                              <span>{suggestion.occurrences} emails</span>
+                            </>
+                          )}
+                        </div>
+                        {suggestion.merchantName && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Merchant: {suggestion.merchantName}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Individual Actions */}
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => rejectMutation.mutate([suggestion.id])}
+                          disabled={isProcessing}
+                          className="text-muted-foreground hover:text-destructive"
+                        >
+                          <X className="w-4 h-4 mr-1" />
+                          Reject
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => approveMutation.mutate([suggestion.id])}
+                          disabled={isProcessing}
+                          className="bg-black hover:bg-gray-800 text-white"
+                        >
+                          <Check className="w-4 h-4 mr-1" />
+                          Approve Subscription
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Evidence Sections */}
+                    <div className="mt-6 grid md:grid-cols-2 gap-6">
+                      {/* Evidence Found */}
+                      <div>
+                        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
+                          <Mail className="w-4 h-4" />
+                          Evidence Found
+                        </h4>
+                        <div className="space-y-2">
+                          {/* Email Evidence - Show actual email subjects */}
+                          {suggestion.emailEvidence && suggestion.emailEvidence.length > 0 ? (
+                            suggestion.emailEvidence.slice(0, 3).map((email, idx) => (
+                              <div key={idx} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
+                                <Mail className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                                <div className="text-sm flex-1">
+                                  <p className="font-medium line-clamp-1">{email.subject}</p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {suggestion.emailProvider ? suggestion.emailProvider.charAt(0).toUpperCase() + suggestion.emailProvider.slice(1) : 'Email'} • {new Date(email.receivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                  </p>
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
+                              <Mail className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                              <div className="text-sm flex-1">
+                                <p className="font-medium">
+                                  {suggestion.reasoning 
+                                    ? (suggestion.reasoning.length > 80 ? `${suggestion.reasoning.substring(0, 80)}...` : suggestion.reasoning)
+                                    : `Subscription detected from ${suggestion.serviceName}`
+                                  }
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  {suggestion.emailProvider ? suggestion.emailProvider.charAt(0).toUpperCase() + suggestion.emailProvider.slice(1) : 'Email'}
+                                  {(suggestion.occurrences || 1) > 1 && ` • ${suggestion.occurrences} emails analyzed`}
+                                  {suggestion.lastSeen && ` • Last: ${new Date(suggestion.lastSeen).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Show more emails indicator */}
+                          {suggestion.emailEvidence && suggestion.emailEvidence.length > 3 && (
+                            <p className="text-xs text-muted-foreground pl-7">
+                              +{suggestion.emailEvidence.length - 3} more email{suggestion.emailEvidence.length - 3 > 1 ? 's' : ''}
+                            </p>
+                          )}
+                          
+                          {/* Attachment Evidence */}
+                          {attachments.length > 0 && (
+                            <div className="space-y-2 mt-3">
+                              <p className="text-xs font-medium text-muted-foreground">Document Evidence:</p>
+                              {attachments.map((att, idx) => (
+                                <div key={idx} className="flex items-start gap-3 p-3 bg-muted/30 rounded-lg">
+                                  <FileText className="w-4 h-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                                  <div className="text-sm">
+                                    <p className="font-medium">{att.name}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      Attachment {att.date && `• ${att.date}`}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          
+                          {/* Recurring Keywords */}
+                          {suggestion.recurringKeywords && suggestion.recurringKeywords.length > 0 && (
+                            <div className="mt-3">
+                              <p className="text-xs font-medium text-muted-foreground mb-1">Keywords detected:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {suggestion.recurringKeywords.slice(0, 5).map((keyword, idx) => (
+                                  <Badge key={idx} variant="secondary" className="text-xs">
+                                    {keyword}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Frequency Analysis */}
+                      <div>
+                        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
+                          <Calendar className="w-4 h-4" />
+                          Frequency Analysis
+                        </h4>
+                        <div className="p-3 bg-muted/30 rounded-lg space-y-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-blue-500" />
+                            <span className="text-sm">
+                              Classified as <span className="font-medium text-blue-600 capitalize">{suggestion.frequency}</span>
+                            </span>
+                          </div>
+                          
+                          {suggestion.recurrenceType && suggestion.recurrenceScore && (
+                            <p className="text-sm text-muted-foreground">
+                              Matched against similar user subscriptions ({suggestion.recurrenceScore}% confidence).
+                            </p>
+                          )}
+                          
+                          {!suggestion.recurrenceType && (suggestion.occurrences || 1) > 1 && (
+                            <p className="text-sm text-muted-foreground">
+                              Recurring payment pattern detected ({suggestion.occurrences} occurrences).
+                            </p>
+                          )}
+                          
+                          {suggestion.nextBillingDate && (
+                            <div className="pt-2 mt-2 border-t border-border">
+                              <p className="text-sm">
+                                <span className="text-muted-foreground">Next expected: </span>
+                                <span className="font-medium">
+                                  {new Date(suggestion.nextBillingDate).toLocaleDateString('en-US', { 
+                                    month: 'short', 
+                                    day: 'numeric', 
+                                    year: 'numeric' 
+                                  })}
+                                </span>
+                              </p>
+                            </div>
+                          )}
+                          
+                          {suggestion.category && (
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Category: <span className="capitalize">{suggestion.category}</span>
+                            </p>
+                          )}
+                          
+                          {/* Validation Checks */}
+                          {suggestion.validationChecks && (() => {
+                            try {
+                              const checks = typeof suggestion.validationChecks === 'string' 
+                                ? JSON.parse(suggestion.validationChecks)
+                                : suggestion.validationChecks;
+                              if (!checks) return null;
+                              return (
+                                <div className="pt-2 mt-2 border-t border-border space-y-1">
+                                  <p className="text-xs font-medium text-muted-foreground mb-1">Validation:</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {checks.subjectValid !== undefined && (
+                                      <div className="flex items-center gap-1 text-xs">
+                                        {checks.subjectValid ? (
+                                          <CheckCircle className="h-3 w-3 text-green-600" />
+                                        ) : (
+                                          <XCircle className="h-3 w-3 text-red-600" />
+                                        )}
+                                        <span className={checks.subjectValid ? "text-green-700" : "text-red-700"}>Subject</span>
+                                      </div>
+                                    )}
+                                    {checks.contentValid !== undefined && (
+                                      <div className="flex items-center gap-1 text-xs">
+                                        {checks.contentValid ? (
+                                          <CheckCircle className="h-3 w-3 text-green-600" />
+                                        ) : (
+                                          <XCircle className="h-3 w-3 text-red-600" />
+                                        )}
+                                        <span className={checks.contentValid ? "text-green-700" : "text-red-700"}>Content</span>
+                                      </div>
+                                    )}
+                                    {checks.attachmentValid !== undefined && (
+                                      <div className="flex items-center gap-1 text-xs">
+                                        {checks.attachmentValid ? (
+                                          <CheckCircle className="h-3 w-3 text-green-600" />
+                                        ) : (
+                                          <XCircle className="h-3 w-3 text-red-600" />
+                                        )}
+                                        <span className={checks.attachmentValid ? "text-green-700" : "text-red-700"}>Attachment</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            } catch {
+                              return null;
+                            }
+                          })()}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2 mt-6">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground px-4">
+              Page {currentPage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+            >
+              Next
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}

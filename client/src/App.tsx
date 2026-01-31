@@ -10,6 +10,7 @@ import Dashboard from "@/pages/dashboard";
 import Subscriptions from "@/pages/subscriptions";
 import SubscriptionDetail from "@/pages/subscription-detail";
 import Settings from "@/pages/settings";
+import ReviewInbox from "@/pages/review";
 import { Landing } from "@/pages/Landing";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
@@ -74,6 +75,7 @@ function Router() {
           <Route path="/dashboard" component={() => <Layout><Dashboard /></Layout>} />
           <Route path="/subscriptions" component={() => <Layout><Subscriptions /></Layout>} />
           <Route path="/subscriptions/:id" component={() => <Layout><SubscriptionDetail /></Layout>} />
+          <Route path="/review" component={() => <Layout><ReviewInbox /></Layout>} />
           <Route path="/settings" component={() => <Layout><Settings /></Layout>} />
           {/* Redirect onboarding routes to dashboard for completed users */}
           <Route path="/onboarding/*" component={() => { window.location.href = '/dashboard'; return null; }} />

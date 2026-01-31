@@ -30,6 +30,7 @@ export interface IStorage {
   // Email methods
   getEmails(userId: string, limit?: number): Promise<Email[]>;
   getEmail(id: string): Promise<Email | undefined>;
+  getEmailsByIds(ids: string[]): Promise<Email[]>;
   getEmailByGmailId(gmailId: string): Promise<Email | undefined>;
   createEmail(email: InsertEmail): Promise<Email>;
   updateEmail(id: string, updates: Partial<Email>): Promise<Email | undefined>;
@@ -530,6 +531,17 @@ export class DatabaseStorage implements IStorage {
       return result[0] || undefined;
     } catch (error) {
       console.error('Error getting email:', error);
+      throw error;
+    }
+  }
+
+  async getEmailsByIds(ids: string[]): Promise<Email[]> {
+    try {
+      if (!ids || ids.length === 0) return [];
+      const result = await this.db.select().from(emails).where(inArray(emails.id, ids));
+      return result;
+    } catch (error) {
+      console.error('Error getting emails by IDs:', error);
       throw error;
     }
   }

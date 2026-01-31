@@ -1978,7 +1978,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         pageSize: pageSizeNum, 
         minConfidence: minConfidence as string 
       });
-      res.json(result);
+      
+      // Fetch email subjects for each suggestion's evidenceEmailIds
+      const suggestionsWithEmailEvidence = await Promise.all(
+        result.suggestions.map(async (suggestion) => {
+          if (suggestion.evidenceEmailIds && suggestion.evidenceEmailIds.length > 0) {
+            try {
+              const emails = await storage.getEmailsByIds(suggestion.evidenceEmailIds);
+              const emailEvidence = emails.map(email => ({
+                id: email.id,
+                subject: email.subject,
+                fromName: email.fromName || email.fromEmail,
+                receivedAt: email.receivedAt
+              }));
+              return { ...suggestion, emailEvidence };
+            } catch (error) {
+              console.error('Error fetching email evidence:', error);
+              return { ...suggestion, emailEvidence: [] };
+            }
+          }
+          return { ...suggestion, emailEvidence: [] };
+        })
+      );
+      
+      res.json({ suggestions: suggestionsWithEmailEvidence, total: result.total });
     } catch (error) {
       console.error("Error fetching suggestions:", error);
       res.status(500).json({ message: "Failed to fetch suggestions" });

@@ -42,12 +42,9 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
   const navigation = [
     { name: "Dashboard", href: "/", icon: BarChart3 },
     { name: "Subscriptions", href: "/subscriptions", icon: List },
+    { name: "Review Inbox", href: "/review", icon: ClipboardList },
     { name: "Settings", href: "/settings", icon: Settings },
   ];
-
-  const handleOpenSuggestions = () => {
-    window.dispatchEvent(new Event('openSuggestionsModal'));
-  };
 
   return (
     <div className="w-64 bg-card border-r border-border flex flex-col" data-testid="sidebar">
@@ -84,17 +81,6 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
               </li>
             );
           })}
-          {/* Review Suggestions - triggers modal */}
-          <li>
-            <button
-              onClick={handleOpenSuggestions}
-              className="flex items-center space-x-3 px-3 py-2 text-sm font-medium rounded-md transition-colors text-muted-foreground hover:text-foreground hover:bg-accent w-full text-left"
-              data-testid="nav-review-suggestions"
-            >
-              <ClipboardList className="w-4 h-4" />
-              <span>Review Suggestions</span>
-            </button>
-          </li>
         </ul>
       </nav>
 
