@@ -587,7 +587,7 @@ export default function Dashboard() {
       </header>
       <main className="flex-1 flex flex-col bg-background min-h-0 overflow-hidden h-full">
         {/* Fixed Section: Stats Cards */}
-        <div className="flex-shrink-0 p-4 md:p-6 pb-0 bg-background">
+        <div className="flex-shrink-0 px-4 md:px-6 pt-4 md:pt-6 pb-2 bg-background">
           {statsLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
               {[...Array(4)].map((_, i) => (
