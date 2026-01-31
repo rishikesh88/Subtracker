@@ -156,13 +156,18 @@ The application includes a multi-step onboarding flow for new users:
 - `complete`: Fully onboarded (either connected accounts or skipped)
 
 **Phase 5 - Enhanced HITL Review** (✅ Complete):
-- **SubscriptionSuggestionsModal Enhancements:**
-  - Auto-selection of high-confidence suggestions on page load
+- **Full-Page Review Inbox** (`client/src/pages/review.tsx`):
+  - Dedicated `/review` route replacing modal-based workflow for better UX
+  - Card-based layout with service avatar (colored circle with initials), confidence badge (High/Medium/Low + percentage)
+  - **Evidence Found Section**: Displays actual email subjects fetched from `evidenceEmailIds` (up to 3 shown with "+X more" indicator)
+  - **Document Evidence Section**: Parses `attachmentEvidence` JSON to show invoice/receipt attachments
+  - **Frequency Analysis Section**: Shows recurrence pattern, validation checks (Subject/Content/Attachment with icons), next expected billing date
+  - Dual action pattern: Batch selection with checkboxes + individual Approve/Reject buttons per card
   - Batch action buttons: "Select High Confidence", "Select All", "Clear Selection" with counts
-  - Visual hierarchy: High-confidence cards styled with green background/border (`bg-green-50/50 border-green-200`)
-  - Enhanced metadata display: Confidence score percentage, email occurrence count, last seen date
-  - Improved high-confidence badge styling with green accents
-- **Note:** Legacy `LLMSuggestionsModal.tsx` exists as dead code (not imported anywhere)
+  - Visual hierarchy: High-confidence cards styled with green background/border
+- **Backend Enhancement**: `/api/suggestions` endpoint now fetches and returns `emailEvidence` array with subject, fromName, and receivedAt for each suggestion's evidenceEmailIds
+- **Navigation**: Sidebar links directly to `/review` page
+- **Note:** Legacy `SubscriptionSuggestionsModal.tsx` and `LLMSuggestionsModal.tsx` exist as fallback/dead code
 
 **Phase 6 - Rich Empty States** (✅ Complete):
 - **EmptyDashboard Component** (`client/src/components/EmptyDashboard.tsx`):
