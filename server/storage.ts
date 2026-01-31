@@ -538,7 +538,8 @@ export class DatabaseStorage implements IStorage {
   async getEmailsByIds(ids: string[]): Promise<Email[]> {
     try {
       if (!ids || ids.length === 0) return [];
-      const result = await this.db.select().from(emails).where(inArray(emails.id, ids));
+      // evidenceEmailIds stores gmailId values, not internal database IDs
+      const result = await this.db.select().from(emails).where(inArray(emails.gmailId, ids));
       return result;
     } catch (error) {
       console.error('Error getting emails by IDs:', error);
