@@ -8,9 +8,7 @@ import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
 
-if (!process.env.REPLIT_DOMAINS) {
-  throw new Error("Environment variable REPLIT_DOMAINS not provided");
-}
+// Note: REPLIT_DOMAINS check moved to setupAuth() to avoid throwing at module load time
 
 const getOidcConfig = memoize(
   async () => {
@@ -73,6 +71,24 @@ export async function setupAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
 
+  // Unified session serialization for both Replit Auth and email/password
+  passport.serializeUser((user: Express.User, cb) => {
+    // User object shape: { authType, userId, claims?, access_token?, refresh_token?, expires_at? }
+    cb(null, user);
+  });
+  
+  passport.deserializeUser(async (user: Express.User, cb) => {
+    // User is already in normalized format from serialization
+    cb(null, user);
+  });
+
+  // Only setup Replit OIDC auth if REPLIT_DOMAINS is available
+  // This allows the app to work in production without Replit-specific auth
+  if (!process.env.REPLIT_DOMAINS) {
+    console.log('[Auth] REPLIT_DOMAINS not set, skipping Replit OIDC auth setup');
+    return;
+  }
+
   const config = await getOidcConfig();
 
   const verify: VerifyFunction = async (
@@ -92,8 +108,7 @@ export async function setupAuth(app: Express) {
     verified(null, user);
   };
 
-  for (const domain of process.env
-    .REPLIT_DOMAINS!.split(",")) {
+  for (const domain of process.env.REPLIT_DOMAINS.split(",")) {
     const strategy = new Strategy(
       {
         name: `replitauth:${domain}`,
@@ -105,17 +120,6 @@ export async function setupAuth(app: Express) {
     );
     passport.use(strategy);
   }
-
-  // Unified session serialization for both Replit Auth and email/password
-  passport.serializeUser((user: Express.User, cb) => {
-    // User object shape: { authType, userId, claims?, access_token?, refresh_token?, expires_at? }
-    cb(null, user);
-  });
-  
-  passport.deserializeUser(async (user: Express.User, cb) => {
-    // User is already in normalized format from serialization
-    cb(null, user);
-  });
 
   app.get("/api/login", (req, res, next) => {
     passport.authenticate(`replitauth:${req.hostname}`, {
