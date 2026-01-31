@@ -495,16 +495,6 @@ export default function ReviewInbox() {
                                     return match ? match[1] : suggestion.reasoning.split('.')[0];
                                   })()}"
                                 </p>
-                                {suggestion.lastSeen && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    Received on {(() => {
-                                      const d = new Date(suggestion.lastSeen);
-                                      const day = d.getDate();
-                                      const suffix = ["th", "st", "nd", "rd"][(day % 10 > 3 || Math.floor(day / 10) === 1) ? 0 : day % 10];
-                                      return `${day}${suffix} ${d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
-                                    })()}
-                                  </p>
-                                )}
                               </div>
                             )}
                           </div>
