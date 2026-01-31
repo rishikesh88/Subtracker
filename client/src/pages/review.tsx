@@ -435,7 +435,7 @@ export default function ReviewInbox() {
                           size="sm"
                           onClick={() => approveMutation.mutate([suggestion.id])}
                           disabled={isProcessing}
-                          className="bg-black hover:bg-gray-800 text-white"
+                          className="bg-[#16a349] hover:bg-gray-800 text-white"
                         >
                           <Check className="w-4 h-4 mr-1" />
                           Approve
