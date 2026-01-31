@@ -237,17 +237,13 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
 
                   {/* Price and Dates Section - Styled like Review Inbox */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="bg-accent/30 rounded-xl p-4 flex items-center justify-between border border-border/50">
-                      <span className="text-sm font-medium text-muted-foreground">Subscription Price</span>
-                      <div className="text-right">
-                        <span className="text-xl font-bold text-foreground" data-testid={`subscription-amount-${subscription.id}`}>
-                          {formatCurrency(subscription.amount, subscription.currency)}
-                        </span>
-                        <span className="text-sm text-muted-foreground ml-1">/ {subscription.frequency}</span>
+                    <div className="grid grid-cols-2 gap-3 order-1 md:order-1">
+                      <div className="bg-accent/30 rounded-xl p-3 border border-border/50">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">Last Email</p>
+                        <p className="text-sm font-semibold text-foreground">
+                          {getOrdinalDate(subscription.lastEmailDate)}
+                        </p>
                       </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
                       <div className="bg-accent/30 rounded-xl p-3 border border-border/50">
                         <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">
                           {subscription.status === "cancelled" ? "Ended On" : "Next Payment"}
@@ -258,11 +254,15 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
                             : getOrdinalDate(subscription.nextBillingDate)}
                         </p>
                       </div>
-                      <div className="bg-accent/30 rounded-xl p-3 border border-border/50">
-                        <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">Last Email</p>
-                        <p className="text-sm font-semibold text-foreground">
-                          {getOrdinalDate(subscription.lastEmailDate)}
-                        </p>
+                    </div>
+
+                    <div className="bg-accent/30 rounded-xl p-4 flex items-center justify-between border border-border/50 order-2 md:order-2">
+                      <span className="text-sm font-medium text-muted-foreground">Subscription Price</span>
+                      <div className="text-right">
+                        <span className="text-xl font-bold text-foreground" data-testid={`subscription-amount-${subscription.id}`}>
+                          {formatCurrency(subscription.amount, subscription.currency)}
+                        </span>
+                        <span className="text-sm text-muted-foreground ml-1">/ {subscription.frequency}</span>
                       </div>
                     </div>
                   </div>
