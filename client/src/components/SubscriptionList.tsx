@@ -103,9 +103,9 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Filters and Search */}
-      <div className="bg-card rounded-lg border border-border p-6">
+    <div className="h-full flex flex-col">
+      {/* Fixed: Filters and Search */}
+      <div className="flex-shrink-0 bg-card rounded-lg border border-border p-6 mb-6">
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
           <div className="flex flex-col sm:flex-row gap-4 flex-1">
             {/* Search */}
@@ -178,9 +178,9 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
         </div>
       </div>
 
-      {/* Subscriptions List */}
-      <div className="bg-card rounded-lg border border-border">
-        <div className="p-6 border-b border-border">
+      {/* Fixed: Title Header + Scrollable: Subscriptions List */}
+      <div className="flex-1 flex flex-col min-h-0 bg-card rounded-lg border border-border">
+        <div className="flex-shrink-0 p-6 border-b border-border">
           <h3 className="text-lg font-semibold text-foreground">Your Subscriptions</h3>
           <p className="text-sm text-muted-foreground mt-1">
             Automatically detected from your Gmail account
@@ -194,7 +194,7 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-border">
+          <div className="flex-1 overflow-y-auto divide-y divide-border">
             {filteredSubscriptions.map((subscription) => (
               <div
                 key={subscription.id}

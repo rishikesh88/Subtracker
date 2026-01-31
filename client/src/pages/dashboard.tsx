@@ -586,48 +586,51 @@ export default function Dashboard() {
           </div>
         </div>
       </header>
-      {/* Main Content */}
-      <main className="flex-1 p-4 md:p-6 bg-background overflow-auto">
-        {/* Stats Cards */}
-        {statsLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="bg-card rounded-lg border border-border p-6 animate-pulse">
-                <div className="h-4 bg-muted rounded w-1/2 mb-2"></div>
-                <div className="h-8 bg-muted rounded w-3/4 mb-2"></div>
-                <div className="h-3 bg-muted rounded w-1/3"></div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <StatsCards stats={stats || defaultStats} userCurrency={user?.preferredCurrency || 'INR'} />
-        )}
-
-        {/* Subscriptions List */}
-        {subscriptionsLoading ? (
-          <div className="bg-card rounded-lg border border-border p-6 mb-6">
-            <div className="animate-pulse space-y-4">
-              <div className="h-4 bg-muted rounded w-1/4"></div>
-              <div className="h-4 bg-muted rounded w-1/2"></div>
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="flex items-center space-x-4 p-4">
-                  <div className="w-12 h-12 bg-muted rounded-lg"></div>
-                  <div className="flex-1 space-y-2">
-                    <div className="h-4 bg-muted rounded w-1/3"></div>
-                    <div className="h-3 bg-muted rounded w-1/4"></div>
-                  </div>
-                  <div className="text-right space-y-2">
-                    <div className="h-4 bg-muted rounded w-16"></div>
-                    <div className="h-3 bg-muted rounded w-20"></div>
-                  </div>
+      {/* Main Content - Fixed header with scrollable list */}
+      <main className="flex-1 flex flex-col bg-background overflow-hidden">
+        {/* Fixed Section: Stats Cards */}
+        <div className="flex-shrink-0 p-4 md:p-6 pb-0">
+          {statsLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="bg-card rounded-lg border border-border p-6 animate-pulse">
+                  <div className="h-4 bg-muted rounded w-1/2 mb-2"></div>
+                  <div className="h-8 bg-muted rounded w-3/4 mb-2"></div>
+                  <div className="h-3 bg-muted rounded w-1/3"></div>
                 </div>
               ))}
             </div>
-          </div>
-        ) : (
-          <SubscriptionList subscriptions={subscriptions} />
-        )}
+          ) : (
+            <StatsCards stats={stats || defaultStats} userCurrency={user?.preferredCurrency || 'INR'} />
+          )}
+        </div>
 
+        {/* Scrollable Section: Subscriptions List */}
+        <div className="flex-1 overflow-hidden px-4 md:px-6 pb-4 md:pb-6">
+          {subscriptionsLoading ? (
+            <div className="bg-card rounded-lg border border-border p-6 mb-6">
+              <div className="animate-pulse space-y-4">
+                <div className="h-4 bg-muted rounded w-1/4"></div>
+                <div className="h-4 bg-muted rounded w-1/2"></div>
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="flex items-center space-x-4 p-4">
+                    <div className="w-12 h-12 bg-muted rounded-lg"></div>
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 bg-muted rounded w-1/3"></div>
+                      <div className="h-3 bg-muted rounded w-1/4"></div>
+                    </div>
+                    <div className="text-right space-y-2">
+                      <div className="h-4 bg-muted rounded w-16"></div>
+                      <div className="h-3 bg-muted rounded w-20"></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <SubscriptionList subscriptions={subscriptions} />
+          )}
+        </div>
     </main>
       {/* Suggestions Modal */}
       <SubscriptionSuggestionsModal 
