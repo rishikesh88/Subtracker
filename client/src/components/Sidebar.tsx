@@ -63,10 +63,9 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
           <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
             <RefreshCw className="text-primary-foreground w-4 h-4" />
           </div>
-          <h1 className="text-xl font-bold text-foreground">SubTracker</h1>
+          <h1 className="text-xl text-foreground font-black">Merloq</h1>
         </div>
       </div>
-
       {/* Navigation */}
       <nav className="flex-1 p-4">
         <ul className="space-y-2">
@@ -103,7 +102,6 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
           })}
         </ul>
       </nav>
-
       {/* User Profile */}
       <div className="p-4 border-t border-border">
         <div className="flex items-center space-x-3 mb-4">
@@ -150,7 +148,6 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
           </DropdownMenu>
         </div>
       </div>
-      
       {/* Gmail Connection Status */}
       <div className="px-4 pb-4">
         <div
