@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Search, List, Grid3X3, Pencil, ChevronRight } from "lucide-react";
+import { Search, ChevronRight, Filter } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { type Subscription } from "@shared/schema";
 import { EditSubscriptionModal } from "./EditSubscriptionModal";
 import { EmptyDashboard } from "./EmptyDashboard";
@@ -19,6 +20,7 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isSearchVisible, setIsSearchVisible] = useState(false);
 
   const filteredSubscriptions = subscriptions.filter((subscription) => {
     const matchesSearch = subscription.serviceName
@@ -65,15 +67,6 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
     }
   };
 
-  const formatDate = (date: Date | null) => {
-    if (!date) return "N/A";
-    return new Date(date).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  };
-
   const getOrdinalDate = (date: string | Date | null) => {
     if (!date) return "N/A";
     const d = new Date(date);
@@ -103,65 +96,98 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Fixed: Filters and Search */}
-      <div className="flex-shrink-0 bg-card rounded-lg border border-border p-6 mb-3">
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-          <div className="flex flex-col sm:flex-row gap-4 flex-1">
-            {/* Search */}
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-              <Input
-                type="text"
-                placeholder="Search subscriptions..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-                data-testid="search-subscriptions"
-              />
-            </div>
-
-            {/* Category Filter */}
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-48" data-testid="filter-category">
-                <SelectValue placeholder="All Categories" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                <SelectItem value="entertainment">Entertainment</SelectItem>
-                <SelectItem value="software">Software</SelectItem>
-                <SelectItem value="utilities">Utilities</SelectItem>
-                <SelectItem value="shopping">Shopping</SelectItem>
-                <SelectItem value="music">Music</SelectItem>
-                <SelectItem value="cloud">Cloud</SelectItem>
-                <SelectItem value="fitness">Fitness</SelectItem>
-                <SelectItem value="news">News</SelectItem>
-                <SelectItem value="other">Other</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Status Filter */}
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-48" data-testid="filter-status">
-                <SelectValue placeholder="All Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
-                <SelectItem value="expiring_soon">Expiring Soon</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </div>
-
       {/* Fixed: Title Header + Scrollable: Subscriptions List */}
       <div className="flex-1 flex flex-col min-h-0 bg-card rounded-lg border border-border overflow-hidden">
         <div className="flex-shrink-0 p-6 border-b border-border bg-card">
-          <h3 className="text-lg font-semibold text-foreground">Your Subscriptions</h3>
-          <p className="text-sm text-muted-foreground mt-1">
-            Automatically detected from your Gmail account
-          </p>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <h3 className="text-lg font-semibold text-foreground truncate">Your Subscriptions</h3>
+              <p className="text-sm text-muted-foreground mt-1 truncate">
+                Automatically detected from your Gmail account
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className={`flex items-center gap-2 transition-all duration-200 ${isSearchVisible ? 'w-48 opacity-100' : 'w-0 opacity-0 overflow-hidden'}`}>
+                <Input
+                  type="text"
+                  placeholder="Search..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className={`h-9 w-9 ${isSearchVisible ? 'text-primary bg-accent' : ''}`}
+                onClick={() => setIsSearchVisible(!isSearchVisible)}
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={`h-9 w-9 ${(categoryFilter !== 'all' || statusFilter !== 'all') ? 'text-primary bg-accent' : ''}`}
+                  >
+                    <Filter className="h-4 w-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80 p-4" align="end">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Category</label>
+                      <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="All Categories" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Categories</SelectItem>
+                          <SelectItem value="entertainment">Entertainment</SelectItem>
+                          <SelectItem value="software">Software</SelectItem>
+                          <SelectItem value="utilities">Utilities</SelectItem>
+                          <SelectItem value="shopping">Shopping</SelectItem>
+                          <SelectItem value="music">Music</SelectItem>
+                          <SelectItem value="cloud">Cloud</SelectItem>
+                          <SelectItem value="fitness">Fitness</SelectItem>
+                          <SelectItem value="news">News</SelectItem>
+                          <SelectItem value="other">Other</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Status</label>
+                      <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="All Status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Status</SelectItem>
+                          <SelectItem value="active">Active</SelectItem>
+                          <SelectItem value="cancelled">Cancelled</SelectItem>
+                          <SelectItem value="expiring_soon">Expiring Soon</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {(categoryFilter !== 'all' || statusFilter !== 'all' || searchQuery !== '') && (
+                      <Button 
+                        variant="ghost" 
+                        className="w-full h-8 text-xs" 
+                        onClick={() => {
+                          setCategoryFilter("all");
+                          setStatusFilter("all");
+                          setSearchQuery("");
+                        }}
+                      >
+                        Reset Filters
+                      </Button>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
         </div>
 
         {filteredSubscriptions.length === 0 ? (
