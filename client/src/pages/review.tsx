@@ -45,8 +45,10 @@ export default function ReviewInbox() {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
   const [processingSuggestions, setProcessingSuggestions] = useState<string[]>([]);
+  const [isSyncInProgress, setIsSyncInProgress] = useState(false);
+  const [syncProgress, setSyncProgress] = useState({ stage: '', progress: 0, message: '', suggestionsFound: 0 });
 
-  const { data: suggestionsData = { suggestions: [], total: 0 }, isLoading } = useQuery<{
+  const { data: suggestionsData = { suggestions: [], total: 0 }, isLoading, refetch } = useQuery<{
     suggestions: SuggestionWithEvidence[];
     total: number;
   }>({
@@ -55,6 +57,68 @@ export default function ReviewInbox() {
     refetchOnMount: true,
     staleTime: 0,
   });
+
+  // Listen for SSE events for progressive loading of suggestions
+  useEffect(() => {
+    if (!userId) return;
+    
+    const eventSource = new EventSource(`/api/sync-progress/${userId}`);
+    
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        
+        // Handle suggestion_found events - refresh suggestions list
+        if (data.stage === 'suggestion_found') {
+          setIsSyncInProgress(true);
+          setSyncProgress({
+            stage: data.stage,
+            progress: data.progress || 0,
+            message: data.message || '',
+            suggestionsFound: data.details?.totalSuggestions || 0
+          });
+          // Refetch suggestions to show new ones
+          refetch();
+        } else if (data.stage === 'stage1_complete') {
+          setIsSyncInProgress(true);
+          setSyncProgress({
+            stage: data.stage,
+            progress: data.progress || 30,
+            message: data.message || 'Analyzing subscriptions...',
+            suggestionsFound: 0
+          });
+        } else if (data.stage === 'stage2_complete' || data.stage === 'suggestions_ready') {
+          setSyncProgress({
+            stage: data.stage,
+            progress: 100,
+            message: 'Analysis complete!',
+            suggestionsFound: data.details?.totalSuggestions || syncProgress.suggestionsFound
+          });
+          // Final refetch and clear sync state after a short delay
+          refetch();
+          setTimeout(() => setIsSyncInProgress(false), 2000);
+        } else if (data.stage === 'syncing' || data.stage === 'fetching' || data.stage === 'processing' || data.stage === 'analyzing') {
+          setIsSyncInProgress(true);
+          setSyncProgress({
+            stage: data.stage,
+            progress: data.progress || 0,
+            message: data.message || 'Syncing...',
+            suggestionsFound: 0
+          });
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+    };
+    
+    eventSource.onerror = () => {
+      // Connection lost - will auto-reconnect
+    };
+    
+    return () => {
+      eventSource.close();
+    };
+  }, [userId, refetch]);
 
   const { suggestions, total } = suggestionsData;
   const totalPages = Math.ceil(total / pageSize);
@@ -242,6 +306,35 @@ export default function ReviewInbox() {
 
   return (
     <div className="flex flex-col h-full bg-background">
+      {/* Progressive Loading Banner */}
+      {isSyncInProgress && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 px-4 md:px-6 py-3">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                {syncProgress.message || 'Analyzing your emails...'}
+              </p>
+              {syncProgress.suggestionsFound > 0 && (
+                <p className="text-xs text-blue-600 dark:text-blue-300 mt-0.5">
+                  {syncProgress.suggestionsFound} subscription{syncProgress.suggestionsFound !== 1 ? 's' : ''} found so far
+                </p>
+              )}
+            </div>
+            <div className="hidden sm:block">
+              <div className="w-32 h-2 bg-blue-200 dark:bg-blue-800 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                  style={{ width: `${syncProgress.progress}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-card border-b border-border px-4 md:px-6 py-4">
         <div className="flex items-center justify-between">
