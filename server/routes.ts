@@ -563,7 +563,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const privacyConsentSchema = z.object({
         privacyConsentGiven: z.boolean(),
-        emailSyncDays: z.number().int().min(30).max(180),
+        emailSyncDays: z.number().int().min(7).max(180),
       });
 
       const validationResult = privacyConsentSchema.safeParse(req.body);
@@ -627,7 +627,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const connectSchema = z.object({
         provider: z.enum(['gmail', 'outlook']),
-        emailSyncDays: z.number().int().min(30).max(180),
+        emailSyncDays: z.number().int().min(7).max(180),
         privacyConsentGiven: z.boolean(),
       });
 

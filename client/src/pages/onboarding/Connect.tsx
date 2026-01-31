@@ -10,6 +10,7 @@ import { SiGoogle } from "react-icons/si";
 import { apiRequest } from "@/lib/queryClient";
 
 const BACKFILL_OPTIONS = [
+  { days: 7, label: "7 days" },
   { days: 30, label: "30 days" },
   { days: 60, label: "60 days" },
   { days: 90, label: "90 days" },
@@ -222,15 +223,15 @@ export default function Connect() {
                 <Slider
                   value={[backfillDays]}
                   onValueChange={(values) => setBackfillDays(values[0])}
-                  min={30}
+                  min={7}
                   max={180}
-                  step={30}
+                  step={selectedProvider === 'gmail' ? 1 : 30}
                   className="w-full"
                   data-testid="slider-backfill"
                 />
 
                 <div className="flex justify-between text-xs text-muted-foreground px-1">
-                  <span>30 days</span>
+                  <span>7 days</span>
                   <span className="font-medium text-foreground">{backfillDays} days selected</span>
                   <span>180 days</span>
                 </div>
