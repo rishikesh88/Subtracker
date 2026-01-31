@@ -95,7 +95,7 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
   }
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="h-full flex flex-col min-h-0 overflow-hidden">
       {/* Fixed: Title Header + Scrollable: Subscriptions List */}
       <div className="flex-1 flex flex-col min-h-0 bg-card rounded-lg border border-border overflow-hidden">
         <div className="flex-shrink-0 p-6 border-b border-border bg-card">
