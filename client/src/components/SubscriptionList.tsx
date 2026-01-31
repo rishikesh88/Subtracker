@@ -270,11 +270,11 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
           </div>
         )}
 
-        {filteredSubscriptions.length > 0 && filteredSubscriptions.length >= 10 && (
+        {filteredSubscriptions.length > 0 && (
           <div className="p-6 border-t border-border text-center">
-            <Button variant="ghost" data-testid="load-more-subscriptions">
-              Load More Subscriptions
-            </Button>
+            <p className="text-xs text-muted-foreground">
+              Showing all {filteredSubscriptions.length} subscriptions
+            </p>
           </div>
         )}
       </div>
