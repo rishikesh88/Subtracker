@@ -269,14 +269,6 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
             ))}
           </div>
         )}
-
-        {filteredSubscriptions.length > 0 && (
-          <div className="p-6 border-t border-border text-center">
-            <p className="text-xs text-muted-foreground">
-              Showing all {filteredSubscriptions.length} subscriptions
-            </p>
-          </div>
-        )}
       </div>
 
       <EditSubscriptionModal
