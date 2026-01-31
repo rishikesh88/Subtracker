@@ -67,7 +67,7 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
         </div>
       </div>
       {/* Navigation */}
-      <nav className="flex-1 p-4">
+      <nav className="flex-1 p-4 overflow-y-auto">
         <ul className="space-y-2">
           {navigation.map((item) => {
             const isActive = location === item.href;
@@ -103,7 +103,7 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
         </ul>
       </nav>
       {/* User Profile */}
-      <div className="p-4 border-t border-border">
+      <div className="flex-shrink-0 p-4 border-t border-border">
         <div className="flex items-center space-x-3 mb-4">
           <Avatar className="h-10 w-10">
             <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
@@ -147,9 +147,7 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </div>
-      {/* Gmail Connection Status */}
-      <div className="px-4 pb-4">
+        {/* Gmail Connection Status */}
         <div
           className={cn(
             "flex items-center space-x-3 p-3 rounded-lg border",
