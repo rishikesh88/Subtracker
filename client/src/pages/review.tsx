@@ -488,9 +488,14 @@ export default function ReviewInbox() {
                                 )}
                               </>
                             ) : (
-                              <p className="text-sm text-muted-foreground">
-                                {(suggestion.occurrences || 1)} email{(suggestion.occurrences || 1) > 1 ? 's' : ''} analyzed
-                              </p>
+                              <div className="text-sm">
+                                <p className="truncate text-foreground font-medium">
+                                  {suggestion.reasoning ? suggestion.reasoning.split('.')[0] : `Subscription detected from ${suggestion.serviceName}`}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {(suggestion.occurrences || 1)} email{(suggestion.occurrences || 1) > 1 ? 's' : ''} analyzed
+                                </p>
+                              </div>
                             )}
                           </div>
                         </div>
