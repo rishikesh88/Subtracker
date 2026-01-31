@@ -769,6 +769,52 @@ export class DatabaseStorage implements IStorage {
       
       // Create subscriptions from approved suggestions (with deduplication)
       for (const suggestion of suggestions) {
+        // Fetch actual email dates from evidence emails to get correct lastEmailDate
+        let lastEmailDate: Date = suggestion.lastSeen || new Date();
+        let nextBillingDate: Date | null = suggestion.nextBillingDate || null;
+        
+        if (suggestion.evidenceEmailIds && suggestion.evidenceEmailIds.length > 0) {
+          try {
+            const evidenceEmailDates = await this.db
+              .select({ receivedAt: emails.receivedAt })
+              .from(emails)
+              .where(
+                and(
+                  inArray(emails.gmailId, suggestion.evidenceEmailIds),
+                  eq(emails.userId, userId)
+                )
+              )
+              .orderBy(desc(emails.receivedAt))
+              .limit(1);
+            
+            if (evidenceEmailDates.length > 0 && evidenceEmailDates[0].receivedAt) {
+              lastEmailDate = new Date(evidenceEmailDates[0].receivedAt);
+            }
+          } catch (err) {
+            console.error('Error fetching evidence email dates:', err);
+          }
+        }
+        
+        // Calculate nextBillingDate if not set, using lastEmailDate + frequency
+        if (!nextBillingDate && lastEmailDate) {
+          nextBillingDate = new Date(lastEmailDate);
+          const frequency = suggestion.frequency || 'monthly';
+          switch (frequency) {
+            case 'weekly':
+              nextBillingDate.setDate(nextBillingDate.getDate() + 7);
+              break;
+            case 'monthly':
+              nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
+              break;
+            case 'quarterly':
+              nextBillingDate.setMonth(nextBillingDate.getMonth() + 3);
+              break;
+            case 'yearly':
+              nextBillingDate.setFullYear(nextBillingDate.getFullYear() + 1);
+              break;
+          }
+        }
+        
         const subscriptionData = {
           userId: suggestion.userId,
           gmailAccountId: suggestion.gmailAccountId || null,
@@ -781,8 +827,8 @@ export class DatabaseStorage implements IStorage {
           merchantName: suggestion.merchantName,
           occurrences: suggestion.occurrences,
           status: 'active' as const,
-          nextBillingDate: suggestion.nextBillingDate || null,
-          lastEmailDate: suggestion.lastSeen || new Date(),
+          nextBillingDate,
+          lastEmailDate,
           merchantEmail: null
         };
         
