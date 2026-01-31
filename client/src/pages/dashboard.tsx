@@ -586,10 +586,9 @@ export default function Dashboard() {
           </div>
         </div>
       </header>
-      {/* Main Content - Fixed header with scrollable list */}
-      <main className="flex-1 flex flex-col bg-background overflow-hidden">
+      <main className="flex-1 flex flex-col bg-background overflow-hidden h-full">
         {/* Fixed Section: Stats Cards */}
-        <div className="flex-shrink-0 p-4 md:p-6 pb-0">
+        <div className="flex-shrink-0 p-4 md:p-6 pb-0 bg-background">
           {statsLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
               {[...Array(4)].map((_, i) => (
@@ -606,7 +605,7 @@ export default function Dashboard() {
         </div>
 
         {/* Scrollable Section: Subscriptions List */}
-        <div className="flex-1 overflow-hidden px-4 md:px-6 pb-4 md:pb-6">
+        <div className="flex-1 overflow-hidden px-4 md:px-6 pb-4 md:pb-6 flex flex-col min-h-0">
           {subscriptionsLoading ? (
             <div className="bg-card rounded-lg border border-border p-6 mb-6">
               <div className="animate-pulse space-y-4">
