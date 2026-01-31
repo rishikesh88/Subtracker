@@ -213,12 +213,7 @@ export default function ReviewInbox() {
   };
 
   const getServiceColor = (serviceName: string) => {
-    const colors = [
-      'bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500',
-      'bg-pink-500', 'bg-indigo-500', 'bg-teal-500', 'bg-red-500'
-    ];
-    const index = serviceName.charCodeAt(0) % colors.length;
-    return colors[index];
+    return "bg-gray-100 text-gray-800 border border-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700";
   };
 
   const parseAttachmentEvidence = (evidence: string | null): { name: string; date: string }[] => {
@@ -391,7 +386,7 @@ export default function ReviewInbox() {
                       </div>
 
                       {/* Service Avatar */}
-                      <div className={`w-12 h-12 rounded-full ${getServiceColor(suggestion.serviceName)} flex items-center justify-center text-white font-semibold text-lg flex-shrink-0`}>
+                      <div className={`w-12 h-12 rounded-lg ${getServiceColor(suggestion.serviceName)} flex items-center justify-center text-foreground font-bold text-xl flex-shrink-0 font-sans`}>
                         {getServiceInitial(suggestion.serviceName)}
                       </div>
 

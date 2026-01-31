@@ -91,15 +91,7 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
   };
 
   const getServiceIcon = (serviceName: string) => {
-    const name = serviceName.toLowerCase();
-    // Return different colored circles for different services
-    if (name.includes("netflix")) return "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400";
-    if (name.includes("spotify")) return "bg-green-100 text-green-600 dark:bg-green-950 dark:text-green-400";
-    if (name.includes("github")) return "bg-gray-100 text-gray-800 dark:bg-gray-950 dark:text-gray-200";
-    if (name.includes("adobe")) return "bg-orange-100 text-orange-600 dark:bg-orange-950 dark:text-orange-400";
-    if (name.includes("youtube")) return "bg-red-100 text-red-600 dark:bg-red-950 dark:text-red-400";
-    if (name.includes("verizon") || name.includes("phone") || name.includes("wireless")) return "bg-blue-100 text-blue-600 dark:bg-blue-950 dark:text-blue-400";
-    return "bg-purple-100 text-purple-600 dark:bg-purple-950 dark:text-purple-400";
+    return "bg-gray-100 text-gray-800 border border-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700";
   };
 
   // Show EmptyDashboard if there are truly no subscriptions
