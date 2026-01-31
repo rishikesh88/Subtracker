@@ -17,7 +17,6 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [editingSubscription, setEditingSubscription] = useState<Subscription | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
@@ -152,28 +151,6 @@ export function SubscriptionList({ subscriptions }: SubscriptionListProps) {
                 <SelectItem value="expiring_soon">Expiring Soon</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-
-          {/* View Toggle */}
-          <div className="flex border border-border rounded-md">
-            <Button
-              variant={viewMode === "list" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setViewMode("list")}
-              className="rounded-r-none"
-              data-testid="view-list"
-            >
-              <List className="w-4 h-4" />
-            </Button>
-            <Button
-              variant={viewMode === "grid" ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setViewMode("grid")}
-              className="rounded-l-none"
-              data-testid="view-grid"
-            >
-              <Grid3X3 className="w-4 h-4" />
-            </Button>
           </div>
         </div>
       </div>
