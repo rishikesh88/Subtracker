@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { useQuery } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
 
 interface SyncProgress {
   type: 'progress' | 'connected' | 'complete';
@@ -28,6 +29,7 @@ export function SyncProgressPanel() {
   const [isComplete, setIsComplete] = useState(false);
   const [isError, setIsError] = useState(false);
   const [syncStartTime, setSyncStartTime] = useState<number | null>(null);
+  const [, setLocation] = useLocation();
 
   const { data: user } = useQuery<any>({
     queryKey: ['/api/auth/user'],
@@ -303,7 +305,7 @@ export function SyncProgressPanel() {
               <Button 
                 className="w-full" 
                 data-testid="button-review-suggestions"
-                onClick={() => window.dispatchEvent(new Event('openSuggestionsModal'))}
+                onClick={() => setLocation('/review')}
               >
                 Review Suggestions
               </Button>
