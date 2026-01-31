@@ -56,9 +56,9 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
   ];
 
   return (
-    <div className="w-64 bg-card border-r border-border flex flex-col" data-testid="sidebar">
+    <div className="w-64 h-screen bg-card border-r border-border flex flex-col overflow-hidden" data-testid="sidebar">
       {/* Logo and Brand */}
-      <div className="p-6 border-b border-border">
+      <div className="flex-shrink-0 p-6 border-b border-border">
         <div className="flex items-center space-x-3">
           <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
             <RefreshCw className="text-primary-foreground w-4 h-4" />
@@ -67,7 +67,7 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
         </div>
       </div>
       {/* Navigation */}
-      <nav className="flex-1 p-4 overflow-y-auto">
+      <nav className="flex-1 p-4 overflow-y-auto min-h-0">
         <ul className="space-y-2">
           {navigation.map((item) => {
             const isActive = location === item.href;
