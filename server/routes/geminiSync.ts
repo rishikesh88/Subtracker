@@ -6,7 +6,7 @@ import { EnhancedEmailParser } from "../services/enhancedEmailParser";
 import { GeminiSubscriptionDetector } from "../core/geminiSubscriptionDetector";
 import { TransactionDetector } from "../core/transactionDetector";
 import { generateServiceKey } from "../utils/serviceKey";
-import { isAuthenticated } from "../replitAuth";
+import { isAuthenticated } from "../auth";
 
 // Helper function to get userId from normalized session structure
 function getUserId(req: any): string {

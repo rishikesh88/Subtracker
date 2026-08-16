@@ -14,7 +14,7 @@ import { ObjectPermission } from "./objectAcl";
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { registerGeminiRoutes } from "./routes/geminiSync";
-import { setupAuth, isAuthenticated } from "./replitAuth";
+import { setupAuth, isAuthenticated } from "./auth";
 import { generateServiceKey } from "./utils/serviceKey";
 import bcrypt from "bcrypt";
 import passport from "passport";
