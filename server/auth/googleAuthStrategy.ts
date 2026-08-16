@@ -1,6 +1,7 @@
 import passport from "passport";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import type { IStorage } from "../storage";
+import { APP_BASE_URL } from "../config";
 
 // Google OAuth Strategy for user authentication (separate from Gmail email access)
 export function setupGoogleAuthStrategy(storage: IStorage) {
@@ -12,12 +13,7 @@ export function setupGoogleAuthStrategy(storage: IStorage) {
     return;
   }
 
-  // Construct callback URL dynamically based on Replit domains
-  const getCallbackURL = () => {
-    const replitDomains = process.env.REPLIT_DOMAINS?.split(",") || [];
-    const domain = replitDomains[0] || "localhost:5000";
-    return `https://${domain}/api/auth/google-login/callback`;
-  };
+  const callbackURL = `${APP_BASE_URL}/api/auth/google-login/callback`;
 
   passport.use(
     "google-auth",
@@ -25,7 +21,7 @@ export function setupGoogleAuthStrategy(storage: IStorage) {
       {
         clientID: clientId,
         clientSecret: clientSecret,
-        callbackURL: getCallbackURL(),
+        callbackURL,
         scope: ["openid", "profile", "email"],
       },
       async (accessToken, refreshToken, profile, done) => {

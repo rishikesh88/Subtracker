@@ -1,5 +1,6 @@
 import { ConfidentialClientApplication, type AuthorizationCodeRequest, type Configuration } from "@azure/msal-node";
 import type { IStorage } from "../storage";
+import { APP_BASE_URL } from "../config";
 
 export class MicrosoftAuthService {
   private msalClient: ConfidentialClientApplication;
@@ -14,10 +15,7 @@ export class MicrosoftAuthService {
       throw new Error("Microsoft Auth credentials not configured");
     }
 
-    // Construct redirect URI dynamically based on Replit domains
-    const replitDomains = process.env.REPLIT_DOMAINS?.split(",") || [];
-    const domain = replitDomains[0] || "localhost:5000";
-    this.redirectUri = `https://${domain}/api/auth/microsoft-login/callback`;
+    this.redirectUri = `${APP_BASE_URL}/api/auth/microsoft-login/callback`;
 
     const msalConfig: Configuration = {
       auth: {

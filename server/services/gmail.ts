@@ -3,26 +3,15 @@ import { PDFParse } from 'pdf-parse';
 import { ObjectStorageService } from '../objectStorage';
 import { randomUUID } from 'crypto';
 import { OAuthTokens } from '../interfaces/emailProviderAdapter';
+import { APP_BASE_URL } from '../config';
 
 export class GmailService {
   private oauth2Client;
   private objectStorage: ObjectStorageService;
 
   constructor() {
-    // Get the current Replit domain for redirect URI following official docs
-    let replitDomain = 'http://localhost:5000';
-    
-    // Use REPLIT_DEV_DOMAIN as recommended by Replit docs for development
-    if (process.env.REPLIT_DEV_DOMAIN) {
-      replitDomain = `https://${process.env.REPLIT_DEV_DOMAIN}`;
-    }
-    // Fallback to REPLIT_DOMAINS if available
-    else if (process.env.REPLIT_DOMAINS) {
-      const domains = process.env.REPLIT_DOMAINS.split(',');
-      replitDomain = `https://${domains[0]}`;
-    }
-    
-    const finalRedirectUri = process.env.GOOGLE_REDIRECT_URI || `${replitDomain}/api/auth/google/callback`;
+    const finalRedirectUri =
+      process.env.GOOGLE_REDIRECT_URI || `${APP_BASE_URL}/api/auth/google/callback`;
     
     this.oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,

@@ -5,6 +5,7 @@ import {
   NormalizedEmailMetadata, 
   NormalizedFullEmail 
 } from '../interfaces/emailProviderAdapter';
+import { APP_BASE_URL } from '../config';
 
 export class OutlookService implements EmailProviderAdapter {
   private clientId: string;
@@ -18,18 +19,10 @@ export class OutlookService implements EmailProviderAdapter {
   ];
 
   constructor() {
-    let replitDomain = 'http://localhost:5000';
-    
-    if (process.env.REPLIT_DEV_DOMAIN) {
-      replitDomain = `https://${process.env.REPLIT_DEV_DOMAIN}`;
-    } else if (process.env.REPLIT_DOMAINS) {
-      const domains = process.env.REPLIT_DOMAINS.split(',');
-      replitDomain = `https://${domains[0]}`;
-    }
-    
     this.clientId = process.env.MICROSOFT_CLIENT_ID || '';
     this.clientSecret = process.env.MICROSOFT_CLIENT_SECRET || '';
-    this.redirectUri = process.env.MICROSOFT_REDIRECT_URI || `${replitDomain}/api/auth/outlook/callback`;
+    this.redirectUri =
+      process.env.MICROSOFT_REDIRECT_URI || `${APP_BASE_URL}/api/auth/outlook/callback`;
   }
 
   getAuthUrl(state?: string): string {
