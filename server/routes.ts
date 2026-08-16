@@ -96,6 +96,12 @@ export function sendProgressUpdate(userId: string, data: {
 (globalThis as any).sendProgressUpdate = sendProgressUpdate;
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Platform health check. Deliberately does not touch the database: a health
+  // check that queries Postgres turns a transient DB blip into a restart loop.
+  app.get("/healthz", (_req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
+
   // Setup Replit Auth
   await setupAuth(app);
 
