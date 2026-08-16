@@ -9,26 +9,36 @@ import {
   setObjectAclPolicy,
 } from "./objectAcl";
 
-const REPLIT_SIDECAR_ENDPOINT = "http://127.0.0.1:1106";
+// Service account credentials are supplied as inline JSON rather than a key
+// file path: the runtime has no persistent filesystem to mount a key onto.
+// Falling back to Application Default Credentials keeps local development
+// working via `gcloud auth application-default login`.
+function buildStorageClient(): Storage {
+  const inlineCredentials = process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+  const projectId = process.env.GCS_PROJECT_ID;
+
+  if (!inlineCredentials) {
+    return new Storage(projectId ? { projectId } : {});
+  }
+
+  let credentials;
+  try {
+    credentials = JSON.parse(inlineCredentials);
+  } catch (error) {
+    throw new Error(
+      "GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON. It must contain " +
+        "the full service account key, not a file path."
+    );
+  }
+
+  return new Storage({
+    credentials,
+    projectId: projectId || credentials.project_id,
+  });
+}
 
 // The object storage client is used to interact with the object storage service.
-export const objectStorageClient = new Storage({
-  credentials: {
-    audience: "replit",
-    subject_token_type: "access_token",
-    token_url: `${REPLIT_SIDECAR_ENDPOINT}/token`,
-    type: "external_account",
-    credential_source: {
-      url: `${REPLIT_SIDECAR_ENDPOINT}/credential`,
-      format: {
-        type: "json",
-        subject_token_field_name: "access_token",
-      },
-    },
-    universe_domain: "googleapis.com",
-  },
-  projectId: "",
-});
+export const objectStorageClient = buildStorageClient();
 
 export class ObjectNotFoundError extends Error {
   constructor() {
@@ -47,8 +57,8 @@ export class ObjectStorageService {
     const dir = process.env.PRIVATE_OBJECT_DIR || "";
     if (!dir) {
       throw new Error(
-        "PRIVATE_OBJECT_DIR not set. Create a bucket in 'Object Storage' " +
-          "tool and set PRIVATE_OBJECT_DIR env var."
+        "PRIVATE_OBJECT_DIR not set. Set it to /<bucket-name>/<prefix> for " +
+          "the Cloud Storage bucket holding private objects."
       );
     }
     return dir;
@@ -95,8 +105,8 @@ export class ObjectStorageService {
     const privateObjectDir = this.getPrivateObjectDir();
     if (!privateObjectDir) {
       throw new Error(
-        "PRIVATE_OBJECT_DIR not set. Create a bucket in 'Object Storage' " +
-          "tool and set PRIVATE_OBJECT_DIR env var."
+        "PRIVATE_OBJECT_DIR not set. Set it to /<bucket-name>/<prefix> for " +
+          "the Cloud Storage bucket holding private objects."
       );
     }
 
@@ -290,6 +300,13 @@ function parseObjectPath(path: string): {
   };
 }
 
+const SIGNED_URL_ACTIONS = {
+  GET: "read",
+  HEAD: "read",
+  PUT: "write",
+  DELETE: "delete",
+} as const;
+
 async function signObjectURL({
   bucketName,
   objectName,
@@ -301,29 +318,14 @@ async function signObjectURL({
   method: "GET" | "PUT" | "DELETE" | "HEAD";
   ttlSec: number;
 }): Promise<string> {
-  const request = {
-    bucket_name: bucketName,
-    object_name: objectName,
-    method,
-    expires_at: new Date(Date.now() + ttlSec * 1000).toISOString(),
-  };
-  const response = await fetch(
-    `${REPLIT_SIDECAR_ENDPOINT}/object-storage/signed-object-url`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(request),
-    }
-  );
-  if (!response.ok) {
-    throw new Error(
-      `Failed to sign object URL, errorcode: ${response.status}, ` +
-        `make sure you're running on Replit`
-    );
-  }
+  const [signedURL] = await objectStorageClient
+    .bucket(bucketName)
+    .file(objectName)
+    .getSignedUrl({
+      version: "v4",
+      action: SIGNED_URL_ACTIONS[method],
+      expires: Date.now() + ttlSec * 1000,
+    });
 
-  const { signed_url: signedURL } = await response.json();
   return signedURL;
 }
