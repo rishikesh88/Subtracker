@@ -6,7 +6,7 @@ import { EnhancedEmailParser } from "../services/enhancedEmailParser";
 import { GeminiSubscriptionDetector } from "../core/geminiSubscriptionDetector";
 import { TransactionDetector } from "../core/transactionDetector";
 import { generateServiceKey } from "../utils/serviceKey";
-import { isAuthenticated } from "../replitAuth";
+import { isAuthenticated } from "../auth";
 
 // Helper function to get userId from normalized session structure
 function getUserId(req: any): string {
@@ -715,163 +715,157 @@ export function registerGeminiRoutes(app: Express) {
       
       console.log(`🚀 Starting multi-provider sync: ${gmailAccounts.length} Gmail + ${outlookAccounts.length} Outlook = ${totalAccounts} total accounts`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      
-      // Send initial progress update
-      sendProgressUpdate(userId, {
-        stage: 'multi_account_sync_start',
-        progress: 0,
-        message: `Starting sync for ${totalAccounts} account(s) across Gmail and Outlook...`,
-        details: { 
-          totalAccounts,
-          gmailAccounts: gmailAccounts.length,
-          outlookAccounts: outlookAccounts.length
-        }
-      });
-      
-      // Multi-provider concurrency: max 4 total (2 per provider)
-      const CONCURRENCY_LIMIT = 4;
-      const PROVIDER_LIMIT = 2;
-      
-      // Create account tasks with provider metadata
-      type AccountTask = {
-        provider: 'gmail' | 'outlook';
-        account: any;
-        process: () => Promise<any>;
-      };
-      
-      const gmailTasks: AccountTask[] = gmailAccounts.map(account => ({
-        provider: 'gmail' as const,
-        account,
-        process: () => processGmailAccount(userId, account, emailSyncDays)
-      }));
-      
-      const outlookTasks: AccountTask[] = outlookAccounts.map(account => ({
-        provider: 'outlook' as const,
-        account,
-        process: () => processOutlookAccount(userId, account, emailSyncDays)
-      }));
-      
-      // Interleave Gmail and Outlook tasks for balanced processing
-      const allTasks: AccountTask[] = [];
-      const maxLength = Math.max(gmailTasks.length, outlookTasks.length);
-      for (let i = 0; i < maxLength; i++) {
-        if (i < gmailTasks.length) allTasks.push(gmailTasks[i]);
-        if (i < outlookTasks.length) allTasks.push(outlookTasks[i]);
-      }
-      
-      const results: any[] = [];
-      let completed = 0;
-      
-      for (let i = 0; i < allTasks.length; i += CONCURRENCY_LIMIT) {
-        const batch = allTasks.slice(i, i + CONCURRENCY_LIMIT);
-        
-        // Enforce per-provider limits within batch
-        const gmailBatch = batch.filter(t => t.provider === 'gmail').slice(0, PROVIDER_LIMIT);
-        const outlookBatch = batch.filter(t => t.provider === 'outlook').slice(0, PROVIDER_LIMIT);
-        const limitedBatch = [...gmailBatch, ...outlookBatch];
-        
-        const batchResults = await Promise.allSettled(
-          limitedBatch.map(task => task.process())
-        );
-        
-        results.push(...batchResults);
-        completed += limitedBatch.length;
-        
-        // Send progress update after each batch
-        const progressPercentage = Math.round((completed / totalAccounts) * 90);
-        sendProgressUpdate(userId, {
-          stage: 'accounts_syncing',
-          progress: progressPercentage,
-          message: `Synced ${completed} of ${totalAccounts} accounts...`,
-          details: { 
-            completed,
-            total: totalAccounts
-          }
-        });
-      }
-      
-      // Process results
-      const successfulResults = results
-        .filter(r => r.status === 'fulfilled' && r.value.success)
-        .map(r => r.value);
-      
-      const failedResults = results
-        .filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success))
-        .map(r => {
-          if (r.status === 'rejected') {
-            return {
-              success: false,
-              accountId: 'unknown',
-              gmailEmail: 'unknown',
-              error: r.reason?.message || 'Unknown error'
-            };
-          }
-          return r.value;
-        });
-      
-      // Aggregate metrics
-      const totalEmailsProcessed = successfulResults.reduce((sum, r) => sum + (r.emailsProcessed || 0), 0);
-      const totalSuggestionsGenerated = successfulResults.reduce((sum, r) => sum + (r.suggestionsGenerated || 0), 0);
-      
-      console.log(`\n✅ Multi-provider sync complete!`);
-      console.log(`   • Total accounts: ${totalAccounts} (${gmailAccounts.length} Gmail + ${outlookAccounts.length} Outlook)`);
-      console.log(`   • Successful: ${successfulResults.length}`);
-      console.log(`   • Failed: ${failedResults.length}`);
-      console.log(`   • Total emails processed: ${totalEmailsProcessed}`);
-      console.log(`   • Total suggestions generated: ${totalSuggestionsGenerated}`);
-      
-      // Send final completion update
-      sendProgressUpdate(userId, {
-        stage: 'sync_complete',
-        progress: 100,
-        message: `Sync complete! Found ${totalSuggestionsGenerated} subscription suggestions across ${successfulResults.length} accounts`,
-        details: { 
-          totalAccounts,
-          gmailAccounts: gmailAccounts.length,
-          outlookAccounts: outlookAccounts.length,
-          successful: successfulResults.length,
-          failed: failedResults.length,
-          suggestionsGenerated: totalSuggestionsGenerated
-        }
-      });
-      
-      // Return structured response with provider-agnostic formatting
-      res.json({
+
+      // A wide date range can keep this running for tens of minutes, which no
+      // proxy in front of the app will tolerate. Acknowledge the request now and
+      // report progress over SSE (/api/sync-progress/:userId); the client picks
+      // up completion from there, not from this response.
+      res.status(202).json({
         success: true,
+        started: true,
         totalAccounts,
         gmailAccounts: gmailAccounts.length,
         outlookAccounts: outlookAccounts.length,
-        successful: successfulResults.length,
-        failed: failedResults.length,
-        suggestionsGenerated: totalSuggestionsGenerated,
-        emailsProcessed: totalEmailsProcessed,
-        redirectToSuggestions: totalSuggestionsGenerated > 0,
-        results: results.map((r) => {
-          if (r.status === 'fulfilled') {
-            return {
-              accountId: r.value.accountId,
-              email: r.value.gmailEmail || r.value.outlookEmail,
-              provider: r.value.gmailEmail ? 'gmail' : 'outlook',
-              success: r.value.success,
-              error: r.value.error,
-              emailsProcessed: r.value.emailsProcessed,
-              suggestionsGenerated: r.value.suggestionsGenerated
-            };
-          } else {
-            return {
-              accountId: 'unknown',
-              email: 'unknown',
-              provider: 'unknown',
-              success: false,
-              error: r.reason?.message || 'Unknown error'
-            };
+        message: `Sync started for ${totalAccounts} account(s)`
+      });
+
+      setImmediate(async () => {
+        try {
+          // Send initial progress update
+          sendProgressUpdate(userId, {
+            stage: 'multi_account_sync_start',
+            progress: 0,
+            message: `Starting sync for ${totalAccounts} account(s) across Gmail and Outlook...`,
+            details: { 
+              totalAccounts,
+              gmailAccounts: gmailAccounts.length,
+              outlookAccounts: outlookAccounts.length
+            }
+          });
+      
+          // Multi-provider concurrency: max 4 total (2 per provider)
+          const CONCURRENCY_LIMIT = 4;
+          const PROVIDER_LIMIT = 2;
+      
+          // Create account tasks with provider metadata
+          type AccountTask = {
+            provider: 'gmail' | 'outlook';
+            account: any;
+            process: () => Promise<any>;
+          };
+      
+          const gmailTasks: AccountTask[] = gmailAccounts.map(account => ({
+            provider: 'gmail' as const,
+            account,
+            process: () => processGmailAccount(userId, account, emailSyncDays)
+          }));
+      
+          const outlookTasks: AccountTask[] = outlookAccounts.map(account => ({
+            provider: 'outlook' as const,
+            account,
+            process: () => processOutlookAccount(userId, account, emailSyncDays)
+          }));
+      
+          // Interleave Gmail and Outlook tasks for balanced processing
+          const allTasks: AccountTask[] = [];
+          const maxLength = Math.max(gmailTasks.length, outlookTasks.length);
+          for (let i = 0; i < maxLength; i++) {
+            if (i < gmailTasks.length) allTasks.push(gmailTasks[i]);
+            if (i < outlookTasks.length) allTasks.push(outlookTasks[i]);
           }
-        })
+      
+          const results: any[] = [];
+          let completed = 0;
+      
+          for (let i = 0; i < allTasks.length; i += CONCURRENCY_LIMIT) {
+            const batch = allTasks.slice(i, i + CONCURRENCY_LIMIT);
+        
+            // Enforce per-provider limits within batch
+            const gmailBatch = batch.filter(t => t.provider === 'gmail').slice(0, PROVIDER_LIMIT);
+            const outlookBatch = batch.filter(t => t.provider === 'outlook').slice(0, PROVIDER_LIMIT);
+            const limitedBatch = [...gmailBatch, ...outlookBatch];
+        
+            const batchResults = await Promise.allSettled(
+              limitedBatch.map(task => task.process())
+            );
+        
+            results.push(...batchResults);
+            completed += limitedBatch.length;
+        
+            // Send progress update after each batch
+            const progressPercentage = Math.round((completed / totalAccounts) * 90);
+            sendProgressUpdate(userId, {
+              stage: 'accounts_syncing',
+              progress: progressPercentage,
+              message: `Synced ${completed} of ${totalAccounts} accounts...`,
+              details: { 
+                completed,
+                total: totalAccounts
+              }
+            });
+          }
+      
+          // Process results
+          const successfulResults = results
+            .filter(r => r.status === 'fulfilled' && r.value.success)
+            .map(r => r.value);
+      
+          const failedResults = results
+            .filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success))
+            .map(r => {
+              if (r.status === 'rejected') {
+                return {
+                  success: false,
+                  accountId: 'unknown',
+                  gmailEmail: 'unknown',
+                  error: r.reason?.message || 'Unknown error'
+                };
+              }
+              return r.value;
+            });
+      
+          // Aggregate metrics
+          const totalEmailsProcessed = successfulResults.reduce((sum, r) => sum + (r.emailsProcessed || 0), 0);
+          const totalSuggestionsGenerated = successfulResults.reduce((sum, r) => sum + (r.suggestionsGenerated || 0), 0);
+      
+          console.log(`\n✅ Multi-provider sync complete!`);
+          console.log(`   • Total accounts: ${totalAccounts} (${gmailAccounts.length} Gmail + ${outlookAccounts.length} Outlook)`);
+          console.log(`   • Successful: ${successfulResults.length}`);
+          console.log(`   • Failed: ${failedResults.length}`);
+          console.log(`   • Total emails processed: ${totalEmailsProcessed}`);
+          console.log(`   • Total suggestions generated: ${totalSuggestionsGenerated}`);
+      
+          // Send final completion update
+          sendProgressUpdate(userId, {
+            stage: 'sync_complete',
+            progress: 100,
+            message: `Sync complete! Found ${totalSuggestionsGenerated} subscription suggestions across ${successfulResults.length} accounts`,
+            details: { 
+              totalAccounts,
+              gmailAccounts: gmailAccounts.length,
+              outlookAccounts: outlookAccounts.length,
+              successful: successfulResults.length,
+              failed: failedResults.length,
+              suggestionsGenerated: totalSuggestionsGenerated
+            }
+          });
+      
+        } catch (error) {
+          // The response has already been sent, so failures can only surface
+          // over SSE.
+          console.error("Multi-account sync error:", error);
+          sendProgressUpdate(userId, {
+            stage: 'error',
+            progress: 0,
+            message: error instanceof Error ? error.message : 'Sync failed',
+            details: {}
+          });
+        }
       });
 
     } catch (error) {
       console.error("Multi-account sync error:", error);
-      res.status(500).json({ 
+      res.status(500).json({
         message: "Failed to perform multi-account sync",
         error: error instanceof Error ? error.message : 'Unknown error'
       });

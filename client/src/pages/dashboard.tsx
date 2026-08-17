@@ -282,46 +282,18 @@ export default function Dashboard() {
       return response.json();
     },
     onSuccess: (data) => {
-      // Handle multi-account response
+      // The sync now runs in the background, so this response only confirms it
+      // started. Completion, per-account results and the link through to the
+      // review page are all handled by SyncProgressPanel over SSE.
       const totalAccounts = data.totalAccounts || 0;
-      const successfulAccounts = data.successful || 0;
-      const failedAccounts = data.failed || 0;
-      const totalSuggestions = data.suggestionsGenerated || 0;
-      
-      // Build success message
-      let description = '';
-      if (totalAccounts > 1) {
-        description = `Synced ${successfulAccounts} of ${totalAccounts} accounts. Found ${totalSuggestions} subscription suggestions.`;
-      } else {
-        description = `Generated ${totalSuggestions} subscription suggestions for your review`;
-      }
-      
-      // Show per-account errors if any failed
-      if (failedAccounts > 0 && data.results) {
-        const failedResults = data.results.filter((r: any) => !r.success);
-        const errorDetails = failedResults
-          .map((r: any) => `${r.gmailEmail}: ${r.error || 'Unknown error'}`)
-          .join('\n');
-        
-        toast({
-          title: "Sync Completed with Errors",
-          description: `${description}\n\nFailed accounts:\n${errorDetails}`,
-          variant: "default",
-        });
-      } else {
-        toast({
-          title: "Email Analysis Complete",
-          description: description,
-        });
-      }
-      
-      // Navigate to review page if suggestions were generated
-      if (totalSuggestions > 0) {
-        setTimeout(() => {
-          window.location.href = '/review';
-        }, 500); // Small delay to allow toast to show first
-      }
-      
+
+      toast({
+        title: "Email Sync Started",
+        description: totalAccounts > 1
+          ? `Analyzing ${totalAccounts} accounts in the background...`
+          : `Analyzing emails in the background...`,
+      });
+
       // Invalidate and refetch all data
       queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
       queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${currentUserId}`] });

@@ -230,8 +230,7 @@ export default function Settings() {
       
       return data;
     },
-    onSuccess: (data) => {
-      const totalSuggestions = data.suggestionsGenerated || 0;
+    onSuccess: () => {
       const userId = user?.id;
       
       toast({

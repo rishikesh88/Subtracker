@@ -13,7 +13,7 @@ export async function sendVerificationEmail({ to, code, firstName }: SendVerific
   
   try {
     await resend.emails.send({
-      from: 'SubTracker <onboarding@resend.dev>', // Resend test domain
+      from: 'Verloq <noreply@verloq.co>',
       to,
       subject: 'Verify your SubTracker account',
       html: `

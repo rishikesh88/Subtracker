@@ -7,6 +7,7 @@ import type { Express, RequestHandler } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
+import { getSessionSecret } from "./config";
 
 // Note: REPLIT_DOMAINS check moved to setupAuth() to avoid throwing at module load time
 
@@ -30,7 +31,7 @@ export function getSession() {
     tableName: "sessions",
   });
   return session({
-    secret: process.env.SESSION_SECRET!,
+    secret: getSessionSecret(),
     store: sessionStore,
     resave: false,
     saveUninitialized: false,

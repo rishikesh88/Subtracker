@@ -14,7 +14,7 @@ import { ObjectPermission } from "./objectAcl";
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { registerGeminiRoutes } from "./routes/geminiSync";
-import { setupAuth, isAuthenticated } from "./replitAuth";
+import { setupAuth, isAuthenticated } from "./auth";
 import { generateServiceKey } from "./utils/serviceKey";
 import bcrypt from "bcrypt";
 import passport from "passport";
@@ -96,6 +96,12 @@ export function sendProgressUpdate(userId: string, data: {
 (globalThis as any).sendProgressUpdate = sendProgressUpdate;
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Platform health check. Deliberately does not touch the database: a health
+  // check that queries Postgres turns a transient DB blip into a restart loop.
+  app.get("/healthz", (_req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
+
   // Setup Replit Auth
   await setupAuth(app);
 
@@ -728,9 +734,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       console.log("Google Client ID available:", !!process.env.GOOGLE_CLIENT_ID);
       console.log("Google Client Secret available:", !!process.env.GOOGLE_CLIENT_SECRET);
-      console.log("Repl Slug:", process.env.REPL_SLUG);
-      console.log("Repl Owner:", process.env.REPL_OWNER);
-      
+
       const userId = getUserId(req);
       
       // Generate cryptographically random state for CSRF protection
