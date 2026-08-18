@@ -186,6 +186,15 @@ USER APPROVAL: ⏳ Pending
 
 ## CHANGELOG
 
+### merchantDatabase.ts v1.0.1 (2026-08-18)
+
+**Bug fix — merchants.csv path resolution (no logic change)**
+
+- **Problem:** `loadMerchants()` resolved the CSV as `join(import.meta.dirname, '../data/merchants.csv')`. Under `tsx` that is `server/core → server/data` and works. After esbuild bundles the server into `dist/index.js`, `import.meta.dirname` becomes `dist/`, so the path pointed at a non-existent directory. Production logged `ENOENT: /app/data/merchants.csv` on every sync and **merchant enrichment was silently disabled in every deployed build** since migrating off Replit.
+- **Fix:** added `resolveCsvPath()`, which tries the source-relative, bundle-relative, and cwd-relative locations in order and uses the first that exists. Resolved path is logged once at load. Missing file now raises a descriptive error instead of a bare `ENOENT`.
+- **Scope:** file-path resolution only. Lookup algorithms, scoring, match types, data structures, and `merchants.csv` itself are **unchanged**.
+- **Verification:** `node dist/index.js` (bundled build) must log a resolved path and no `ENOENT`. Reproduces only in the bundled build, never under `npm run dev`.
+
 ### Version 1.0.0 (2025-11-10)
 
 **Initial Protection System Implementation**
@@ -210,6 +219,7 @@ USER APPROVAL: ⏳ Pending
 | Date | File | Change | Approved By | Reason |
 |------|------|--------|-------------|--------|
 | 2025-11-10 | All | Initial protection setup | User | Protect core IP and ensure consistency across providers |
+| 2026-08-18 | merchantDatabase.ts | Multi-location CSV path resolution (v1.0.1) | User | Bundled production builds could not find merchants.csv; enrichment silently disabled since Railway migration |
 
 ---
 
