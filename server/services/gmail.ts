@@ -5,9 +5,44 @@ import { randomUUID } from 'crypto';
 import { OAuthTokens } from '../interfaces/emailProviderAdapter';
 import { APP_BASE_URL } from '../config';
 
+/**
+ * Paces batches of Gmail requests against the per-user quota.
+ *
+ * Gmail allows 250 quota units per user per second; messages.get costs 5, so
+ * roughly 50 requests/sec are available. The previous fixed 12s pause between
+ * batches of 50 averaged ~4 req/sec -- about 8% of quota -- which meant a
+ * 2,458-email sync spent 588 of its 640 seconds asleep.
+ *
+ * Batches of 50 are issued concurrently, so the delay controls the average
+ * rate rather than the burst. The base delay targets ~40% of quota, then adapts:
+ * it backs off multiplicatively when Gmail signals rate limiting and eases back
+ * toward the target after clean batches.
+ */
+class BatchPacer {
+  private static readonly BASE_DELAY_MS = 1500;
+  private static readonly MIN_DELAY_MS = 750;
+  private static readonly MAX_DELAY_MS = 12000;
+
+  private delayMs = BatchPacer.BASE_DELAY_MS;
+
+  /** Wait before the next batch, adapting to whether this one was rate limited. */
+  async pause(rateLimited: boolean): Promise<void> {
+    if (rateLimited) {
+      this.delayMs = Math.min(this.delayMs * 2, BatchPacer.MAX_DELAY_MS);
+      console.warn(`⏳ Rate limited — backing off to ${this.delayMs}ms between batches`);
+    } else {
+      this.delayMs = Math.max(this.delayMs * 0.85, BatchPacer.MIN_DELAY_MS);
+    }
+
+    await new Promise(resolve => setTimeout(resolve, this.delayMs));
+  }
+}
+
 export class GmailService {
   private oauth2Client;
   private objectStorage: ObjectStorageService;
+  /** Incremented by the retry helpers whenever Gmail signals a rate limit. */
+  private rateLimitHits = 0;
 
   constructor() {
     const finalRedirectUri =
@@ -224,14 +259,15 @@ export class GmailService {
 
   private async fetchMetadataInBatches(gmail: any, messageIds: string[]): Promise<any[]> {
     const metadata: any[] = [];
-    const batchSize = 50; // Aggressive concurrent batch size for maximum throughput
-    const delayBetweenBatches = 12000; // 12 seconds = ~4 req/sec average (50 requests / 12 sec)
-    
-    console.log(`📥 Fetching metadata for ${messageIds.length} emails in batches of ${batchSize} (aggressive batching ~4 req/sec)`);
+    const batchSize = 50; // Concurrent requests per batch
+    const pacer = new BatchPacer();
+
+    console.log(`📥 Fetching metadata for ${messageIds.length} emails in batches of ${batchSize} (adaptive pacing)`);
 
     for (let i = 0; i < messageIds.length; i += batchSize) {
       const batch = messageIds.slice(i, i + batchSize);
-      
+      const hitsBefore = this.rateLimitHits;
+
       try {
         // Use Promise.allSettled for better error resilience
         const batchResults = await Promise.allSettled(
@@ -248,12 +284,13 @@ export class GmailService {
         metadata.push(...validMetadata);
 
         // Progress logging every batch
-        console.log(`📊 Metadata progress: ${Math.min(i + batchSize, messageIds.length)}/${messageIds.length} (${Math.round((i + batchSize) / messageIds.length * 100)}%)`);
+        const fetched = Math.min(i + batchSize, messageIds.length);
+        console.log(`📊 Metadata progress: ${fetched}/${messageIds.length} (${Math.round(fetched / messageIds.length * 100)}%)`);
 
         
-        // Rate limit delay between batches
+        // Adaptive pacing between batches
         if (i + batchSize < messageIds.length) {
-          await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
+          await pacer.pause(this.rateLimitHits > hitsBefore);
         }
       } catch (error) {
         console.error(`Error fetching metadata batch:`, error);
@@ -293,6 +330,10 @@ export class GmailService {
           error?.message?.toLowerCase().includes('rate limit') ||
           error?.message?.toLowerCase().includes('quota exceeded');
         
+        if (isRateLimitError) {
+          this.rateLimitHits++; // Signals the batch pacer to back off
+        }
+
         if (isRateLimitError && attempt < maxRetries - 1) {
           const delayMs = 2000 * Math.pow(2, attempt); // 2s, 4s, 8s
           console.warn(`⏳ Rate limit hit for metadata ${messageId.substring(0, 10)}..., retrying in ${delayMs / 1000}s (attempt ${attempt + 1}/${maxRetries})`);
@@ -310,14 +351,15 @@ export class GmailService {
 
   private async fetchMessagesInBatches(gmail: any, messageIds: string[]): Promise<any[]> {
     const messages: any[] = [];
-    const batchSize = 50; // Aggressive concurrent batch size for maximum throughput
-    const delayBetweenBatches = 12000; // 12 seconds = ~4 req/sec average (50 requests / 12 sec)
-    
-    console.log(`📥 Fetching ${messageIds.length} email details in batches of ${batchSize} (aggressive batching ~4 req/sec)`);
+    const batchSize = 50; // Concurrent requests per batch
+    const pacer = new BatchPacer();
+
+    console.log(`📥 Fetching ${messageIds.length} email details in batches of ${batchSize} (adaptive pacing)`);
 
     for (let i = 0; i < messageIds.length; i += batchSize) {
       const batch = messageIds.slice(i, i + batchSize);
-      
+      const hitsBefore = this.rateLimitHits;
+
       try {
         // Use Promise.allSettled for better error resilience
         const batchResults = await Promise.allSettled(
@@ -334,12 +376,13 @@ export class GmailService {
         messages.push(...validMessages);
 
         // Progress logging every batch
-        console.log(`📊 Full message progress: ${Math.min(i + batchSize, messageIds.length)}/${messageIds.length} (${Math.round((i + batchSize) / messageIds.length * 100)}%)`);
+        const fetched = Math.min(i + batchSize, messageIds.length);
+        console.log(`📊 Full message progress: ${fetched}/${messageIds.length} (${Math.round(fetched / messageIds.length * 100)}%)`);
 
 
-        // Rate limit: 2 second delay between batches to stay within Gmail API limits
+        // Adaptive pacing between batches
         if (i + batchSize < messageIds.length) {
-          await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
+          await pacer.pause(this.rateLimitHits > hitsBefore);
         }
       } catch (error) {
         console.error(`Error fetching batch starting at ${i}:`, error);
@@ -379,6 +422,10 @@ export class GmailService {
           error?.message?.toLowerCase().includes('rate limit') ||
           error?.message?.toLowerCase().includes('quota exceeded');
         
+        if (isRateLimitError) {
+          this.rateLimitHits++; // Signals the batch pacer to back off
+        }
+
         if (isRateLimitError && attempt < maxRetries - 1) {
           // Exponential backoff: 3s, 6s, 12s
           const delayMs = 3000 * Math.pow(2, attempt);
