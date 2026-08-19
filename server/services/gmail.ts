@@ -6,6 +6,15 @@ import { OAuthTokens } from '../interfaces/emailProviderAdapter';
 import { APP_BASE_URL } from '../config';
 
 /**
+ * Reports incremental progress while a long batch loop runs.
+ *
+ * Fetching is the quiet part of a sync -- without this the server emits no SSE
+ * traffic between "starting" and the account finishing, which the client cannot
+ * distinguish from a hang.
+ */
+export type BatchProgress = (done: number, total: number) => void;
+
+/**
  * Paces batches of Gmail requests against the per-user quota.
  *
  * Gmail allows 250 quota units per user per second; messages.get costs 5, so
@@ -195,7 +204,7 @@ export class GmailService {
    * Fetch lightweight email metadata (subject, sender, snippet only)
    * Much faster than full fetch - for Phase 1 screening
    */
-  async getEmailMetadata(accessToken: string, refreshToken: string, onTokenRefresh?: (tokens: OAuthTokens) => Promise<void>, days: number = 90) {
+  async getEmailMetadata(accessToken: string, refreshToken: string, onTokenRefresh?: (tokens: OAuthTokens) => Promise<void>, days: number = 90, onProgress?: BatchProgress) {
     this.oauth2Client.setCredentials({
       access_token: accessToken,
       refresh_token: refreshToken
@@ -230,7 +239,7 @@ export class GmailService {
       }
 
       // Fetch metadata only (much faster)
-      const metadata = await this.fetchMetadataInBatches(gmail, allMessageIds);
+      const metadata = await this.fetchMetadataInBatches(gmail, allMessageIds, onProgress);
       console.log(`✅ Retrieved metadata for ${metadata.length} emails`);
       return metadata;
     } catch (error) {
@@ -243,7 +252,7 @@ export class GmailService {
    * Fetch full email details for specific message IDs
    * Used in Phase 2 for deep processing of candidates only
    */
-  async getEmailsByIds(accessToken: string, refreshToken: string, messageIds: string[]): Promise<any[]> {
+  async getEmailsByIds(accessToken: string, refreshToken: string, messageIds: string[], onProgress?: BatchProgress): Promise<any[]> {
     this.oauth2Client.setCredentials({
       access_token: accessToken,
       refresh_token: refreshToken
@@ -252,12 +261,12 @@ export class GmailService {
     const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
     console.log(`📥 Phase 2: Fetching full content for ${messageIds.length} candidate emails`);
     
-    const messages = await this.fetchMessagesInBatches(gmail, messageIds);
+    const messages = await this.fetchMessagesInBatches(gmail, messageIds, onProgress);
     console.log(`✅ Retrieved full content for ${messages.length} emails`);
     return messages;
   }
 
-  private async fetchMetadataInBatches(gmail: any, messageIds: string[]): Promise<any[]> {
+  private async fetchMetadataInBatches(gmail: any, messageIds: string[], onProgress?: BatchProgress): Promise<any[]> {
     const metadata: any[] = [];
     const batchSize = 50; // Concurrent requests per batch
     const pacer = new BatchPacer();
@@ -286,6 +295,7 @@ export class GmailService {
         // Progress logging every batch
         const fetched = Math.min(i + batchSize, messageIds.length);
         console.log(`📊 Metadata progress: ${fetched}/${messageIds.length} (${Math.round(fetched / messageIds.length * 100)}%)`);
+        onProgress?.(fetched, messageIds.length);
 
         
         // Adaptive pacing between batches
@@ -349,7 +359,7 @@ export class GmailService {
     return null;
   }
 
-  private async fetchMessagesInBatches(gmail: any, messageIds: string[]): Promise<any[]> {
+  private async fetchMessagesInBatches(gmail: any, messageIds: string[], onProgress?: BatchProgress): Promise<any[]> {
     const messages: any[] = [];
     const batchSize = 50; // Concurrent requests per batch
     const pacer = new BatchPacer();
@@ -378,6 +388,7 @@ export class GmailService {
         // Progress logging every batch
         const fetched = Math.min(i + batchSize, messageIds.length);
         console.log(`📊 Full message progress: ${fetched}/${messageIds.length} (${Math.round(fetched / messageIds.length * 100)}%)`);
+        onProgress?.(fetched, messageIds.length);
 
 
         // Adaptive pacing between batches
