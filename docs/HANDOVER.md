@@ -227,9 +227,19 @@ Worth investigating:
   duplicate of X") instead of silently merging. Wrongly merging two genuinely
   distinct subscriptions is worse than showing both.
 
-Note `subscriptions.currency` defaults to `INR` while amounts arrive in mixed
-currencies, so any total that sums across rows is already suspect independent of
-deduplication.
+Currency handling itself is already correct: `getSubscriptionStats` converts each
+subscription into the user's `preferredCurrency` (chosen at signup) before
+summing, via `convertCurrency` in
+[server/utils/currencyConverter.ts](../server/utils/currencyConverter.ts). So the
+duplicate inflates the total by roughly one subscription's worth — not by a
+currency-mixing error.
+
+One caveat for the dedup work: those FX rates are a **hardcoded static table**
+(USD 83, EUR 90, GBP 105 to INR). Fine for display, but too coarse to decide
+"these two amounts are the same subscription" — ₹2,261.12 vs $23.60 is ₹1,958 at
+the static rate, an 13% gap. Amount equivalence should be a weak signal with a
+generous tolerance, not the deciding one; merchant domain plus frequency is the
+stronger pair.
 
 ---
 

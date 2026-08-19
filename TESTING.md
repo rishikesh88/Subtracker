@@ -366,6 +366,13 @@ The same mailbox has **"Apple One Family" (₹365/mo)** and **"iCloud+ 200 GB"
 
 ### 7c. Totals
 
-Confirm the dashboard's monthly total does not double-count the duplicate. Note
-`subscriptions.currency` defaults to `INR` while amounts arrive in mixed
-currencies, so verify how the total handles a USD row regardless of dedup.
+Confirm the dashboard's monthly total does not double-count the duplicate.
+
+Currency conversion is already handled — `getSubscriptionStats` converts each row
+into the user's `preferredCurrency` before summing — so the only error here is
+the duplicate itself. Verify by switching preferred currency in Settings and
+confirming the total rescales rather than changing composition.
+
+⚠️ FX rates are a hardcoded static table (`server/utils/currencyConverter.ts`).
+Do not use amount equivalence as the primary dedup signal; at the static rate
+₹2,261.12 and $23.60 differ by ~13%.
