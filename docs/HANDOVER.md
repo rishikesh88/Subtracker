@@ -205,6 +205,32 @@ Gate each on suggestion count holding. Estimated per sync: `2.5-pro` ~$0.099,
 
 Also: drop the `openai` dependency — declared in `package.json`, imported nowhere.
 
+### Phase 7 — cross-currency / cross-name deduplication
+- **#20** The 2026-08-19 run produced both **"Anthropic Claude Subscription"
+  (₹2,261.12/mo)** and **"Claude Pro" ($23.60/mo)** — the same subscription,
+  detected twice under different names *and* different currencies. The user
+  rejected the duplicate manually.
+
+`serviceKey` dedup (normalised service name + frequency) cannot catch this: the
+names genuinely differ and neither is wrong. Duplicates inflate the headline
+"total monthly spend", which is the product's primary number, so this is a
+correctness problem rather than cosmetics.
+
+Worth investigating:
+- Group candidates by merchant *domain* rather than service name — both emails
+  come from Anthropic. `merchantDatabase` already resolves sender domain to a
+  canonical merchant and is now actually loading (Phase 1), so the signal exists.
+- Same merchant + same frequency + amounts equivalent once converted ⇒ likely one
+  subscription. Needs an FX rate source; a coarse static table may be enough to
+  flag rather than auto-merge.
+- Safer first step: **flag suspected duplicates in the review UI** ("possible
+  duplicate of X") instead of silently merging. Wrongly merging two genuinely
+  distinct subscriptions is worse than showing both.
+
+Note `subscriptions.currency` defaults to `INR` while amounts arrive in mixed
+currencies, so any total that sums across rows is already suspect independent of
+deduplication.
+
 ---
 
 ## Still pending from the migration

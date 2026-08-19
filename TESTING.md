@@ -116,16 +116,30 @@ Continuous back-off to the 12 s ceiling means the base rate is too aggressive.
 
 ## Phase 2 — Progress reporting + honest watchdog
 
-### 2a. Progress advances during metadata fetch
+Stage weights: metadata 0–35%, pre-filter 35–70%, full fetch 70–80%,
+analysis 80–98%. These follow measured durations — the **pre-filter is the
+longest stage**, not the Gmail fetch.
+
+### 2a. Progress advances through every stage
 
 Watch the sync panel for the full run.
 
 | | Expected |
 |---|---|
-| ✅ Pass | Percentage moves continuously through the metadata phase |
-| ❌ Fail | Sits at 0% for minutes, then jumps |
+| ✅ Pass | Bar advances during scanning, screening *and* analysis; message text names the current stage |
+| ❌ Fail | Sits still for minutes, then jumps |
 
-The old failure was a ~10.7 minute silent window with no SSE traffic at all.
+The critical one is the **pre-filter** (~5 min on a 2,500 email mailbox). Before
+this phase it emitted nothing at all. Expect `Screening candidates... N%` to tick
+through roughly four updates.
+
+Server-side confirmation:
+
+```bash
+railway logs | grep -E "Metadata progress|Chunk [0-9]+: Approved"
+```
+
+Each of those lines should now have a matching SSE event.
 
 ### 2b. No `Stage: undefined`
 
@@ -141,11 +155,19 @@ Let a full sync run to completion without touching the browser.
 | ✅ Pass | Completes normally; no "timed out" message |
 | ❌ Fail | Panel claims timeout while the server logs show work still progressing |
 
+The old watchdog failed any sync exceeding 10 minutes of *total* duration,
+punishing large mailboxes for being large. It now fires only after
+**3 minutes with no progress event**, with a 60-minute absolute backstop.
+
 ### 2d. Watchdog still catches a real stall
 
-Hard to force safely in production. Acceptable substitute: confirm in the code
-that the watchdog triggers on *time since last progress event*, not total
-elapsed time, and that a long-running backstop still exists.
+Force it: start a sync, then redeploy mid-run (`railway redeploy --from-source
+--yes`) to kill the server without closing the stream.
+
+| | Expected |
+|---|---|
+| ✅ Pass | Within ~3 min the panel shows "Sync stopped responding" |
+| ❌ Fail | Spins indefinitely, or fails instantly on a healthy sync |
 
 ---
 
@@ -278,7 +300,14 @@ Run the three changes **one at a time** — `2.5-pro → 2.5-flash`, then the
 flash-lite pre-filter, then optionally `3.5-flash-lite`. Batching them makes an
 accuracy regression unattributable.
 
-### 6c. Cost check
+### 6c. Cost check (updated after Phase 1)
+
+Phase 1's merchant fix raised deep-processed emails from 13 to 58 per sync, so
+per-sync AI cost rose roughly in proportion. The pre-Phase-1 estimates below
+understate current spend — re-measure before and after each swap rather than
+trusting them.
+
+
 
 Confirm the drop in [Google Cloud billing](https://console.cloud.google.com/billing)
 for the Generative Language API after a few real syncs. Expected direction:
@@ -298,3 +327,34 @@ Run before considering any phase complete:
 - [ ] `https://app.verloq.co/healthz` returns `{"status":"ok"}`
 - [ ] Signup → session → authenticated request still works
 - [ ] Suggestion count on the reference mailbox is still ~7
+
+---
+
+## Phase 7 — cross-currency / cross-name dedup
+
+### 7a. The known duplicate is caught
+
+The reference mailbox produces both **"Anthropic Claude Subscription"
+(₹2,261.12/mo)** and **"Claude Pro" ($23.60/mo)** — one subscription, two
+detections.
+
+| | Expected |
+|---|---|
+| ✅ Pass | Surfaced as a suspected duplicate pair, or merged into one |
+| ❌ Fail | Both still presented as unrelated subscriptions |
+
+### 7b. Genuinely distinct subscriptions are not merged
+
+The same mailbox has **"Apple One Family" (₹365/mo)** and **"iCloud+ 200 GB"
+(₹219/mo)** — both Apple, both monthly, different products.
+
+| | Expected |
+|---|---|
+| ✅ Pass | Both survive as separate subscriptions |
+| ❌ Fail | Collapsed into one — a false merge loses real spend and is worse than the duplicate |
+
+### 7c. Totals
+
+Confirm the dashboard's monthly total does not double-count the duplicate. Note
+`subscriptions.currency` defaults to `INR` while amounts arrive in mixed
+currencies, so verify how the total handles a USD row regardless of dedup.

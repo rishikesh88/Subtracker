@@ -31,6 +31,7 @@ Last updated 2026-08-19.
 | **4** | 16 | Skip already-synced message IDs | ⬜ pending | **medium** |
 | **5** | 18 | `sync_jobs` table + concurrency guard | ⬜ pending | **higher** |
 | **6** | 19 | Model cost optimisation | ⬜ pending | **higher** |
+| **7** | 20 | Cross-currency / cross-name dedup | ⬜ pending | **medium** |
 
 **#12 and #13 must ship together** — a stall watchdog is untestable without
 progress events to stall on.
