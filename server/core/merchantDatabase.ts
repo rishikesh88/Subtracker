@@ -4,8 +4,8 @@
  * Merchant Database Service
  * Verified merchant lookup for enhanced transaction detection
  * 
- * @version 1.0.0
- * @lastModified 2025-11-10
+ * @version 1.0.1
+ * @lastModified 2026-08-18
  * @protection LOCKED - See server/core/README.md for modification protocol
  * @dataSource server/data/merchants.csv (APPEND-ONLY)
  * 
@@ -14,7 +14,7 @@
  * See SPECIFICATION.md for canonical implementation.
  */
 
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { getDomain } from 'tldts';
 
@@ -45,9 +45,36 @@ export class MerchantDatabase {
     this.loadMerchants();
   }
 
+  /**
+   * Resolve merchants.csv across the layouts this file runs under.
+   *
+   * Under tsx (development) import.meta.dirname is server/core, so '../data'
+   * resolves correctly. After esbuild bundles the server into dist/index.js it
+   * becomes dist/, and '../data' points at a directory that does not exist --
+   * which silently disabled merchant enrichment in every production build.
+   * Candidates are ordered most- to least-specific; the first that exists wins.
+   */
+  private resolveCsvPath(): string | null {
+    const candidates = [
+      join(import.meta.dirname, '../data/merchants.csv'), // tsx: server/core -> server/data
+      join(import.meta.dirname, 'data/merchants.csv'),    // bundled alongside dist/
+      join(process.cwd(), 'server/data/merchants.csv'),   // bundled, repo present at cwd
+      join(process.cwd(), 'data/merchants.csv'),          // data copied to deploy root
+    ];
+
+    return candidates.find(existsSync) ?? null;
+  }
+
   private loadMerchants() {
     try {
-      const csvPath = join(import.meta.dirname, '../data/merchants.csv');
+      const csvPath = this.resolveCsvPath();
+      if (!csvPath) {
+        throw new Error(
+          'merchants.csv not found. Merchant enrichment is disabled. ' +
+            `Searched relative to ${import.meta.dirname} and ${process.cwd()}.`
+        );
+      }
+      console.log(`[MerchantDatabase] Loading merchants from ${csvPath}`);
       const csvContent = readFileSync(csvPath, 'utf-8');
       
       const lines = csvContent.split('\n').slice(1); // Skip header
