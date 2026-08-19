@@ -19,8 +19,19 @@ interface SyncProgress {
     emailsProcessed?: number;
     suggestionsGenerated?: number;
     candidateEmails?: number;
+    account?: string;
   };
 }
+
+/**
+ * Fail only after the server has been silent this long. The server reports
+ * progress at every stage, so a gap this size means it has genuinely stopped,
+ * not that the mailbox is large.
+ */
+const STALL_TIMEOUT_MS = 3 * 60 * 1000;
+
+/** Absolute ceiling, for a server that dies without closing the SSE stream. */
+const MAX_SYNC_MS = 60 * 60 * 1000;
 
 export function SyncProgressPanel() {
   const [isMinimized, setIsMinimized] = useState(false);
@@ -29,6 +40,7 @@ export function SyncProgressPanel() {
   const [isComplete, setIsComplete] = useState(false);
   const [isError, setIsError] = useState(false);
   const [syncStartTime, setSyncStartTime] = useState<number | null>(null);
+  const [lastProgressAt, setLastProgressAt] = useState<number>(() => Date.now());
   const [, setLocation] = useLocation();
 
   const { data: user } = useQuery<any>({
@@ -69,6 +81,7 @@ export function SyncProgressPanel() {
       setIsError(false);
       setIsClosed(false);
       setSyncStartTime(Date.now()); // Track when sync started
+      setLastProgressAt(Date.now()); // Reset the stall watchdog
       setSyncProgress({
         type: 'progress',
         stage: 'initializing',
@@ -95,28 +108,46 @@ export function SyncProgressPanel() {
     }
   }, [isComplete, isError]);
 
-  // Add max duration watchdog for stalled syncs (10 minutes total)
+  /**
+   * Watchdog for stalled syncs.
+   *
+   * This previously failed the sync after 10 minutes of *total* duration, which
+   * punished large mailboxes for being large -- a legitimate sync that took
+   * longer was reported to the user as a timeout while the server was still
+   * working. What actually indicates a problem is the server going quiet, so we
+   * measure time since the last progress event instead, with a long absolute
+   * backstop for the case where the server dies mid-stream without closing the
+   * connection.
+   */
   useEffect(() => {
     if (!syncStartTime || isComplete || isError) return;
 
+    const fail = (message: string, reason: string) => {
+      console.error(`Sync watchdog: ${reason}`);
+      setIsError(true);
+      setSyncProgress(prev => (prev ? { ...prev, stage: 'error', message } : null));
+      setSyncStartTime(null);
+    };
+
     const interval = setInterval(() => {
+      const sinceProgress = Date.now() - lastProgressAt;
       const elapsed = Date.now() - syncStartTime;
-      
-      // If sync hasn't completed after 10 minutes, mark as error
-      if (elapsed > 10 * 60 * 1000 && !isComplete && !isError) {
-        console.error('Sync timeout - exceeded 10 minute maximum duration');
-        setIsError(true);
-        setSyncProgress(prev => prev ? {
-          ...prev,
-          stage: 'error',
-          message: 'Sync timed out after 10 minutes. Please try again.',
-        } : null);
-        setSyncStartTime(null);
+
+      if (sinceProgress > STALL_TIMEOUT_MS) {
+        fail(
+          'Sync stopped responding. Please try again.',
+          `no progress for ${Math.round(sinceProgress / 1000)}s`
+        );
+      } else if (elapsed > MAX_SYNC_MS) {
+        fail(
+          'Sync is taking unusually long. Please try again.',
+          `exceeded ${MAX_SYNC_MS / 60000} minute backstop`
+        );
       }
-    }, 30000); // Check every 30 seconds
+    }, 15000); // Check every 15 seconds
 
     return () => clearInterval(interval);
-  }, [syncStartTime, isComplete, isError]);
+  }, [syncStartTime, isComplete, isError, lastProgressAt]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -162,7 +193,8 @@ export function SyncProgressPanel() {
           if (data.type === 'progress') {
             setSyncProgress(data);
             setIsClosed(false);
-            
+            setLastProgressAt(Date.now()); // Feeds the stall watchdog
+
             // Check if sync is complete
             if (data.stage === 'suggestions_ready' || data.progress >= 100) {
               setIsComplete(true);

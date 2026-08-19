@@ -37,23 +37,34 @@ import('@neondatabase/serverless').then(async ({ neon }) => {
 
 ### Reference baseline
 
-Recorded from the first successful production sync, before any of this work.
-Everything is measured against these numbers.
+| Measure | Pre-work | After Phase 1 |
+|---|---|---|
+| Emails in window | 2,458 | 2,505 |
+| Metadata fetch | 640 s | **85 s** (7.5x) |
+| Total sync | 751 s | **503 s** |
+| — of which pre-filter | — | **321 s** (64%) |
+| Candidates after screening | 190 | **655** |
+| Approved by pre-filter | 13 | **58** |
+| Suggestions produced | 7 | **6** |
+| Merchants loaded | 0 — `ENOENT` | **200** |
 
-| Measure | Baseline |
-|---|---|
-| Emails in window | 2,458 |
-| Metadata fetch | **640 s** |
-| Total sync | **751 s** |
-| Candidates after screening | 190 |
-| Approved by pre-filter | 13 |
-| Suggestions produced | **7** (5 high confidence) |
-| Merchants loaded | **0** — `ENOENT`, silently disabled |
+Phase 1 raised candidates 3.4x because merchant enrichment finally worked. The
+bottleneck moved from Gmail I/O to the AI pre-filter.
 
-> **Suggestion count is the regression canary.** The same mailbox should keep
-> producing ~7 suggestions through every phase. A drop means something changed
-> detection behaviour and must be understood before shipping — cheaper or faster
-> is not a win if recall falls.
+**Compare against the "After Phase 1" column from Phase 2 onward.**
+
+> **The service list is the regression canary, not the count.** Capture it before
+> and after any change that could touch detection:
+>
+> ```bash
+> node --env-file=.env scripts/detection-baseline.mjs
+> ```
+>
+> Current set: Airtel Black Plan, Anthropic Claude Subscription, Apple One
+> Family, Claude Pro, Memorisely Membership, iCloud+ 200 GB.
+>
+> A missing *service* is a real regression. A changed *count* may just be Gemini
+> non-determinism — cheaper or faster is not a win if recall falls.
 
 ---
 
@@ -116,16 +127,30 @@ Continuous back-off to the 12 s ceiling means the base rate is too aggressive.
 
 ## Phase 2 — Progress reporting + honest watchdog
 
-### 2a. Progress advances during metadata fetch
+Stage weights: metadata 0–35%, pre-filter 35–70%, full fetch 70–80%,
+analysis 80–98%. These follow measured durations — the **pre-filter is the
+longest stage**, not the Gmail fetch.
+
+### 2a. Progress advances through every stage
 
 Watch the sync panel for the full run.
 
 | | Expected |
 |---|---|
-| ✅ Pass | Percentage moves continuously through the metadata phase |
-| ❌ Fail | Sits at 0% for minutes, then jumps |
+| ✅ Pass | Bar advances during scanning, screening *and* analysis; message text names the current stage |
+| ❌ Fail | Sits still for minutes, then jumps |
 
-The old failure was a ~10.7 minute silent window with no SSE traffic at all.
+The critical one is the **pre-filter** (~5 min on a 2,500 email mailbox). Before
+this phase it emitted nothing at all. Expect `Screening candidates... N%` to tick
+through roughly four updates.
+
+Server-side confirmation:
+
+```bash
+railway logs | grep -E "Metadata progress|Chunk [0-9]+: Approved"
+```
+
+Each of those lines should now have a matching SSE event.
 
 ### 2b. No `Stage: undefined`
 
@@ -141,11 +166,19 @@ Let a full sync run to completion without touching the browser.
 | ✅ Pass | Completes normally; no "timed out" message |
 | ❌ Fail | Panel claims timeout while the server logs show work still progressing |
 
+The old watchdog failed any sync exceeding 10 minutes of *total* duration,
+punishing large mailboxes for being large. It now fires only after
+**3 minutes with no progress event**, with a 60-minute absolute backstop.
+
 ### 2d. Watchdog still catches a real stall
 
-Hard to force safely in production. Acceptable substitute: confirm in the code
-that the watchdog triggers on *time since last progress event*, not total
-elapsed time, and that a long-running backstop still exists.
+Force it: start a sync, then redeploy mid-run (`railway redeploy --from-source
+--yes`) to kill the server without closing the stream.
+
+| | Expected |
+|---|---|
+| ✅ Pass | Within ~3 min the panel shows "Sync stopped responding" |
+| ❌ Fail | Spins indefinitely, or fails instantly on a healthy sync |
 
 ---
 
@@ -278,7 +311,14 @@ Run the three changes **one at a time** — `2.5-pro → 2.5-flash`, then the
 flash-lite pre-filter, then optionally `3.5-flash-lite`. Batching them makes an
 accuracy regression unattributable.
 
-### 6c. Cost check
+### 6c. Cost check (updated after Phase 1)
+
+Phase 1's merchant fix raised deep-processed emails from 13 to 58 per sync, so
+per-sync AI cost rose roughly in proportion. The pre-Phase-1 estimates below
+understate current spend — re-measure before and after each swap rather than
+trusting them.
+
+
 
 Confirm the drop in [Google Cloud billing](https://console.cloud.google.com/billing)
 for the Generative Language API after a few real syncs. Expected direction:
@@ -298,3 +338,41 @@ Run before considering any phase complete:
 - [ ] `https://app.verloq.co/healthz` returns `{"status":"ok"}`
 - [ ] Signup → session → authenticated request still works
 - [ ] Suggestion count on the reference mailbox is still ~7
+
+---
+
+## Phase 7 — cross-currency / cross-name dedup
+
+### 7a. The known duplicate is caught
+
+The reference mailbox produces both **"Anthropic Claude Subscription"
+(₹2,261.12/mo)** and **"Claude Pro" ($23.60/mo)** — one subscription, two
+detections.
+
+| | Expected |
+|---|---|
+| ✅ Pass | Surfaced as a suspected duplicate pair, or merged into one |
+| ❌ Fail | Both still presented as unrelated subscriptions |
+
+### 7b. Genuinely distinct subscriptions are not merged
+
+The same mailbox has **"Apple One Family" (₹365/mo)** and **"iCloud+ 200 GB"
+(₹219/mo)** — both Apple, both monthly, different products.
+
+| | Expected |
+|---|---|
+| ✅ Pass | Both survive as separate subscriptions |
+| ❌ Fail | Collapsed into one — a false merge loses real spend and is worse than the duplicate |
+
+### 7c. Totals
+
+Confirm the dashboard's monthly total does not double-count the duplicate.
+
+Currency conversion is already handled — `getSubscriptionStats` converts each row
+into the user's `preferredCurrency` before summing — so the only error here is
+the duplicate itself. Verify by switching preferred currency in Settings and
+confirming the total rescales rather than changing composition.
+
+⚠️ FX rates are a hardcoded static table (`server/utils/currencyConverter.ts`).
+Do not use amount equivalence as the primary dedup signal; at the static rate
+₹2,261.12 and $23.60 differ by ~13%.

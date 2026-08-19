@@ -52,15 +52,67 @@ function parseValidDate(dateValue: any): Date | null {
   }
 }
 
+/**
+ * Share of an account's progress bar owned by each pipeline stage, as
+ * [start, end] fractions. Weights follow observed durations: on a ~2,500 email
+ * mailbox the AI pre-filter is the longest stage by a wide margin, not the
+ * Gmail fetch.
+ */
+const STAGE_SPANS = {
+  metadata: [0.00, 0.35],
+  prefilter: [0.35, 0.70],
+  fetch_full: [0.70, 0.80],
+  analysis: [0.80, 0.98],
+} as const;
+
+type StageName = keyof typeof STAGE_SPANS;
+
+/** Reports progress within one account's slice of the overall sync. */
+type StageReporter = (
+  stage: StageName,
+  fraction: number,
+  message: string,
+  details?: Record<string, unknown>
+) => void;
+
 export function registerGeminiRoutes(app: Express) {
   // Get progress notification function from parent scope
   const sendProgressUpdate = (globalThis as any).sendProgressUpdate || (() => {});
-  
+
+  /**
+   * Build a reporter that maps stage-local progress into the overall bar.
+   *
+   * Accounts run concurrently, so with several mailboxes the bar reflects
+   * whichever account reported last. That is acceptable: the point is a steady
+   * event stream the client can distinguish from a hang, and the message names
+   * the account. Single-account syncs -- the common case -- are exact.
+   */
+  function makeStageReporter(
+    userId: string,
+    accountLabel: string,
+    accountIndex: number,
+    totalAccounts: number
+  ): StageReporter {
+    return (stage, fraction, message, details) => {
+      const [from, to] = STAGE_SPANS[stage];
+      const withinAccount = from + (to - from) * Math.min(Math.max(fraction, 0), 1);
+      const overall = ((accountIndex + withinAccount) / totalAccounts) * 100;
+
+      sendProgressUpdate(userId, {
+        stage,
+        progress: Math.round(overall),
+        message: totalAccounts > 1 ? `${accountLabel}: ${message}` : message,
+        details: { account: accountLabel, ...details },
+      });
+    };
+  }
+
   // Helper function to process a single Gmail account through the complete pipeline
   async function processGmailAccount(
     userId: string,
     gmailAccount: any,
-    emailSyncDays: number
+    emailSyncDays: number,
+    report: StageReporter = () => {}
   ): Promise<{
     success: boolean;
     accountId: string;
@@ -127,6 +179,8 @@ export function registerGeminiRoutes(app: Express) {
       
       console.log(`\n📊 PHASE 1: Lightweight Email Screening`);
       
+      report('metadata', 0, 'Scanning mailbox...');
+
       const emailMetadata = await gmailService.getEmailMetadata(
         accessToken,
         gmailAccount.refreshToken,
@@ -136,9 +190,14 @@ export function registerGeminiRoutes(app: Express) {
           if (tokens.expiry_date) updateData.tokenExpiry = new Date(tokens.expiry_date);
           await storage.updateGmailAccount(gmailAccount.id, updateData);
         },
-        emailSyncDays
+        emailSyncDays,
+        (done, total) =>
+          report('metadata', done / total, `Scanned ${done} of ${total} emails`, {
+            emailsProcessed: done,
+            totalEmails: total,
+          })
       );
-      
+
       console.log(`✅ Fetched metadata for ${emailMetadata.length} emails`);
       
       // Phase 1b: Extract metadata and apply enhanced transaction detection
@@ -176,20 +235,39 @@ export function registerGeminiRoutes(app: Express) {
         .filter(c => c.id)
         .map(c => ({ ...c, id: c.id! }));
       
-      const aiApprovedIds = await geminiDetector.prefilterCandidates(candidatesWithIds);
-      
+      report(
+        'prefilter',
+        0,
+        `Screening ${candidatesWithIds.length} candidate emails...`,
+        { candidateEmails: candidatesWithIds.length }
+      );
+
+      // prefilterCandidates already accepts a progress callback; it was simply
+      // never passed. This is the longest stage of the sync.
+      const aiApprovedIds = await geminiDetector.prefilterCandidates(
+        candidatesWithIds,
+        (percent: number) =>
+          report('prefilter', percent / 100, `Screening candidates... ${Math.round(percent)}%`, {
+            candidateEmails: candidatesWithIds.length,
+          })
+      );
+
       console.log(`✅ AI approved ${aiApprovedIds.length} emails for deep processing`);
-      
+
       // ═══════════════════════════════════════════
       // PHASE 2: DEEP PROCESSING (TARGETED)
       // ═══════════════════════════════════════════
-      
+
       console.log(`\n📥 PHASE 2: Deep Processing`);
-      
+
+      report('fetch_full', 0, `Fetching ${aiApprovedIds.length} matching emails...`);
+
       const gmailMessages = await gmailService.getEmailsByIds(
         accessToken,
         gmailAccount.refreshToken,
-        aiApprovedIds
+        aiApprovedIds,
+        (done, total) =>
+          report('fetch_full', done / total, `Fetching emails ${done} of ${total}...`)
       );
       
       console.log(`✅ Fetched full content for ${gmailMessages.length} emails`);
@@ -283,12 +361,23 @@ export function registerGeminiRoutes(app: Express) {
       }
       
       console.log(`✅ Processed ${savedEmails.length} emails with ${totalAttachments} attachments`);
-      
+
       // Step 4: LLM Analysis with Gemini
       console.log(`🤖 Starting Gemini analysis on ${savedEmails.length} emails...`);
-      
+
+      // analyzeEmailsForSubscriptions has no progress hook and lives in the
+      // protected core, so this stage is bracketed rather than sampled. It runs
+      // well inside the client's stall threshold.
+      report('analysis', 0, `Analysing ${savedEmails.length} emails for subscriptions...`, {
+        emailsProcessed: savedEmails.length,
+      });
+
       const geminiResults = await geminiDetector.analyzeEmailsForSubscriptions(savedEmails);
-      
+
+      report('analysis', 1, `Found ${geminiResults.subscriptions.length} possible subscriptions`, {
+        suggestionsGenerated: geminiResults.subscriptions.length,
+      });
+
       console.log(`✅ Gemini analysis complete:`);
       console.log(`   • Total suggestions: ${geminiResults.subscriptions.length}`);
       console.log(`   • High confidence: ${geminiResults.subscriptions.filter(s => s.confidence === 'high').length}`);
@@ -393,7 +482,8 @@ export function registerGeminiRoutes(app: Express) {
   async function processOutlookAccount(
     userId: string,
     outlookAccount: any,
-    emailSyncDays: number
+    emailSyncDays: number,
+    report: StageReporter = () => {}
   ): Promise<{
     success: boolean;
     accountId: string;
@@ -464,6 +554,8 @@ export function registerGeminiRoutes(app: Express) {
       
       console.log(`\n📊 PHASE 1: Lightweight Email Screening`);
       
+      report('metadata', 0, 'Scanning mailbox...');
+
       const emailMetadata = await outlookService.fetchEmailMetadata(
         accessToken,
         outlookAccount.refreshToken,
@@ -475,7 +567,12 @@ export function registerGeminiRoutes(app: Express) {
         },
         emailSyncDays
       );
-      
+
+      report('metadata', 1, `Scanned ${emailMetadata.length} emails`, {
+        emailsProcessed: emailMetadata.length,
+        totalEmails: emailMetadata.length,
+      });
+
       console.log(`✅ Fetched metadata for ${emailMetadata.length} emails`);
       
       // Phase 1b: Apply enhanced transaction detection to normalized metadata
@@ -502,16 +599,31 @@ export function registerGeminiRoutes(app: Express) {
         .filter(c => c.id)
         .map(c => ({ ...c, id: c.id! }));
       
-      const aiApprovedIds = await geminiDetector.prefilterCandidates(candidatesWithIds);
-      
+      report(
+        'prefilter',
+        0,
+        `Screening ${candidatesWithIds.length} candidate emails...`,
+        { candidateEmails: candidatesWithIds.length }
+      );
+
+      const aiApprovedIds = await geminiDetector.prefilterCandidates(
+        candidatesWithIds,
+        (percent: number) =>
+          report('prefilter', percent / 100, `Screening candidates... ${Math.round(percent)}%`, {
+            candidateEmails: candidatesWithIds.length,
+          })
+      );
+
       console.log(`✅ AI approved ${aiApprovedIds.length} emails for deep processing`);
-      
+
       // ═══════════════════════════════════════════
       // PHASE 2: DEEP PROCESSING (TARGETED)
       // ═══════════════════════════════════════════
-      
+
       console.log(`\n📥 PHASE 2: Deep Processing`);
-      
+
+      report('fetch_full', 0, `Fetching ${aiApprovedIds.length} matching emails...`);
+
       // Fetch full emails for AI-approved candidates
       const fullEmails = await Promise.all(
         aiApprovedIds.map(msgId => 
@@ -751,21 +863,34 @@ export function registerGeminiRoutes(app: Express) {
           type AccountTask = {
             provider: 'gmail' | 'outlook';
             account: any;
-            process: () => Promise<any>;
+            /** `index` is the account's position in the overall progress bar. */
+            process: (index: number) => Promise<any>;
           };
       
           const gmailTasks: AccountTask[] = gmailAccounts.map(account => ({
             provider: 'gmail' as const,
             account,
-            process: () => processGmailAccount(userId, account, emailSyncDays)
+            process: (index: number) =>
+              processGmailAccount(
+                userId,
+                account,
+                emailSyncDays,
+                makeStageReporter(userId, account.gmailEmail, index, totalAccounts)
+              )
           }));
-      
+
           const outlookTasks: AccountTask[] = outlookAccounts.map(account => ({
             provider: 'outlook' as const,
             account,
-            process: () => processOutlookAccount(userId, account, emailSyncDays)
+            process: (index: number) =>
+              processOutlookAccount(
+                userId,
+                account,
+                emailSyncDays,
+                makeStageReporter(userId, account.outlookEmail, index, totalAccounts)
+              )
           }));
-      
+
           // Interleave Gmail and Outlook tasks for balanced processing
           const allTasks: AccountTask[] = [];
           const maxLength = Math.max(gmailTasks.length, outlookTasks.length);
@@ -786,19 +911,19 @@ export function registerGeminiRoutes(app: Express) {
             const limitedBatch = [...gmailBatch, ...outlookBatch];
         
             const batchResults = await Promise.allSettled(
-              limitedBatch.map(task => task.process())
+              limitedBatch.map(task => task.process(allTasks.indexOf(task)))
             );
-        
+
             results.push(...batchResults);
             completed += limitedBatch.length;
-        
+
             // Send progress update after each batch
             const progressPercentage = Math.round((completed / totalAccounts) * 90);
             sendProgressUpdate(userId, {
               stage: 'accounts_syncing',
               progress: progressPercentage,
               message: `Synced ${completed} of ${totalAccounts} accounts...`,
-              details: { 
+              details: {
                 completed,
                 total: totalAccounts
               }
