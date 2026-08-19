@@ -37,23 +37,34 @@ import('@neondatabase/serverless').then(async ({ neon }) => {
 
 ### Reference baseline
 
-Recorded from the first successful production sync, before any of this work.
-Everything is measured against these numbers.
+| Measure | Pre-work | After Phase 1 |
+|---|---|---|
+| Emails in window | 2,458 | 2,505 |
+| Metadata fetch | 640 s | **85 s** (7.5x) |
+| Total sync | 751 s | **503 s** |
+| — of which pre-filter | — | **321 s** (64%) |
+| Candidates after screening | 190 | **655** |
+| Approved by pre-filter | 13 | **58** |
+| Suggestions produced | 7 | **6** |
+| Merchants loaded | 0 — `ENOENT` | **200** |
 
-| Measure | Baseline |
-|---|---|
-| Emails in window | 2,458 |
-| Metadata fetch | **640 s** |
-| Total sync | **751 s** |
-| Candidates after screening | 190 |
-| Approved by pre-filter | 13 |
-| Suggestions produced | **7** (5 high confidence) |
-| Merchants loaded | **0** — `ENOENT`, silently disabled |
+Phase 1 raised candidates 3.4x because merchant enrichment finally worked. The
+bottleneck moved from Gmail I/O to the AI pre-filter.
 
-> **Suggestion count is the regression canary.** The same mailbox should keep
-> producing ~7 suggestions through every phase. A drop means something changed
-> detection behaviour and must be understood before shipping — cheaper or faster
-> is not a win if recall falls.
+**Compare against the "After Phase 1" column from Phase 2 onward.**
+
+> **The service list is the regression canary, not the count.** Capture it before
+> and after any change that could touch detection:
+>
+> ```bash
+> node --env-file=.env scripts/detection-baseline.mjs
+> ```
+>
+> Current set: Airtel Black Plan, Anthropic Claude Subscription, Apple One
+> Family, Claude Pro, Memorisely Membership, iCloud+ 200 GB.
+>
+> A missing *service* is a real regression. A changed *count* may just be Gemini
+> non-determinism — cheaper or faster is not a win if recall falls.
 
 ---
 
