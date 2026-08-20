@@ -47,12 +47,42 @@ const oauthStates = new Map<string, {
   privacyConsentGiven?: boolean;
 }>();
 
+/**
+ * Last progress event per user, replayed to a client that reconnects mid-sync.
+ *
+ * Long-lived SSE streams do not survive a full sync: the platform proxy closes
+ * them after ~15 minutes and the browser reconnects immediately. Without a
+ * snapshot the reconnected client has no state to render until the *next*
+ * progress event, so a stage that takes minutes leaves the panel blank and the
+ * stall watchdog counting.
+ */
+const lastProgressByUser = new Map<string, { event: string; timestamp: number }>();
+
+/** How long a snapshot stays worth replaying. */
+const PROGRESS_SNAPSHOT_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * Stages that end a sync. Their snapshots are dropped rather than replayed --
+ * re-sending one would pop the progress panel open on an unrelated page load
+ * for a sync the user has already seen finish.
+ */
+const TERMINAL_STAGES = new Set(['completed', 'sync_complete', 'suggestions_ready', 'error']);
+
 // Clean up old states (older than 10 minutes)
 const cleanupOldStates = () => {
   const tenMinutesAgo = Date.now() - 10 * 60 * 1000;
   for (const [state, data] of Array.from(oauthStates.entries())) {
     if (data.timestamp < tenMinutesAgo) {
       oauthStates.delete(state);
+    }
+  }
+
+  // Progress snapshots for users who never reconnected, so the map does not
+  // grow with one stale entry per interrupted sync.
+  const snapshotCutoff = Date.now() - PROGRESS_SNAPSHOT_TTL_MS;
+  for (const [userId, snapshot] of Array.from(lastProgressByUser.entries())) {
+    if (snapshot.timestamp < snapshotCutoff) {
+      lastProgressByUser.delete(userId);
     }
   }
 };
@@ -70,14 +100,22 @@ export function sendProgressUpdate(userId: string, data: {
   message: string;
   details?: any;
 }) {
+  const eventData = JSON.stringify({
+    type: 'progress',
+    timestamp: new Date().toISOString(),
+    ...data
+  });
+
+  // Record the snapshot regardless of whether anyone is currently listening --
+  // the reconnect gap is exactly when there are no connections to write to.
+  if (TERMINAL_STAGES.has(data.stage) || data.progress >= 100) {
+    lastProgressByUser.delete(userId);
+  } else {
+    lastProgressByUser.set(userId, { event: eventData, timestamp: Date.now() });
+  }
+
   const connections = sseConnections.get(userId);
   if (connections && connections.size > 0) {
-    const eventData = JSON.stringify({
-      type: 'progress',
-      timestamp: new Date().toISOString(),
-      ...data
-    });
-    
     // Send to all SSE connections for this user
     connections.forEach(res => {
       // Only skip if connection is ended or destroyed
@@ -2299,7 +2337,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       timestamp: new Date().toISOString(),
       message: 'Connected for real-time sync updates'
     })}\n\n`);
-    
+
+    // Replay the last progress event so a client that reconnected mid-sync
+    // renders the current stage immediately instead of waiting for the next one.
+    const snapshot = lastProgressByUser.get(userId);
+    if (snapshot) {
+      if (Date.now() - snapshot.timestamp > PROGRESS_SNAPSHOT_TTL_MS) {
+        lastProgressByUser.delete(userId);
+      } else {
+        res.write(`data: ${snapshot.event}\n\n`);
+        console.log(`Replayed progress snapshot for user: ${userId}`);
+      }
+    }
+
     // Send periodic heartbeat to keep connection alive (every 30 seconds)
     const heartbeatInterval = setInterval(() => {
       if (res.writableEnded || res.destroyed) {
