@@ -3,7 +3,7 @@
 Quick reference. Detail lives in [HANDOVER.md](HANDOVER.md); test criteria in
 [TESTING.md](../TESTING.md).
 
-Last updated 2026-08-19.
+Last updated 2026-08-20.
 
 ## Migration (PR #2)
 
@@ -23,11 +23,11 @@ Last updated 2026-08-19.
 
 | Phase | # | Task | Status | Risk |
 |---|---|---|---|---|
-| **1** | 14 | Adaptive Gmail rate limiter | 🚀 **deployed, UNVERIFIED** | low |
-| **1** | 15 | 🔒 merchants.csv path fix | 🚀 **deployed, UNVERIFIED** | low |
-| **2** | 12 | SSE progress during metadata fetch | ⬜ pending | low |
-| **2** | 13 | Stall-based client watchdog | ⬜ pending | low |
-| **3** | 17 | SSE reconnect recovery + heartbeat filter | ⬜ pending | low |
+| **1** | 14 | Adaptive Gmail rate limiter | ✅ verified in production | low |
+| **1** | 15 | 🔒 merchants.csv path fix | ✅ verified in production | low |
+| **2** | 12 | SSE progress during metadata fetch | 🚀 **deployed, UNVERIFIED** | low |
+| **2** | 13 | Stall-based client watchdog | 🚀 **deployed, UNVERIFIED** | low |
+| **3** | 17 | SSE reconnect recovery + heartbeat filter | 🔨 built, not yet deployed | low |
 | **4** | 16 | Skip already-synced message IDs | ⬜ pending | **medium** |
 | **5** | 18 | `sync_jobs` table + concurrency guard | ⬜ pending | **higher** |
 | **6** | 19 | Model cost optimisation | ⬜ pending | **higher** |
@@ -57,8 +57,11 @@ progress events to stall on.
 
 | Issue | Impact |
 |---|---|
-| Phase 1 never measured | Don't start Phase 2 until verified — and **verify before Phase 4**, which invalidates the baseline |
-| `scripts/phase1-check.mjs` broken | Guesses column names; `created_at` doesn't exist on `emails` |
+| Phase 2 never measured | **Verify before Phase 4**, which invalidates the baseline |
+| SSE stream cut every ~15 min | Platform proxy closes it despite 30s heartbeats; the browser reconnects instantly. #17 replays a snapshot so the reconnect is invisible |
+| Unknown `/api/*` paths return **200 + HTML** | `app.use("*")` in [vite.ts:82](../server/vite.ts:82) serves `index.html` for everything unmatched. No leak — a scanner probing `/api/.env` got the SPA shell — but API 404s are indistinguishable from hits in the logs |
+| `URIError: Failed to decode param '/%c0'` | Unhandled `serve-static` throw on a malformed path. Logged a stack trace; did not crash |
+| Replit OIDC branch still in boot path | `[Auth] REPLIT_DOMAINS not set, skipping Replit OIDC auth setup` on every start. Dead code from the migration |
 | 11 pre-existing `tsc` errors | Baseline, identical on `main`. New errors in touched files are real failures |
 | `lastSync` written at sync *start* | A crashed sync looks successful. Fixed by #18 |
 | Railway auto-deploy unreliable | Use `railway redeploy --from-source --yes`; plain `redeploy` rebuilds the same commit |
@@ -66,17 +69,22 @@ progress events to stall on.
 
 ## Reference baseline
 
-From the first successful production sync, before any hardening:
+| Measure | Pre-work | After Phase 1 |
+|---|---|---|
+| Emails in window | 2,458 | 2,505 |
+| Metadata fetch | 640 s | **85 s** (7.5x) |
+| Total sync | 751 s | **503 s** |
+| — of which pre-filter | — | **321 s** (64%) |
+| Candidates after screening | 190 | **655** |
+| Approved by pre-filter | 13 | **58** |
+| Suggestions | 7 | **6** |
+| Merchants loaded | 0 — `ENOENT` | **200** |
 
-| Measure | Value |
-|---|---|
-| Emails in window | 2,458 |
-| Metadata fetch | **640 s** |
-| Total sync | **751 s** |
-| Candidates after screening | 190 |
-| Approved by pre-filter | 13 |
-| Suggestions | **7** (5 high confidence) |
-| Merchants loaded | **0** — `ENOENT` |
+**Compare against the "After Phase 1" column.** Phase 1 moved the bottleneck
+from Gmail I/O to the AI pre-filter.
 
-Suggestion count is the regression canary: ~7 on this mailbox through every
-phase. Fewer means something changed detection behaviour.
+The regression canary is the **service list, not the count** — a changed count
+may just be Gemini non-determinism, but a missing service is real. Capture it
+with `node --env-file=.env scripts/detection-baseline.mjs`. Current set: Airtel
+Black Plan, Anthropic Claude Subscription, Apple One Family, Claude Pro,
+Memorisely Membership, iCloud+ 200 GB.

@@ -184,6 +184,15 @@ Force it: start a sync, then redeploy mid-run (`railway redeploy --from-source
 
 ## Phase 3 — SSE reconnect
 
+Production logs show the stream being closed and immediately re-established
+every ~15 minutes even while idle, so this path is exercised on any sync long
+enough to matter — not only by a manual refresh.
+
+The server keeps the last progress event per user for 5 minutes and replays it
+to a reconnecting client. Snapshots for terminal stages (`completed`,
+`sync_complete`, `suggestions_ready`, `error`) are dropped rather than replayed,
+so a finished sync does not re-open the panel on a later page load.
+
 ### 3a. State survives a refresh
 
 1. Start a sync

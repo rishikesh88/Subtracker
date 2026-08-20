@@ -2,13 +2,20 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 export interface SyncProgressUpdate {
-  type: 'progress' | 'connected' | 'error';
+  type: 'progress' | 'connected' | 'error' | 'heartbeat';
   timestamp: string;
   stage?: string;
   progress?: number;
   message?: string;
   details?: any;
 }
+
+/**
+ * Event types that carry no user-facing text. The server sends a heartbeat every
+ * 30 seconds to hold the connection open; logging those rendered one
+ * "Stage: undefined" line per heartbeat and pushed real progress out of view.
+ */
+const SILENT_EVENT_TYPES = new Set<SyncProgressUpdate['type']>(['heartbeat', 'connected']);
 
 export interface SyncProgressState {
   isConnected: boolean;
@@ -53,13 +60,17 @@ export function useSyncProgress(userId: string | null, enabled: boolean = false)
     source.onmessage = (event) => {
       try {
         const update: SyncProgressUpdate = JSON.parse(event.data);
-        
+
         setProgressState(prev => ({
           ...prev,
-          updates: [...prev.updates, update],
+          ...(!SILENT_EVENT_TYPES.has(update.type) && {
+            updates: [...prev.updates, update]
+          }),
           ...(update.type === 'progress' && {
             currentStage: update.stage || prev.currentStage,
-            progress: update.progress || prev.progress,
+            // ?? not ||: a legitimate 0% update would otherwise be discarded in
+            // favour of whatever the bar showed before.
+            progress: update.progress ?? prev.progress,
             message: update.message || prev.message,
             details: update.details || prev.details
           })
