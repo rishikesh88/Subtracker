@@ -33,6 +33,7 @@ export interface IStorage {
   getEmail(id: string): Promise<Email | undefined>;
   getEmailsByIds(ids: string[]): Promise<Email[]>;
   getEmailByGmailId(gmailId: string): Promise<Email | undefined>;
+  getSyncedGmailIds(userId: string): Promise<Set<string>>;
   createEmail(email: InsertEmail): Promise<Email>;
   updateEmail(id: string, updates: Partial<Email>): Promise<Email | undefined>;
   deleteEmail(id: string): Promise<boolean>;
@@ -558,6 +559,29 @@ export class DatabaseStorage implements IStorage {
     } catch (error) {
       console.error('Error getting email by Gmail ID:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Provider message IDs already stored for this user.
+   *
+   * Used to skip re-fetching mail the sync has already seen. Selects only the
+   * id column -- the full rows would be tens of MB on a large mailbox, and
+   * nothing here needs their contents.
+   */
+  async getSyncedGmailIds(userId: string): Promise<Set<string>> {
+    try {
+      const rows = await this.db
+        .select({ gmailId: emails.gmailId })
+        .from(emails)
+        .where(eq(emails.userId, userId));
+
+      return new Set(rows.map((row: { gmailId: string }) => row.gmailId));
+    } catch (error) {
+      console.error('Error getting synced Gmail IDs:', error);
+      // An empty set means "skip nothing", so a failure here costs a slow sync
+      // rather than silently dropping mail from the run.
+      return new Set();
     }
   }
 
