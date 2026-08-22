@@ -25,9 +25,9 @@ Last updated 2026-08-20.
 |---|---|---|---|---|
 | **1** | 14 | Adaptive Gmail rate limiter | ✅ verified in production | low |
 | **1** | 15 | 🔒 merchants.csv path fix | ✅ verified in production | low |
-| **2** | 12 | SSE progress during metadata fetch | 🚀 **deployed, UNVERIFIED** | low |
-| **2** | 13 | Stall-based client watchdog | 🚀 **deployed, UNVERIFIED** | low |
-| **3** | 17 | SSE reconnect recovery + heartbeat filter | 🔨 built, not yet deployed | low |
+| **2** | 12 | SSE progress during metadata fetch | ✅ verified (§2a) | low |
+| **2** | 13 | Stall-based client watchdog | ✅ verified (§2c); §2d untested | low |
+| **3** | 17 | SSE reconnect recovery + heartbeat filter | ⚠️ deployed; §2b passes, **§3a untested** | low |
 | **4** | 16 | Skip already-synced message IDs | ⬜ pending | **medium** |
 | **5** | 18 | `sync_jobs` table + concurrency guard | ⬜ pending | **higher** |
 | **6** | 19 | Model cost optimisation | ⬜ pending | **higher** |
@@ -57,7 +57,8 @@ progress events to stall on.
 
 | Issue | Impact |
 |---|---|
-| Phase 2 never measured | **Verify before Phase 4**, which invalidates the baseline |
+| Client bundle differs local vs Railway | Same commit and lockfile, identical CSS hash and server bundle, but Railway emits 2,199 modules / 1,078 kB against 732 kB locally. Unexplained; not dev-React. Phase 3 *is* live (§2b passes), so it is not a stale-deploy problem |
+| §3a and §2d never run | Phase 3's reconnect replay and the forced-stall watchdog are both unverified in production |
 | SSE stream cut every ~15 min | Platform proxy closes it despite 30s heartbeats; the browser reconnects instantly. #17 replays a snapshot so the reconnect is invisible |
 | Unknown `/api/*` paths return **200 + HTML** | `app.use("*")` in [vite.ts:82](../server/vite.ts:82) serves `index.html` for everything unmatched. No leak — a scanner probing `/api/.env` got the SPA shell — but API 404s are indistinguishable from hits in the logs |
 | `URIError: Failed to decode param '/%c0'` | Unhandled `serve-static` throw on a malformed path. Logged a stack trace; did not crash |
@@ -85,6 +86,28 @@ from Gmail I/O to the AI pre-filter.
 
 The regression canary is the **service list, not the count** — a changed count
 may just be Gemini non-determinism, but a missing service is real. Capture it
-with `node --env-file=.env scripts/detection-baseline.mjs`. Current set: Airtel
-Black Plan, Anthropic Claude Subscription, Apple One Family, Claude Pro,
-Memorisely Membership, iCloud+ 200 GB.
+with `node --env-file=.env scripts/detection-baseline.mjs`.
+
+## Canary — 2026-08-22, after Phases 2 and 3
+
+No baseline service lost, three gained:
+
+| Service | Amount |
+|---|---|
+| Airtel Black 1598 Plan | ₹1,885.64 / mo |
+| Apple One Family | ₹365.00 / mo |
+| Claude Pro | ₹2,261.12 / mo |
+| iCloud+ | ₹219.00 / mo |
+| Memorisely Membership | $180.00 / yr |
+| **Netflix** | ₹649.00 / mo |
+| **Google One (100 GB)** | ₹130.00 / mo |
+| **YouTube Premium** | ₹149.00 / mo |
+
+"Anthropic Claude Subscription" is absent, and that is the *correct* outcome —
+it was the #20 duplicate of Claude Pro. The surviving row has the right amount:
+₹1,916.20 + 18% GST = ₹2,261.12, the same pattern as Airtel's 1598 + GST.
+**#20 is still unimplemented**, so a future run can resurface the pair.
+
+Read this list with one caveat: it is the *Subscriptions* view, captured after
+approval, so the three new services cannot be attributed to this run alone.
+What it does establish is that nothing from the baseline went missing.
