@@ -182,13 +182,26 @@ export function registerGeminiRoutes(app: Express) {
       
       report('metadata', 0, 'Scanning mailbox...');
 
-      // Mail already stored for this user is skipped before the metadata fetch,
-      // which keeps it out of the AI pre-filter too -- together the bulk of a
-      // sync. A lookup failure returns an empty set, degrading to a full sync
-      // rather than dropping mail.
-      const syncedGmailIds = await storage.getSyncedGmailIds(userId);
-      if (syncedGmailIds.size > 0) {
-        console.log(`📇 ${syncedGmailIds.size} emails already synced for this user`);
+      // Mail already screened is skipped before the metadata fetch, which keeps
+      // it out of the AI pre-filter too -- together the bulk of a sync.
+      //
+      // Both sources are needed. `emails` holds only the pre-filter survivors,
+      // so on its own it skips almost nothing; `screened_messages` covers every
+      // id the sync has looked at. Stored emails stay in the union so mail
+      // processed before that table existed is still recognised.
+      const [screenedIds, syncedGmailIds] = await Promise.all([
+        storage.getScreenedMessageIds(userId, 'gmail'),
+        storage.getSyncedGmailIds(userId),
+      ]);
+
+      // Built with forEach rather than spread: this project's tsc target does
+      // not allow iterating a Set directly.
+      const alreadySeen = new Set<string>();
+      screenedIds.forEach(id => alreadySeen.add(id));
+      syncedGmailIds.forEach(id => alreadySeen.add(id));
+
+      if (alreadySeen.size > 0) {
+        console.log(`📇 ${alreadySeen.size} messages already seen (${screenedIds.size} screened, ${syncedGmailIds.size} stored)`);
       }
 
       const emailMetadata = await gmailService.getEmailMetadata(
@@ -206,7 +219,7 @@ export function registerGeminiRoutes(app: Express) {
             emailsProcessed: done,
             totalEmails: total,
           }),
-        syncedGmailIds
+        alreadySeen
       );
 
       console.log(`✅ Fetched metadata for ${emailMetadata.length} emails`);
@@ -264,6 +277,13 @@ export function registerGeminiRoutes(app: Express) {
       );
 
       console.log(`✅ AI approved ${aiApprovedIds.length} emails for deep processing`);
+
+      // Record only after screening has actually completed. Writing these
+      // earlier would mark mail as seen that a crash mid-pre-filter never
+      // examined, and it would then be skipped permanently on every later run.
+      const screenedThisRun = extractedMetadata.map(m => m.id).filter(Boolean);
+      const recordedCount = await storage.recordScreenedMessages(userId, screenedThisRun, 'gmail');
+      console.log(`📇 Recorded ${recordedCount} screened message IDs`);
 
       // ═══════════════════════════════════════════
       // PHASE 2: DEEP PROCESSING (TARGETED)

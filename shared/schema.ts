@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, decimal, integer, boolean, index, jsonb, check } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, decimal, integer, boolean, index, uniqueIndex, jsonb, check } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -129,6 +129,30 @@ export const subscriptions = pgTable("subscriptions", {
   index("idx_subscriptions_provider_account").on(table.providerAccountId),
   check("valid_email_provider", sql`email_provider IS NULL OR email_provider IN ('gmail', 'outlook')`),
   check("provider_fields_sync", sql`(email_provider IS NULL) = (provider_account_id IS NULL)`),
+]);
+
+/**
+ * Provider message IDs this user's sync has already screened.
+ *
+ * Distinct from `emails`, which holds only the small subset that survives the
+ * AI pre-filter and gets fully fetched -- roughly 120 rows against a 2,500
+ * message window. Skipping work on the basis of `emails` therefore skips almost
+ * nothing; the screened population is what a repeat sync needs to avoid.
+ *
+ * One row per message, no body, no metadata: the sync only ever asks "have I
+ * looked at this id before".
+ */
+export const screenedMessages = pgTable("screened_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  provider: text("provider").notNull().default('gmail'),
+  messageId: text("message_id").notNull(),
+  screenedAt: timestamp("screened_at").defaultNow().notNull(),
+}, (table) => [
+  // Scoped per user, unlike emails.gmail_id which is globally unique. Two
+  // mailboxes are free to carry the same provider id.
+  uniqueIndex("uq_screened_user_provider_message").on(table.userId, table.provider, table.messageId),
+  index("idx_screened_user_provider").on(table.userId, table.provider),
 ]);
 
 export const emails = pgTable("emails", {
