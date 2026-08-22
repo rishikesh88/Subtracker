@@ -182,6 +182,15 @@ export function registerGeminiRoutes(app: Express) {
       
       report('metadata', 0, 'Scanning mailbox...');
 
+      // Mail already stored for this user is skipped before the metadata fetch,
+      // which keeps it out of the AI pre-filter too -- together the bulk of a
+      // sync. A lookup failure returns an empty set, degrading to a full sync
+      // rather than dropping mail.
+      const syncedGmailIds = await storage.getSyncedGmailIds(userId);
+      if (syncedGmailIds.size > 0) {
+        console.log(`📇 ${syncedGmailIds.size} emails already synced for this user`);
+      }
+
       const emailMetadata = await gmailService.getEmailMetadata(
         accessToken,
         gmailAccount.refreshToken,
@@ -196,7 +205,8 @@ export function registerGeminiRoutes(app: Express) {
           report('metadata', done / total, `Scanned ${done} of ${total} emails`, {
             emailsProcessed: done,
             totalEmails: total,
-          })
+          }),
+        syncedGmailIds
       );
 
       console.log(`✅ Fetched metadata for ${emailMetadata.length} emails`);

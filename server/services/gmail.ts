@@ -204,7 +204,7 @@ export class GmailService {
    * Fetch lightweight email metadata (subject, sender, snippet only)
    * Much faster than full fetch - for Phase 1 screening
    */
-  async getEmailMetadata(accessToken: string, refreshToken: string, onTokenRefresh?: (tokens: OAuthTokens) => Promise<void>, days: number = 90, onProgress?: BatchProgress) {
+  async getEmailMetadata(accessToken: string, refreshToken: string, onTokenRefresh?: (tokens: OAuthTokens) => Promise<void>, days: number = 90, onProgress?: BatchProgress, skipMessageIds?: ReadonlySet<string>) {
     this.oauth2Client.setCredentials({
       access_token: accessToken,
       refresh_token: refreshToken
@@ -238,8 +238,29 @@ export class GmailService {
         return [];
       }
 
+      // Drop mail this user has already synced. Listing IDs is one cheap call;
+      // everything after it -- metadata fetch and the AI pre-filter, which
+      // together are the bulk of a sync -- scales with what survives here.
+      //
+      // The match is exact string equality against a stored Gmail message ID,
+      // so it cannot over-match and silently lose mail: an ID is skipped only
+      // if that exact message is already in the database.
+      const messageIds = skipMessageIds?.size
+        ? allMessageIds.filter(id => !skipMessageIds.has(id))
+        : allMessageIds;
+
+      const skipped = allMessageIds.length - messageIds.length;
+      if (skipped > 0) {
+        console.log(`⏭️  Skipping ${skipped} already-synced emails, ${messageIds.length} new to fetch`);
+      }
+
+      if (messageIds.length === 0) {
+        console.log(`✅ No new emails since the last sync`);
+        return [];
+      }
+
       // Fetch metadata only (much faster)
-      const metadata = await this.fetchMetadataInBatches(gmail, allMessageIds, onProgress);
+      const metadata = await this.fetchMetadataInBatches(gmail, messageIds, onProgress);
       console.log(`✅ Retrieved metadata for ${metadata.length} emails`);
       return metadata;
     } catch (error) {

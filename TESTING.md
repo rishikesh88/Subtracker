@@ -271,6 +271,16 @@ permanent, invisible data loss.
 
 Existing suggestions should not be duplicated or dropped by the second run.
 
+A repeat sync with no new mail now produces no suggestions at all, so nothing
+can be duplicated. **New mail for a service you already track is the remaining
+case** — suggestions are inserted without checking for an existing `serviceKey`
+([geminiSync.ts](../server/routes/geminiSync.ts)), so a fresh renewal email can
+raise a second suggestion for a subscription already approved.
+
+That behaviour predates this phase and is much reduced by it — every repeat sync
+previously re-analysed the whole mailbox and could duplicate the entire set.
+Eliminating it needs suggestion-level dedup, which belongs with #20.
+
 ---
 
 ## Phase 5 — Durability
