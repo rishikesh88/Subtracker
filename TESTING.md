@@ -218,6 +218,30 @@ connection or a stuck percentage.
 
 ---
 
+## Billing dates — no next payment in the past
+
+Found 2026-08-22: Memorisely Membership, a *yearly* subscription, showed
+`last email 3rd Aug 2026` with `next payment 10th Aug 2026` — twelve days in
+the past and seven days after the last email.
+
+Cause: `storage.ts` trusted the model-supplied `nextBillingDate` unchanged. The
+model reads that date out of the renewal email, so it is only as fresh as the
+email. The fallback path (`last email + one period`) was never affected, which
+is why every other row was correct.
+
+After a sync, scan the subscriptions list:
+
+| | Expected |
+|---|---|
+| ✅ Pass | Every **next payment** date is in the future |
+| ❌ Fail | Any past date, especially on a `yearly` row |
+
+Yearly subscriptions are the ones to check — they have the widest window in
+which a stale extracted date can survive. A correctly extracted future date
+must keep the exact day the provider stated, not be recomputed.
+
+---
+
 ## Phase 4 — Repeat-sync cost
 
 ### 4a. Second sync is near-instant

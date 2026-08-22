@@ -6,6 +6,7 @@ import { EnhancedEmailParser } from "../services/enhancedEmailParser";
 import { GeminiSubscriptionDetector } from "../core/geminiSubscriptionDetector";
 import { TransactionDetector } from "../core/transactionDetector";
 import { generateServiceKey } from "../utils/serviceKey";
+import { ensureFutureBillingDate } from "../utils/billingDate";
 import { isAuthenticated } from "../auth";
 
 // Helper function to get userId from normalized session structure
@@ -437,7 +438,7 @@ export function registerGeminiRoutes(app: Express) {
         senderHistory: suggestion.senderHistory ? (typeof suggestion.senderHistory === 'string' ? suggestion.senderHistory : JSON.stringify(suggestion.senderHistory)) : null,
         attachmentEvidence: suggestion.attachmentEvidence ? (typeof suggestion.attachmentEvidence === 'string' ? suggestion.attachmentEvidence : JSON.stringify(suggestion.attachmentEvidence)) : null,
         validationChecks: suggestion.validationChecks ? (typeof suggestion.validationChecks === 'string' ? suggestion.validationChecks : JSON.stringify(suggestion.validationChecks)) : null,
-        nextBillingDate: parseValidDate(suggestion.nextBillingDate),
+        nextBillingDate: ensureFutureBillingDate(parseValidDate(suggestion.nextBillingDate), suggestion.frequency),
         lastSeen: new Date(),
         status: 'pending'
       }));
@@ -756,7 +757,7 @@ export function registerGeminiRoutes(app: Express) {
         senderHistory: suggestion.senderHistory ? (typeof suggestion.senderHistory === 'string' ? suggestion.senderHistory : JSON.stringify(suggestion.senderHistory)) : null,
         attachmentEvidence: suggestion.attachmentEvidence ? (typeof suggestion.attachmentEvidence === 'string' ? suggestion.attachmentEvidence : JSON.stringify(suggestion.attachmentEvidence)) : null,
         validationChecks: suggestion.validationChecks ? (typeof suggestion.validationChecks === 'string' ? suggestion.validationChecks : JSON.stringify(suggestion.validationChecks)) : null,
-        nextBillingDate: parseValidDate(suggestion.nextBillingDate),
+        nextBillingDate: ensureFutureBillingDate(parseValidDate(suggestion.nextBillingDate), suggestion.frequency),
         lastSeen: new Date(),
         status: 'pending'
       }));
@@ -1061,7 +1062,7 @@ export function registerGeminiRoutes(app: Express) {
               category: suggestion.category,
               status: 'active',
               merchantEmail: null,
-              nextBillingDate: parseValidDate(suggestion.nextBillingDate),
+              nextBillingDate: ensureFutureBillingDate(parseValidDate(suggestion.nextBillingDate), suggestion.frequency),
               lastEmailDate: null,
               detectedAt: new Date()
             };

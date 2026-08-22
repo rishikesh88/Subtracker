@@ -4,6 +4,7 @@ import { eq, and, desc, asc, count, sql, inArray } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { randomUUID } from "crypto";
 import { convertCurrency } from "./utils/currencyConverter";
+import { advanceOnePeriod, ensureFutureBillingDate } from "./utils/billingDate";
 import { invoiceExtractor } from "./services/invoiceExtractor";
 
 export interface IStorage {
@@ -800,23 +801,13 @@ export class DatabaseStorage implements IStorage {
         
         // Calculate nextBillingDate if not set, using lastEmailDate + frequency
         if (!nextBillingDate && lastEmailDate) {
-          nextBillingDate = new Date(lastEmailDate);
-          const frequency = suggestion.frequency || 'monthly';
-          switch (frequency) {
-            case 'weekly':
-              nextBillingDate.setDate(nextBillingDate.getDate() + 7);
-              break;
-            case 'monthly':
-              nextBillingDate.setMonth(nextBillingDate.getMonth() + 1);
-              break;
-            case 'quarterly':
-              nextBillingDate.setMonth(nextBillingDate.getMonth() + 3);
-              break;
-            case 'yearly':
-              nextBillingDate.setFullYear(nextBillingDate.getFullYear() + 1);
-              break;
-          }
+          nextBillingDate = advanceOnePeriod(lastEmailDate, suggestion.frequency);
         }
+
+        // A model-supplied date is only as fresh as the email it was read from,
+        // so roll it forward if it has already passed. A future date is kept
+        // exactly as stated rather than recomputed.
+        nextBillingDate = ensureFutureBillingDate(nextBillingDate, suggestion.frequency);
         
         const subscriptionData = {
           userId: suggestion.userId,
