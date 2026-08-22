@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, users, subscriptions, emails, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, users, subscriptions, emails, screenedMessages, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
 import { eq, and, desc, asc, count, sql, inArray } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
@@ -34,6 +34,8 @@ export interface IStorage {
   getEmailsByIds(ids: string[]): Promise<Email[]>;
   getEmailByGmailId(gmailId: string): Promise<Email | undefined>;
   getSyncedGmailIds(userId: string): Promise<Set<string>>;
+  getScreenedMessageIds(userId: string, provider?: string): Promise<Set<string>>;
+  recordScreenedMessages(userId: string, messageIds: string[], provider?: string): Promise<number>;
   createEmail(email: InsertEmail): Promise<Email>;
   updateEmail(id: string, updates: Partial<Email>): Promise<Email | undefined>;
   deleteEmail(id: string): Promise<boolean>;
@@ -582,6 +584,67 @@ export class DatabaseStorage implements IStorage {
       // An empty set means "skip nothing", so a failure here costs a slow sync
       // rather than silently dropping mail from the run.
       return new Set();
+    }
+  }
+
+  /**
+   * Message IDs this user's sync has already screened.
+   *
+   * The union of this and getSyncedGmailIds is what a repeat sync can skip.
+   * `emails` alone is not enough: it holds only the pre-filter survivors, about
+   * 120 rows against a 2,500 message window, so skipping on it skips nothing.
+   */
+  async getScreenedMessageIds(userId: string, provider: string = 'gmail'): Promise<Set<string>> {
+    try {
+      const rows = await this.db
+        .select({ messageId: screenedMessages.messageId })
+        .from(screenedMessages)
+        .where(
+          and(
+            eq(screenedMessages.userId, userId),
+            eq(screenedMessages.provider, provider)
+          )
+        );
+
+      return new Set(rows.map((row: { messageId: string }) => row.messageId));
+    } catch (error) {
+      // Degrades to a full sync rather than dropping mail. Also covers the gap
+      // between this code deploying and the table existing.
+      console.error('Error getting screened message IDs:', error);
+      return new Set();
+    }
+  }
+
+  /**
+   * Mark message IDs as screened. Idempotent -- re-screening an id is a no-op.
+   *
+   * Chunked: a full window is thousands of rows and the HTTP driver caps
+   * request size.
+   */
+  async recordScreenedMessages(userId: string, messageIds: string[], provider: string = 'gmail'): Promise<number> {
+    if (!messageIds.length) return 0;
+
+    const CHUNK = 500;
+    let recorded = 0;
+
+    try {
+      for (let i = 0; i < messageIds.length; i += CHUNK) {
+        const rows = messageIds.slice(i, i + CHUNK).map(messageId => ({
+          userId,
+          provider,
+          messageId,
+        }));
+
+        await this.db.insert(screenedMessages).values(rows).onConflictDoNothing();
+        recorded += rows.length;
+      }
+
+      return recorded;
+    } catch (error) {
+      // Never fail a sync over bookkeeping. Losing this costs a re-screen next
+      // run; it cannot make the current run wrong.
+      console.error('Error recording screened messages:', error);
+      return recorded;
     }
   }
 

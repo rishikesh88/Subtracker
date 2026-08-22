@@ -28,7 +28,7 @@ Last updated 2026-08-20.
 | **2** | 12 | SSE progress during metadata fetch | ✅ verified (§2a) | low |
 | **2** | 13 | Stall-based client watchdog | ✅ verified (§2c); §2d untested | low |
 | **3** | 17 | SSE reconnect recovery + heartbeat filter | ⚠️ deployed; §2b passes, **§3a untested** | low |
-| **4** | 16 | Skip already-synced message IDs | 🔨 built, not yet deployed | **medium** |
+| **4** | 16 | Skip already-synced message IDs | 🔨 built — **needs `screened_messages` table**, see [MIGRATIONS.md](MIGRATIONS.md) | **medium** |
 | **5** | 18 | `sync_jobs` table + concurrency guard | ⬜ pending | **higher** |
 | **6** | 19 | Model cost optimisation | ⬜ pending | **higher** |
 | **7** | 20 | Cross-currency / cross-name dedup | ⬜ pending | **medium** |
