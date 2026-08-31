@@ -28,7 +28,7 @@ Last updated 2026-08-24.
 | **2** | 12 | SSE progress during metadata fetch | ✅ verified (§2a) | low |
 | **2** | 13 | Stall-based client watchdog | ✅ verified (§2c); §2d untested | low |
 | **3** | 17 | SSE reconnect recovery + heartbeat filter | ✅ verified (§2b, §3a); §3c untested | low |
-| **4** | 16 | Skip already-synced message IDs | ✅ verified (§4a, §4b); §4c partial — see below | **medium** |
+| **4** | 16 | Skip already-synced message IDs | ✅ verified (§4a, §4b); §4c fixed, unverified | **medium** |
 | **5** | 18 | `sync_jobs` table + concurrency guard | ⬜ pending | **higher** |
 | **6** | 19 | Model cost optimisation | ⬜ pending | **higher** |
 | **7** | 20 | Cross-currency / cross-name dedup | ⬜ pending | **medium** |
@@ -41,12 +41,16 @@ table, which holds only the pre-filter survivors — 124 rows against a 2,582
 message window. It saved ~4s of a 333s run and nothing on the pre-filter. The
 fix filters against `screened_messages`, every id the sync has looked at.
 
-**§4c is partially satisfied.** Duplicate *suggestions* still occur — the
-2026-08-22 run raised two for Airtel Black — because inserts do not check for an
-existing `serviceKey`. They do not reach your subscriptions: approval logs
-`Duplicate subscription detected for Airtel Black, updating existing instead`.
-So the visible effect is a duplicated row in the review list, not double
-counting. Removing it entirely belongs with #20.
+**§4c is now handled at two levels.** The 2026-08-22 run raised two Airtel
+Black suggestions, because inserts did not check for an existing `serviceKey`.
+`createSuggestionsBulk` now collapses same-key duplicates within a run and skips
+any already `pending`. Approval remains the backstop, logging `Duplicate
+subscription detected for X, updating existing instead`.
+
+Matching is on `serviceKey` alone, so #20's cross-name case is untouched:
+"Claude Pro" and "Anthropic Claude Subscription" have different keys and still
+both appear. That is deliberate — merging genuinely distinct subscriptions is
+worse than showing both.
 
 **Still unrun:** §2d (forced stall via mid-sync redeploy) and §3c (reconnect
 after sleep).

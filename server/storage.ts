@@ -816,8 +816,11 @@ export class DatabaseStorage implements IStorage {
   async createSuggestionsBulk(suggestions: InsertSubscriptionSuggestion[]): Promise<SubscriptionSuggestion[]> {
     try {
       if (suggestions.length === 0) return [];
-      
-      const suggestionData = suggestions.map(suggestion => ({
+
+      const deduped = await this.dropDuplicateSuggestions(suggestions);
+      if (deduped.length === 0) return [];
+
+      const suggestionData = deduped.map(suggestion => ({
         ...suggestion,
         category: suggestion.category || null,
         currency: suggestion.currency || 'INR',
@@ -836,6 +839,84 @@ export class DatabaseStorage implements IStorage {
     } catch (error) {
       console.error('Error creating suggestions bulk:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Collapse duplicate suggestions before they reach the review list.
+   *
+   * A single run can raise the same service twice -- 2026-08-22 produced two
+   * Airtel Black suggestions -- because each Gemini result was inserted without
+   * checking what was already there. Approval already merges these at the
+   * subscription level, so the effect was cosmetic, but a review list with the
+   * same service listed twice asks the user to adjudicate a difference that
+   * does not exist.
+   *
+   * Matching is on `serviceKey` alone: a normalised service name plus
+   * frequency. Two entries sharing one are the same service at the same billing
+   * period, so collapsing them is safe. This is deliberately *not* the
+   * cross-name, cross-currency case in #20 -- "Claude Pro" and "Anthropic Claude
+   * Subscription" have different keys and are left well alone, because merging
+   * genuinely distinct subscriptions is worse than showing both.
+   */
+  private async dropDuplicateSuggestions(
+    suggestions: InsertSubscriptionSuggestion[]
+  ): Promise<InsertSubscriptionSuggestion[]> {
+    const CONFIDENCE_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
+    const rank = (s: InsertSubscriptionSuggestion) =>
+      CONFIDENCE_RANK[s.confidence as string] ?? 0;
+
+    // Within the batch, keep the strongest of each key.
+    const strongest = new Map<string, InsertSubscriptionSuggestion>();
+    for (const suggestion of suggestions) {
+      if (!suggestion.serviceKey) continue;
+
+      const key = `${suggestion.userId}::${suggestion.serviceKey}`;
+      const held = strongest.get(key);
+      if (!held || rank(suggestion) > rank(held)) {
+        strongest.set(key, suggestion);
+      }
+    }
+
+    const withinBatch = Array.from(strongest.values());
+    const collapsed = suggestions.length - withinBatch.length;
+    if (collapsed > 0) {
+      console.log(`🔀 Collapsed ${collapsed} duplicate suggestion(s) within this run`);
+    }
+
+    // Then drop anything already awaiting review. Only `pending` is checked:
+    // once a suggestion has been approved or rejected, a later detection is a
+    // fresh event the user should see again.
+    try {
+      const userIds = Array.from(new Set(withinBatch.map(s => s.userId)));
+      if (userIds.length === 0) return withinBatch;
+
+      const existing = await this.db
+        .select({ userId: subscriptionSuggestions.userId, serviceKey: subscriptionSuggestions.serviceKey })
+        .from(subscriptionSuggestions)
+        .where(
+          and(
+            inArray(subscriptionSuggestions.userId, userIds),
+            eq(subscriptionSuggestions.status, 'pending')
+          )
+        );
+
+      const pending = new Set(
+        existing.map((row: { userId: string; serviceKey: string }) => `${row.userId}::${row.serviceKey}`)
+      );
+
+      const fresh = withinBatch.filter(s => !pending.has(`${s.userId}::${s.serviceKey}`));
+      const alreadyPending = withinBatch.length - fresh.length;
+      if (alreadyPending > 0) {
+        console.log(`🔀 Skipped ${alreadyPending} suggestion(s) already awaiting review`);
+      }
+
+      return fresh;
+    } catch (error) {
+      // Duplicates in the review list are a nuisance; losing real detections is
+      // not. On a lookup failure, insert what we have.
+      console.error('Error checking existing suggestions, inserting without that filter:', error);
+      return withinBatch;
     }
   }
 

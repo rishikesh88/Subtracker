@@ -277,21 +277,30 @@ case** — suggestions are inserted without checking for an existing `serviceKey
 ([geminiSync.ts](../server/routes/geminiSync.ts)), so a fresh renewal email can
 raise a second suggestion for a subscription already approved.
 
-Observed on 2026-08-22: two Airtel Black suggestions in one run.
-
-**This does not reach your subscriptions.** Approval deduplicates at the
-subscription level — the same run logged `Duplicate subscription detected for
-Airtel Black, updating existing instead`, updating rather than inserting. So the
-visible effect is a duplicated row in the *review list*, not double-counted
-spend.
+Observed on 2026-08-22: two Airtel Black suggestions in one run. **Fixed** —
+`createSuggestionsBulk` now collapses them before they reach the review list.
 
 | | Expected |
 |---|---|
-| ✅ Pass | Approving both leaves **one** subscription; the log shows the duplicate being merged |
-| ❌ Fail | Two subscriptions for one service, inflating total monthly spend |
+| ✅ Pass | One row per service in the review list; `🔀 Collapsed N duplicate suggestion(s)` in the log when a run would have produced two |
+| ❌ Fail | The same service listed twice awaiting review |
 
-Removing the duplicate suggestion itself needs suggestion-level dedup, which
-belongs with #20.
+Two layers now, and both should hold:
+
+- **Suggestion level** — same `serviceKey` collapsed within a run, and skipped
+  if one is already `pending`. Only `pending` is checked: once approved or
+  rejected, a later detection is a fresh event worth seeing again.
+- **Subscription level** — approval merges anything that slips through, logging
+  `Duplicate subscription detected for X, updating existing instead`.
+
+**Matching is on `serviceKey` only** — normalised service name plus frequency.
+That deliberately does not catch #20's cross-name, cross-currency case: "Claude
+Pro" and "Anthropic Claude Subscription" have different keys and are left alone,
+because merging genuinely distinct subscriptions is worse than showing both.
+
+Worth confirming after a cold sync that iCloud+ monthly and any yearly
+subscription still appear separately — same service, different frequency, and
+they must not collapse into one.
 
 ---
 
