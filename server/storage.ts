@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, users, subscriptions, emails, screenedMessages, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, type SyncJob, users, syncJobs, subscriptions, emails, screenedMessages, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
 import { eq, and, desc, asc, count, sql, inArray } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
@@ -34,6 +34,9 @@ export interface IStorage {
   getEmailsByIds(ids: string[]): Promise<Email[]>;
   getEmailByGmailId(gmailId: string): Promise<Email | undefined>;
   getSyncedGmailIds(userId: string): Promise<Set<string>>;
+  startSyncJob(userId: string, triggerSource: string): Promise<{ outcome: 'claimed'; job: SyncJob } | { outcome: 'conflict' } | { outcome: 'unavailable' }>;
+  finishSyncJob(jobId: string, status: 'succeeded' | 'failed', details?: { error?: string | null; emailsProcessed?: number; suggestionsGenerated?: number }): Promise<void>;
+  sweepStuckSyncJobs(): Promise<number>;
   getScreenedMessageIds(userId: string, provider?: string): Promise<Set<string>>;
   recordScreenedMessages(userId: string, messageIds: string[], provider?: string): Promise<number>;
   createEmail(email: InsertEmail): Promise<Email>;
@@ -584,6 +587,91 @@ export class DatabaseStorage implements IStorage {
       // An empty set means "skip nothing", so a failure here costs a slow sync
       // rather than silently dropping mail from the run.
       return new Set();
+    }
+  }
+
+  /**
+   * Claim the right to run a sync for this user.
+   *
+   * The exclusion is enforced by a partial unique index rather than a preceding
+   * SELECT, so two requests arriving together cannot both win it.
+   *
+   * The three outcomes are deliberately distinct. `conflict` means a sync is
+   * genuinely in flight and the caller should refuse. `unavailable` means the
+   * bookkeeping failed -- a missing table, a database blip -- and the caller
+   * should run anyway: losing the audit row is a far smaller harm than refusing
+   * every sync because one table is absent.
+   */
+  async startSyncJob(
+    userId: string,
+    triggerSource: string
+  ): Promise<{ outcome: 'claimed'; job: SyncJob } | { outcome: 'conflict' } | { outcome: 'unavailable' }> {
+    try {
+      const result = await this.db
+        .insert(syncJobs)
+        .values({ userId, triggerSource, status: 'running' })
+        .onConflictDoNothing()
+        .returning();
+
+      // onConflictDoNothing returns nothing when the partial unique index
+      // rejected the row, which can only mean a run is already in flight.
+      return result[0] ? { outcome: 'claimed', job: result[0] } : { outcome: 'conflict' };
+    } catch (error) {
+      console.error('Error starting sync job, proceeding without one:', error);
+      return { outcome: 'unavailable' };
+    }
+  }
+
+  async finishSyncJob(
+    jobId: string,
+    status: 'succeeded' | 'failed',
+    details?: { error?: string | null; emailsProcessed?: number; suggestionsGenerated?: number }
+  ): Promise<void> {
+    try {
+      await this.db
+        .update(syncJobs)
+        .set({
+          status,
+          finishedAt: new Date(),
+          error: details?.error ?? null,
+          emailsProcessed: details?.emailsProcessed ?? 0,
+          suggestionsGenerated: details?.suggestionsGenerated ?? 0,
+        })
+        .where(eq(syncJobs.id, jobId));
+    } catch (error) {
+      // A job left `running` blocks the next sync until the boot sweep clears
+      // it, so this is worth shouting about even though it cannot be retried
+      // here.
+      console.error(`Error finishing sync job ${jobId} -- it may block the next sync:`, error);
+    }
+  }
+
+  /**
+   * Mark every still-running job as failed.
+   *
+   * Called once at boot. A process that restarts mid-sync leaves its job
+   * `running` forever, which the unique index would then read as "a sync is
+   * already in progress" and refuse every future trigger.
+   *
+   * This assumes a single instance: with several replicas serving one database
+   * it would kill jobs that are legitimately running elsewhere.
+   */
+  async sweepStuckSyncJobs(): Promise<number> {
+    try {
+      const swept = await this.db
+        .update(syncJobs)
+        .set({
+          status: 'failed',
+          finishedAt: new Date(),
+          error: 'Interrupted by a service restart',
+        })
+        .where(eq(syncJobs.status, 'running'))
+        .returning({ id: syncJobs.id });
+
+      return swept.length;
+    } catch (error) {
+      console.error('Error sweeping stuck sync jobs:', error);
+      return 0;
     }
   }
 

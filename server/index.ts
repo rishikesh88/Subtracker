@@ -1,5 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { storage } from "./storage";
 import { setupVite, serveStatic, log } from "./vite";
 import fs from "fs";
 import path from "path";
@@ -72,7 +73,23 @@ app.use((req, res, next) => {
     port,
     host: "0.0.0.0",
     reusePort: true,
-  }, () => {
+  }, async () => {
     log(`serving on port ${port}`);
+
+    // A process that restarts mid-sync leaves its job `running` forever, which
+    // the one-running-per-user index would then read as "already in progress"
+    // and use to refuse every future sync. Clearing them here is what makes an
+    // interrupted run recoverable rather than permanently blocking.
+    //
+    // Safe only because this runs as a single instance: with several replicas
+    // on one database it would fail jobs that are legitimately running.
+    try {
+      const swept = await storage.sweepStuckSyncJobs();
+      if (swept > 0) {
+        log(`swept ${swept} sync job(s) left running by a previous process`);
+      }
+    } catch (error) {
+      console.error('Failed to sweep stuck sync jobs:', error);
+    }
   });
 })();

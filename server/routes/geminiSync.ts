@@ -855,7 +855,26 @@ export function registerGeminiRoutes(app: Express) {
       }
       
       const emailSyncDays = user.emailSyncDays || 30;
-      
+
+      // Claim the run before acknowledging it. A second trigger while one is in
+      // flight would duplicate every Gemini call and race on the same rows, so
+      // it is refused here rather than left to sort itself out.
+      const claim = await storage.startSyncJob(userId, 'manual');
+      if (claim.outcome === 'conflict') {
+        console.log(`⛔ Sync already running for user ${userId}, rejecting duplicate trigger`);
+        return res.status(409).json({
+          message: "A sync is already running for this account. Wait for it to finish before starting another.",
+          alreadyRunning: true
+        });
+      }
+
+      // 'unavailable' means the job table could not be written. Run anyway --
+      // an unrecorded sync beats refusing every sync over bookkeeping.
+      const jobId = claim.outcome === 'claimed' ? claim.job.id : null;
+      if (!jobId) {
+        console.warn('⚠️  Running sync without a job record; the concurrency guard is inactive');
+      }
+
       console.log(`🚀 Starting multi-provider sync: ${gmailAccounts.length} Gmail + ${outlookAccounts.length} Outlook = ${totalAccounts} total accounts`);
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
@@ -1006,10 +1025,26 @@ export function registerGeminiRoutes(app: Express) {
             }
           });
       
+          if (jobId) {
+            await storage.finishSyncJob(jobId, 'succeeded', {
+              emailsProcessed: totalEmailsProcessed,
+              suggestionsGenerated: totalSuggestionsGenerated,
+            });
+          }
+
         } catch (error) {
           // The response has already been sent, so failures can only surface
           // over SSE.
           console.error("Multi-account sync error:", error);
+
+          // Record the failure before the SSE event, so the job is never left
+          // `running` -- that would block every later sync until the boot sweep.
+          if (jobId) {
+            await storage.finishSyncJob(jobId, 'failed', {
+              error: error instanceof Error ? error.message : 'Sync failed',
+            });
+          }
+
           sendProgressUpdate(userId, {
             stage: 'error',
             progress: 0,

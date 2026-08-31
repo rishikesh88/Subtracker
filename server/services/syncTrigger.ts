@@ -33,11 +33,6 @@ export async function triggerEmailSync(
   console.log(`[Event: sync_triggered] userId=${userId}, provider=${provider}, source=${triggerSource}, days=${emailSyncDays}`);
 
   try {
-    // Update user's last sync timestamp to indicate sync is starting
-    await storage.updateUser(userId, {
-      lastSync: new Date(),
-    });
-
     // Send initial SSE progress update
     sendProgressUpdate(userId, {
       stage: 'syncing',
@@ -56,9 +51,15 @@ export async function triggerEmailSync(
     setImmediate(async () => {
       try {
         await executeSync(storage, userId, emailSyncDays);
+
+        // Written here, not before the run. `lastSync` previously advanced as
+        // soon as a sync started, which made a crash indistinguishable from a
+        // success -- the field claimed the mailbox was up to date when nothing
+        // had been processed.
+        await storage.updateUser(userId, { lastSync: new Date() });
       } catch (error) {
         console.error(`[Sync] Background sync error for user ${userId}:`, error);
-        
+
         sendProgressUpdate(userId, {
           stage: 'error',
           progress: 0,
