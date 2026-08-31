@@ -3,7 +3,7 @@
 Quick reference. Detail lives in [HANDOVER.md](HANDOVER.md); test criteria in
 [TESTING.md](../TESTING.md).
 
-Last updated 2026-08-20.
+Last updated 2026-08-24.
 
 ## Migration (PR #2)
 
@@ -27,14 +27,33 @@ Last updated 2026-08-20.
 | **1** | 15 | 🔒 merchants.csv path fix | ✅ verified in production | low |
 | **2** | 12 | SSE progress during metadata fetch | ✅ verified (§2a) | low |
 | **2** | 13 | Stall-based client watchdog | ✅ verified (§2c); §2d untested | low |
-| **3** | 17 | SSE reconnect recovery + heartbeat filter | ⚠️ deployed; §2b passes, **§3a untested** | low |
-| **4** | 16 | Skip already-synced message IDs | 🔨 built — **needs `screened_messages` table**, see [MIGRATIONS.md](MIGRATIONS.md) | **medium** |
+| **3** | 17 | SSE reconnect recovery + heartbeat filter | ✅ verified (§2b, §3a); §3c untested | low |
+| **4** | 16 | Skip already-synced message IDs | ✅ verified (§4a, §4b); §4c fixed, unverified | **medium** |
 | **5** | 18 | `sync_jobs` table + concurrency guard | ⬜ pending | **higher** |
 | **6** | 19 | Model cost optimisation | ⬜ pending | **higher** |
 | **7** | 20 | Cross-currency / cross-name dedup | ⬜ pending | **medium** |
 
 **#12 and #13 must ship together** — a stall watchdog is untestable without
 progress events to stall on.
+
+**Phase 4 took two attempts.** The first cut filtered against the `emails`
+table, which holds only the pre-filter survivors — 124 rows against a 2,582
+message window. It saved ~4s of a 333s run and nothing on the pre-filter. The
+fix filters against `screened_messages`, every id the sync has looked at.
+
+**§4c is now handled at two levels.** The 2026-08-22 run raised two Airtel
+Black suggestions, because inserts did not check for an existing `serviceKey`.
+`createSuggestionsBulk` now collapses same-key duplicates within a run and skips
+any already `pending`. Approval remains the backstop, logging `Duplicate
+subscription detected for X, updating existing instead`.
+
+Matching is on `serviceKey` alone, so #20's cross-name case is untouched:
+"Claude Pro" and "Anthropic Claude Subscription" have different keys and still
+both appear. That is deliberate — merging genuinely distinct subscriptions is
+worse than showing both.
+
+**Still unrun:** §2d (forced stall via mid-sync redeploy) and §3c (reconnect
+after sleep).
 
 ## Infrastructure
 
@@ -44,7 +63,7 @@ progress events to stall on.
 | GCS bucket + CORS + scoped service account | ✅ |
 | Gemini API key | ✅ |
 | Resend API key | ✅ |
-| Railway (Singapore, `/healthz`, custom domain, TLS) | ✅ |
+| Railway (Singapore, `/healthz`, custom domain, TLS) | ✅ — **auto-deploy broken, deploys are manual** |
 | DNS — `app` CNAME (**GoDaddy**, not Cloudflare) | ✅ |
 | Google OAuth — sign-in + Gmail connect | ✅ (Testing mode, 91/100 slots left) |
 | Azure — 2 app registrations | ❌ not started |
@@ -57,38 +76,63 @@ progress events to stall on.
 
 | Issue | Impact |
 |---|---|
+| **Invoice creation has no Gmail token** | `🔑 Gmail access token available: false` on every approval. It falls back to attachments captured during the sync, so only subscriptions whose evidence email carried a PDF get invoices — **5 of 8 produced none** on 2026-08-22 despite finding evidence emails |
+| **§2d and §3c never run** | The forced-stall watchdog and reconnect-after-sleep remain unverified in production |
 | Client bundle differs local vs Railway | Same commit and lockfile, identical CSS hash and server bundle, but Railway emits 2,199 modules / 1,078 kB against 732 kB locally. Unexplained; not dev-React. Phase 3 *is* live (§2b passes), so it is not a stale-deploy problem |
-| §3a and §2d never run | Phase 3's reconnect replay and the forced-stall watchdog are both unverified in production |
 | SSE stream cut every ~15 min | Platform proxy closes it despite 30s heartbeats; the browser reconnects instantly. #17 replays a snapshot so the reconnect is invisible |
 | Unknown `/api/*` paths return **200 + HTML** | `app.use("*")` in [vite.ts:82](../server/vite.ts:82) serves `index.html` for everything unmatched. No leak — a scanner probing `/api/.env` got the SPA shell — but API 404s are indistinguishable from hits in the logs |
 | `URIError: Failed to decode param '/%c0'` | Unhandled `serve-static` throw on a malformed path. Logged a stack trace; did not crash |
 | Replit OIDC branch still in boot path | `[Auth] REPLIT_DOMAINS not set, skipping Replit OIDC auth setup` on every start. Dead code from the migration |
 | 11 pre-existing `tsc` errors | Baseline, identical on `main`. New errors in touched files are real failures |
 | `lastSync` written at sync *start* | A crashed sync looks successful. Fixed by #18 |
-| Railway auto-deploy unreliable | Use `railway redeploy --from-source --yes`; plain `redeploy` rebuilds the same commit |
+| **Railway auto-deploy does not fire on merge** | Confirmed across #5–#8: the merge commit carries no Railway deployment status, so the webhook is not arriving. Deploy manually with `railway redeploy --from-source --yes`; plain `redeploy` rebuilds the same commit. Check the Railway install at github.com/settings/installations |
 | `openai` dependency unused | Dead weight; drop in Phase 6 |
 
 ## Reference baseline
 
-| Measure | Pre-work | After Phase 1 |
-|---|---|---|
-| Emails in window | 2,458 | 2,505 |
-| Metadata fetch | 640 s | **85 s** (7.5x) |
-| Total sync | 751 s | **503 s** |
-| — of which pre-filter | — | **321 s** (64%) |
-| Candidates after screening | 190 | **655** |
-| Approved by pre-filter | 13 | **58** |
-| Suggestions | 7 | **6** |
-| Merchants loaded | 0 — `ENOENT` | **200** |
+Measured 2026-08-22 on a cleared database, so this run is directly comparable to
+the pre-work column rather than being coloured by prior state.
 
-**Compare against the "After Phase 1" column.** Phase 1 moved the bottleneck
-from Gmail I/O to the AI pre-filter.
+| Measure | Pre-work | After Phase 1 | **After Phase 4** |
+|---|---|---|---|
+| Emails in window | 2,458 | 2,505 | 2,582 |
+| Metadata fetch | 640 s | 85 s | **87 s** |
+| Total sync | 751 s | 503 s | **554 s** |
+| — of which pre-filter | — | 321 s | **300 s** |
+| Candidates after screening | 190 | 655 | **687** |
+| Approved by pre-filter | 13 | 58 | **130** |
+| Suggestions | 7 | 6 | **12** (10 high conf) |
+| Merchants loaded | 0 — `ENOENT` | 200 | **200** |
+
+**Compare a first sync against the "After Phase 4" column.** A first sync on a
+cleared database still costs ~9 minutes; Phase 4 changes what a *repeat* sync
+costs, not a cold one.
+
+### Repeat sync — 2026-08-24, the §4a measurement
+
+| Measure | Value |
+|---|---|
+| In window | 2,551 |
+| Skipped | **2,431** |
+| Genuinely new | 120 |
+| Metadata fetch | **4 s** (from 87 s) |
+| Pre-filter | **30 s** (from 300 s) |
+| Total | **40 s** (from 554 s) — **93% reduction** |
+
+Two days elapsed between the runs, so the 30-day window rolled and 120 real new
+messages arrived. That makes this a stronger result than a zero-delta re-run: it
+demonstrates the skip and new-mail pickup in the same measurement, which is
+exactly what §4b asks for.
 
 The regression canary is the **service list, not the count** — a changed count
 may just be Gemini non-determinism, but a missing service is real. Capture it
 with `node --env-file=.env scripts/detection-baseline.mjs`.
 
-## Canary — 2026-08-22, after Phases 2 and 3
+> **The canary cannot be read from a repeat sync.** Once Phase 4 is active, the
+> emails that generate suggestions are skipped, so a second run legitimately
+> produces zero. Read it from a run against a cleared database.
+
+## Canary — 2026-08-22, before the database was cleared
 
 No baseline service lost, three gained:
 
@@ -109,5 +153,16 @@ it was the #20 duplicate of Claude Pro. The surviving row has the right amount:
 **#20 is still unimplemented**, so a future run can resurface the pair.
 
 Read this list with one caveat: it is the *Subscriptions* view, captured after
-approval, so the three new services cannot be attributed to this run alone.
-What it does establish is that nothing from the baseline went missing.
+approval, so the three new services cannot be attributed to one run alone. What
+it does establish is that nothing from the baseline went missing.
+
+## Canary — 2026-08-22, first run after clearing
+
+The cold run produced **12 suggestions, 10 high confidence**, against 6 at the
+Phase 1 baseline. Services confirmed from the approval log: Claude Pro,
+iCloud+, Apple One Family, Airtel Black, Netflix, plus **Swiggy Black** and
+**Google Cloud Platform & APIs**, neither of which appears in any earlier run.
+
+Partial by construction — those seven are the ones that reached invoice
+creation, not the full twelve. The full list was not captured before approval.
+Capture it from the review screen next time, before approving.
