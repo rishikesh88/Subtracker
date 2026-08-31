@@ -271,15 +271,27 @@ permanent, invisible data loss.
 
 Existing suggestions should not be duplicated or dropped by the second run.
 
-A repeat sync with no new mail now produces no suggestions at all, so nothing
-can be duplicated. **New mail for a service you already track is the remaining
+A repeat sync with no new mail produces no suggestions at all, so nothing can be
+duplicated there. **New mail for a service you already track is the remaining
 case** — suggestions are inserted without checking for an existing `serviceKey`
 ([geminiSync.ts](../server/routes/geminiSync.ts)), so a fresh renewal email can
 raise a second suggestion for a subscription already approved.
 
-That behaviour predates this phase and is much reduced by it — every repeat sync
-previously re-analysed the whole mailbox and could duplicate the entire set.
-Eliminating it needs suggestion-level dedup, which belongs with #20.
+Observed on 2026-08-22: two Airtel Black suggestions in one run.
+
+**This does not reach your subscriptions.** Approval deduplicates at the
+subscription level — the same run logged `Duplicate subscription detected for
+Airtel Black, updating existing instead`, updating rather than inserting. So the
+visible effect is a duplicated row in the *review list*, not double-counted
+spend.
+
+| | Expected |
+|---|---|
+| ✅ Pass | Approving both leaves **one** subscription; the log shows the duplicate being merged |
+| ❌ Fail | Two subscriptions for one service, inflating total monthly spend |
+
+Removing the duplicate suggestion itself needs suggestion-level dedup, which
+belongs with #20.
 
 ---
 
