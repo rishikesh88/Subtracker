@@ -84,7 +84,7 @@ one account synced.
 
 | Issue | Impact |
 |---|---|
-| **Invoice creation has no Gmail token** | `🔑 Gmail access token available: false` on every approval. It falls back to attachments captured during the sync, so only subscriptions whose evidence email carried a PDF get invoices — **5 of 8 produced none** on 2026-08-22 despite finding evidence emails |
+| Invoices exist only where a receipt had an attachment | **Not the bug it looked like.** The `🔑 Gmail access token available: false` line was misleading: `approveSuggestions` took a token parameter it never used, sourced from `users.gmailAccessToken`, deprecated when tokens moved to `gmail_accounts`. Removed. Invoices are built solely from attachments captured during the sync, so a subscription whose receipts are HTML — Claude Pro, iCloud+, Apple One, Netflix — correctly gets none. **Open feature gap:** an attachment missed at sync time can never be recovered later |
 | **§2d, §3c, §5a, §5b never run** | Forced stall, reconnect-after-sleep, the 409 guard, and crash recovery are all unverified. §5a and §5b became *harder* to test once Phase 4 landed: a repeat sync now finishes in ~11s, leaving almost no window to overlap a second trigger or to redeploy mid-run |
 | **`users.lastSync` is effectively dead** | Written only when `wasOnboarding && privacyConsentGiven` ([routes.ts:897](../server/routes.ts#L897)), so it never updates for an existing user — still `null` on the live account. Displayed nowhere. §5c cannot be tested by any normal action, and the field itself looks vestigial |
 | **6a is not exercised by a manual sync** | The changed calls live in the onboarding-only auto-sync path. A manual sync uses the protected core detector, already all-flash. Verifying 6a needs a fresh signup |
