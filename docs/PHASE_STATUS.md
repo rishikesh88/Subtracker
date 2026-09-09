@@ -29,7 +29,7 @@ Last updated 2026-08-24.
 | **2** | 13 | Stall-based client watchdog | ✅ verified (§2c); §2d untested | low |
 | **3** | 17 | SSE reconnect recovery + heartbeat filter | ✅ verified (§2b, §3a); §3c untested | low |
 | **4** | 16 | Skip already-synced message IDs | ✅ verified (§4a, §4b); §4c fixed, unverified | **medium** |
-| **5** | 18 | `sync_jobs` table + concurrency guard | ⬜ pending | **higher** |
+| **5** | 18 | `sync_jobs` table + concurrency guard | 🔨 built — **needs `sync_jobs` table**, see [MIGRATIONS.md](MIGRATIONS.md) | **higher** |
 | **6** | 19 | Model cost optimisation | ⬜ pending | **higher** |
 | **7** | 20 | Cross-currency / cross-name dedup | ⬜ pending | **medium** |
 
@@ -84,7 +84,6 @@ after sleep).
 | `URIError: Failed to decode param '/%c0'` | Unhandled `serve-static` throw on a malformed path. Logged a stack trace; did not crash |
 | Replit OIDC branch still in boot path | `[Auth] REPLIT_DOMAINS not set, skipping Replit OIDC auth setup` on every start. Dead code from the migration |
 | 11 pre-existing `tsc` errors | Baseline, identical on `main`. New errors in touched files are real failures |
-| `lastSync` written at sync *start* | A crashed sync looks successful. Fixed by #18 |
 | **Railway auto-deploy does not fire on merge** | Confirmed across #5–#8: the merge commit carries no Railway deployment status, so the webhook is not arriving. Deploy manually with `railway redeploy --from-source --yes`; plain `redeploy` rebuilds the same commit. Check the Railway install at github.com/settings/installations |
 | `openai` dependency unused | Dead weight; drop in Phase 6 |
 

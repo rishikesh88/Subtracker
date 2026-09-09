@@ -132,6 +132,35 @@ export const subscriptions = pgTable("subscriptions", {
 ]);
 
 /**
+ * One row per sync run.
+ *
+ * Two jobs it does. It records honestly whether a sync finished: `lastSync` was
+ * previously written when a sync *started*, so a crash was indistinguishable
+ * from success. And it enforces one run at a time per user -- the partial unique
+ * index below means a second trigger is rejected by the database rather than by
+ * a check-then-insert that two requests can both pass.
+ */
+export const syncJobs = pgTable("sync_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  /** running | succeeded | failed */
+  status: text("status").notNull().default('running'),
+  triggerSource: text("trigger_source"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  finishedAt: timestamp("finished_at"),
+  error: text("error"),
+  emailsProcessed: integer("emails_processed").default(0),
+  suggestionsGenerated: integer("suggestions_generated").default(0),
+}, (table) => [
+  // The concurrency guard itself. Postgres allows only one running row per
+  // user; finished rows are unconstrained, so history accumulates freely.
+  uniqueIndex("uq_sync_jobs_one_running_per_user")
+    .on(table.userId)
+    .where(sql`status = 'running'`),
+  index("idx_sync_jobs_user_started").on(table.userId, table.startedAt),
+]);
+
+/**
  * Provider message IDs this user's sync has already screened.
  *
  * Distinct from `emails`, which holds only the small subset that survives the
@@ -382,6 +411,7 @@ export type SafeUser = z.infer<typeof safeUserSchema>;
 export type Subscription = typeof subscriptions.$inferSelect;
 export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
 export type UpdateSubscription = z.infer<typeof updateSubscriptionSchema>;
+export type SyncJob = typeof syncJobs.$inferSelect;
 export type SubscriptionSuggestion = typeof subscriptionSuggestions.$inferSelect;
 export type InsertSubscriptionSuggestion = z.infer<typeof insertSubscriptionSuggestionSchema>;
 export type Email = typeof emails.$inferSelect;
