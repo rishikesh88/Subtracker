@@ -315,6 +315,30 @@ Open the dashboard in two tabs. Trigger a sync in both, quickly.
 | ✅ Pass | One runs; the other is rejected cleanly (409) with a clear message |
 | ❌ Fail | Both run — duplicated work and possible duplicate suggestions |
 
+### 5b0. A run where every account fails is recorded as failed
+
+Observed 2026-09-09: a sync whose only account died on `invalid_grant` logged
+`Successful: 0, Failed: 1` and was still written to `sync_jobs` as `succeeded`.
+Account failures are returned as `{success:false}` rather than thrown, so the
+outer block completed normally and took the success path.
+
+Easiest way to reproduce deliberately: let the Google refresh token lapse (see
+below), or disconnect the account mid-run.
+
+| | Expected |
+|---|---|
+| ✅ Pass | `status = failed`, `error` naming the account and reason |
+| ❌ Fail | `succeeded` on a run where no account synced |
+
+Partial success — one mailbox synced, another failed — is recorded as
+`succeeded` **with `error` populated**, so it does not read as a clean run.
+
+> **Google refresh tokens expire after 7 days while the OAuth app is in Testing
+> mode.** A sync that fails with `invalid_grant` and `Token refresh failed.
+> Please reconnect this account.` is this, not a code fault. Reconnect Gmail in
+> Settings to issue a fresh token. It recurs weekly until the consent screen is
+> published, which needs the privacy policy and terms URLs live.
+
 ### 5b. Crashes are recorded honestly
 
 1. Start a sync
