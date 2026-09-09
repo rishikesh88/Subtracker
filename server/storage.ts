@@ -40,6 +40,7 @@ export interface IStorage {
   sweepStuckSyncJobs(): Promise<number>;
   getScreenedMessageIds(userId: string, provider?: string): Promise<Set<string>>;
   recordScreenedMessages(userId: string, messageIds: string[], provider?: string): Promise<number>;
+  clearScreenedMessages(userId: string): Promise<{ cleared: number }>;
   createEmail(email: InsertEmail): Promise<Email>;
   updateEmail(id: string, updates: Partial<Email>): Promise<Email | undefined>;
   deleteEmail(id: string): Promise<boolean>;
@@ -734,6 +735,29 @@ export class DatabaseStorage implements IStorage {
       // run; it cannot make the current run wrong.
       console.error('Error recording screened messages:', error);
       return recorded;
+    }
+  }
+
+  /**
+   * Forget every message this user's sync has screened.
+   *
+   * Only for "clear all data". Without it a clear leaves the screened-id table
+   * intact, so the next sync skips the entire window and the fresh start is not
+   * fresh -- it produces zero suggestions against a mailbox that has not
+   * changed. Bookkeeping has to be cleared with the data it describes.
+   */
+  async clearScreenedMessages(userId: string): Promise<{ cleared: number }> {
+    try {
+      const result = await this.db
+        .delete(screenedMessages)
+        .where(eq(screenedMessages.userId, userId));
+
+      return { cleared: result.rowCount || 0 };
+    } catch (error) {
+      // A clear that half-works is worse than one that reports failure, but the
+      // table may not exist yet on an older database -- so log and carry on.
+      console.error('Error clearing screened messages:', error);
+      return { cleared: 0 };
     }
   }
 
