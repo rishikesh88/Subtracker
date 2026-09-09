@@ -48,7 +48,7 @@ export interface IStorage {
   getSuggestions(userId: string, options?: { page?: number; pageSize?: number; minConfidence?: string }): Promise<{ suggestions: SubscriptionSuggestion[]; total: number }>;
   createSuggestion(suggestion: InsertSubscriptionSuggestion): Promise<SubscriptionSuggestion>;
   createSuggestionsBulk(suggestions: InsertSubscriptionSuggestion[]): Promise<SubscriptionSuggestion[]>;
-  approveSuggestions(suggestionIds: string[], userId: string, gmailAccessToken?: string): Promise<{ subscriptions: Subscription[]; approved: number }>;
+  approveSuggestions(suggestionIds: string[], userId: string): Promise<{ subscriptions: Subscription[]; approved: number }>;
   rejectSuggestions(suggestionIds: string[], userId: string): Promise<{ rejected: number }>;
   clearSuggestions(userId: string): Promise<{ cleared: number }>;
   
@@ -1008,7 +1008,7 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async approveSuggestions(suggestionIds: string[], userId: string, gmailAccessToken?: string): Promise<{ subscriptions: Subscription[]; approved: number }> {
+  async approveSuggestions(suggestionIds: string[], userId: string): Promise<{ subscriptions: Subscription[]; approved: number }> {
     try {
       const suggestions = await this.db
         .select()
@@ -1176,6 +1176,12 @@ export class DatabaseStorage implements IStorage {
             }
             if (skippedCount > 0) {
               console.log(`⏭️  Skipped ${skippedCount} duplicate invoice(s)`);
+            }
+            if (createdCount === 0 && skippedCount === 0) {
+              // Says why, so an empty result is not read as a failure. Invoices
+              // come only from attachments captured during the sync, and most
+              // receipts are HTML with nothing attached.
+              console.log(`ℹ️  No invoices for ${createdSubscription.serviceName}: none of its ${evidenceEmails.length} evidence email(s) carried a stored attachment`);
             }
           } catch (invoiceError) {
             // Don't fail the entire approval if invoice creation fails

@@ -5,8 +5,19 @@
  * OPTIMIZED Hybrid Two-Stage Pipeline:
  * - Stage 1: Parallel batch classification (100 emails per API call, 5 concurrent)
  * - Stage 2: Parallel detailed analysis (15 emails per API call, 5 concurrent)
- * - Uses gemini-2.5-flash for Stage 1 (faster), gemini-2.5-pro for Stage 2 (accuracy)
  * - Reduced inter-batch delays for maximum throughput
+ *
+ * Model choice (#19, 6a). Both stages run gemini-2.5-flash. Stage 2 used
+ * gemini-2.5-pro until 2026-09-09, at roughly 4x the cost in both directions
+ * ($1.25/$10.00 per 1M against $0.30/$2.50) for a task the protected detector in
+ * server/core/ already performs on flash: reading an amount, a currency and a
+ * cadence out of a receipt. Extraction, not judgement.
+ *
+ * This path runs at onboarding, so the saving lands on every new signup.
+ *
+ * If detection quality drops after this, that is the change to revert — it is
+ * the only model move made here, deliberately so, because shipping 6a, 6b and
+ * 6c together would make any accuracy regression unattributable.
  */
 
 import { GoogleGenAI } from "@google/genai";
@@ -498,7 +509,7 @@ ${JSON.stringify(emailData, null, 2)}`;
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         response = await this.ai.models.generateContent({
-          model: "gemini-2.5-pro",
+          model: "gemini-2.5-flash",
           config: {
             systemInstruction: systemPrompt,
             responseMimeType: "application/json",
@@ -645,7 +656,7 @@ Focus on:
 Respond with valid JSON only:`;
 
       const response = await this.ai.models.generateContent({
-        model: "gemini-2.5-pro",
+        model: "gemini-2.5-flash",
         config: {
           systemInstruction: systemPrompt,
           responseMimeType: "application/json",

@@ -2068,13 +2068,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "User not authenticated" });
       }
 
-      // Get user's Gmail access token for invoice extraction
-      const user = await storage.getUser(userId);
-      const gmailAccessToken = user?.gmailAccessToken || undefined;
-      
-      console.log(`🔑 Gmail access token available: ${!!gmailAccessToken}, User ID: ${userId}`);
-      
-      const result = await storage.approveSuggestions(suggestionIds, userId, gmailAccessToken);
+      // Invoices are built from attachments already uploaded during the sync,
+      // never fetched from Gmail at approval time -- so no token is needed here.
+      // This previously read user.gmailAccessToken, a field deprecated when
+      // tokens moved to gmail_accounts, and logged its absence on every
+      // approval. It was always absent, was never used, and the log made a
+      // missing token look like the reason invoices were not appearing.
+      const result = await storage.approveSuggestions(suggestionIds, userId);
       res.json({
         success: true,
         message: `Approved ${result.approved} suggestions`,
