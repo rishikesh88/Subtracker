@@ -31,7 +31,7 @@ Last updated 2026-09-09.
 | **4** | 16 | Skip already-synced message IDs | ✅ verified (§4a, §4b); §4c fixed, unverified | **medium** |
 | **5** | 18 | `sync_jobs` table + concurrency guard | ✅ deployed, table live; §5a/§5b/§5c unrun | **higher** |
 | **6** | 19 | Model cost optimisation | 🔨 6a built; 6b/6c pending | **higher** |
-| **7** | 20 | Cross-currency / cross-name dedup | ⬜ pending | **medium** |
+| **7** | 20 | Cross-currency / cross-name dedup | 🔨 built — flags, does not merge | **medium** |
 
 **#12 and #13 must ship together** — a stall watchdog is untestable without
 progress events to stall on.
@@ -47,10 +47,9 @@ Black suggestions, because inserts did not check for an existing `serviceKey`.
 any already `pending`. Approval remains the backstop, logging `Duplicate
 subscription detected for X, updating existing instead`.
 
-Matching is on `serviceKey` alone, so #20's cross-name case is untouched:
-"Claude Pro" and "Anthropic Claude Subscription" have different keys and still
-both appear. That is deliberate — merging genuinely distinct subscriptions is
-worse than showing both.
+Matching is on `serviceKey` alone. The cross-name case is now handled
+separately by #20, which **flags** rather than merges — merging genuinely
+distinct subscriptions is worse than showing both.
 
 **Phase 5 is deployed and its table is live**, confirmed by every sync claiming
 a job — the `⚠️ Running sync without a job record` warning never appears. What is
@@ -88,10 +87,9 @@ one account synced.
 | **§2d, §3c, §5a, §5b never run** | Forced stall, reconnect-after-sleep, the 409 guard, and crash recovery are all unverified. §5a and §5b became *harder* to test once Phase 4 landed: a repeat sync now finishes in ~11s, leaving almost no window to overlap a second trigger or to redeploy mid-run |
 | **`users.lastSync` is effectively dead** | Written only when `wasOnboarding && privacyConsentGiven` ([routes.ts:897](../server/routes.ts#L897)), so it never updates for an existing user — still `null` on the live account. Displayed nowhere. §5c cannot be tested by any normal action, and the field itself looks vestigial |
 | **6a is not exercised by a manual sync** | The changed calls live in the onboarding-only auto-sync path. A manual sync uses the protected core detector, already all-flash. Verifying 6a needs a fresh signup |
+| **`serviceKey` was `monthly_monthly` for every subscription** | Fixed 2026-09-09. `generateServiceKey` took `(serviceName, merchantName?, frequency)` and every caller passed frequency into the middle slot, so the key carried no service identity — which is why duplicate detection never worked, and why two Claude Pro rows coexist. **Existing rows keep the broken keys**; a backfill is a separate decision |
 | Client bundle differs local vs Railway | Same commit and lockfile, identical CSS hash and server bundle, but Railway emits 2,199 modules / 1,078 kB against 732 kB locally. Unexplained; not dev-React. Phase 3 *is* live (§2b passes), so it is not a stale-deploy problem |
 | SSE stream cut every ~15 min | Platform proxy closes it despite 30s heartbeats; the browser reconnects instantly. #17 replays a snapshot so the reconnect is invisible |
-| Unknown `/api/*` paths return **200 + HTML** | `app.use("*")` in [vite.ts:82](../server/vite.ts:82) serves `index.html` for everything unmatched. No leak — a scanner probing `/api/.env` got the SPA shell — but API 404s are indistinguishable from hits in the logs |
-| `URIError: Failed to decode param '/%c0'` | Unhandled `serve-static` throw on a malformed path. Logged a stack trace; did not crash |
 | Replit OIDC branch still in boot path | `[Auth] REPLIT_DOMAINS not set, skipping Replit OIDC auth setup` on every start. Dead code from the migration |
 | 11 pre-existing `tsc` errors | Baseline, identical on `main`. New errors in touched files are real failures |
 | **Railway auto-deploy does not fire on merge** | Confirmed across #5–#8: the merge commit carries no Railway deployment status, so the webhook is not arriving. Deploy manually with `railway redeploy --from-source --yes`; plain `redeploy` rebuilds the same commit. Check the Railway install at github.com/settings/installations |

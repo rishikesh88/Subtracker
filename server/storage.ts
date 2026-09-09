@@ -5,6 +5,7 @@ import { neon } from '@neondatabase/serverless';
 import { randomUUID } from "crypto";
 import { convertCurrency } from "./utils/currencyConverter";
 import { advanceOnePeriod, ensureFutureBillingDate } from "./utils/billingDate";
+import { findDuplicateHint } from "./utils/duplicateHints";
 import { invoiceExtractor } from "./services/invoiceExtractor";
 
 export interface IStorage {
@@ -867,8 +868,29 @@ export class DatabaseStorage implements IStorage {
           .where(whereCondition)
       ]);
       
+      // Annotate anything that looks like a subscription the user already has
+      // (#20). Advisory only -- nothing is merged or hidden, because merging two
+      // genuinely distinct subscriptions is worse than showing both.
+      const existing = await this.db
+        .select({
+          id: subscriptions.id,
+          serviceName: subscriptions.serviceName,
+          serviceKey: subscriptions.serviceKey,
+          merchantName: subscriptions.merchantName,
+          amount: subscriptions.amount,
+          currency: subscriptions.currency,
+          frequency: subscriptions.frequency,
+        })
+        .from(subscriptions)
+        .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, 'active')));
+
+      const annotated = suggestionsResult.map((suggestion: SubscriptionSuggestion) => ({
+        ...suggestion,
+        possibleDuplicateOf: findDuplicateHint(suggestion, existing),
+      }));
+
       return {
-        suggestions: suggestionsResult,
+        suggestions: annotated,
         total: countResult[0].count
       };
     } catch (error) {

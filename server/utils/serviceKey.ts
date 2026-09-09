@@ -1,15 +1,25 @@
 /**
- * Generate a unique service key for subscription deduplication
+ * Generate a unique service key for subscription deduplication.
  * Format: normalizedServiceName_frequency
+ *
+ * Frequency is the second parameter and is required. It used to sit third,
+ * behind an optional merchantName, and every caller in geminiSync.ts passed
+ * frequency into that middle slot -- so the key became "monthly_monthly" for
+ * every monthly subscription, carrying no service identity at all. That is why
+ * duplicate detection never worked: two Claude Pro rows, one in INR and one in
+ * USD, sat side by side in production for weeks.
+ *
+ * merchantName is gone rather than reordered. Keying on the merchant merges
+ * subscriptions that are genuinely separate: iCloud+, "iCloud+ with 200 GB" and
+ * Apple One Family all report merchantName "Apple". The service name keeps them
+ * apart, and the telecom normalisation below still works on it, since
+ * "Airtel Black" contains "airtel" just as the merchant name does.
  */
-export function generateServiceKey(serviceName: string, merchantName?: string, frequency: string = 'monthly'): string {
-  // Use merchant name if available, otherwise service name
-  const name = merchantName || serviceName;
-  
+export function generateServiceKey(serviceName: string, frequency: string): string {
   // Conservative normalization for deduplication
   // Only normalize for known telecom providers to avoid over-merging
   const knownTelecomProviders = ['airtel', 'jio', 'vodafone', 'bsnl', 'tata', 'idea'];
-  const baseName = name.toLowerCase().trim();
+  const baseName = (serviceName || '').toLowerCase().trim();
   
   let normalized = baseName;
   
@@ -28,7 +38,7 @@ export function generateServiceKey(serviceName: string, merchantName?: string, f
     .replace(/^_|_$/g, ''); // Remove leading/trailing underscores
   
   // Normalize frequency
-  const normalizedFrequency = frequency.toLowerCase().trim();
+  const normalizedFrequency = (frequency || 'monthly').toLowerCase().trim();
   
   return `${normalized}_${normalizedFrequency}`;
 }

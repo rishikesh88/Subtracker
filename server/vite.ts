@@ -78,6 +78,18 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath));
 
+  // An unmatched /api path is a missing endpoint, not a page. Without this it
+  // fell through to the SPA below and answered 200 with index.html: a client
+  // hitting a typo'd endpoint got HTML and a success code, and a vulnerability
+  // scanner probing /api/.env or /api/config.env got 200 for every guess, which
+  // made real hits indistinguishable from misses in the logs.
+  //
+  // Registered after every route in registerRoutes, so only genuinely unhandled
+  // paths reach it.
+  app.use("/api", (_req, res) => {
+    res.status(404).json({ message: "Not found" });
+  });
+
   // fall through to index.html if the file doesn't exist
   app.use("*", (_req, res) => {
     res.sendFile(path.resolve(distPath, "index.html"));

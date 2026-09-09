@@ -1133,7 +1133,7 @@ export function registerGeminiRoutes(app: Express) {
             const subscriptionData = {
               userId: session.userId,
               serviceName: suggestion.serviceName,
-              serviceKey: generateServiceKey(suggestion.serviceName),
+              serviceKey: generateServiceKey(suggestion.serviceName, suggestion.frequency),
               amount: suggestion.amount.toString(),
               currency: suggestion.currency,
               frequency: suggestion.frequency,

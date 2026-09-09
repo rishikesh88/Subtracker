@@ -597,7 +597,7 @@ ${JSON.stringify(emailData, null, 2)}`;
         suggestions.push({
           userId,
           serviceName: result.serviceName,
-          serviceKey: generateServiceKey(result.serviceName, result.merchantName || email.fromName || email.fromEmail, result.frequency),
+          serviceKey: generateServiceKey(result.serviceName, result.frequency),
           merchantName: result.merchantName || email.fromName || email.fromEmail,
           amount: result.amount.toString(),
           currency: result.currency || 'INR',
@@ -706,7 +706,7 @@ Respond with valid JSON only:`;
         const suggestion: InsertSubscriptionSuggestion = {
           userId,
           serviceName: result.serviceName,
-          serviceKey: generateServiceKey(result.serviceName, result.merchantName, result.frequency),
+          serviceKey: generateServiceKey(result.serviceName, result.frequency),
           merchantName: result.merchantName,
           amount: result.amount.toString(),
           currency: result.currency || 'INR',
@@ -810,11 +810,7 @@ Respond with valid JSON only:`;
     
     // First group by serviceKey (this handles "Airtel Black" -> "airtel_monthly")
     for (const suggestion of suggestions) {
-      const serviceKey = suggestion.serviceKey || generateServiceKey(
-        suggestion.serviceName, 
-        suggestion.merchantName || undefined, 
-        suggestion.frequency
-      );
+      const serviceKey = suggestion.serviceKey || generateServiceKey(suggestion.serviceName, suggestion.frequency);
       
       if (!serviceGroups.has(serviceKey)) {
         serviceGroups.set(serviceKey, []);
