@@ -1026,7 +1026,20 @@ export function registerGeminiRoutes(app: Express) {
           });
       
           if (jobId) {
-            await storage.finishSyncJob(jobId, 'succeeded', {
+            // Account failures are caught inside processGmailAccount and
+            // returned as {success:false} rather than thrown, so reaching this
+            // point does not mean the sync worked. A run where no account
+            // succeeded is a failed run: recording it as succeeded is exactly
+            // the dishonesty this job table exists to remove.
+            const anySucceeded = successfulResults.length > 0;
+            const failureSummary = failedResults.length
+              ? failedResults.map(r => `${r.gmailEmail || r.accountId}: ${r.error || 'unknown error'}`).join('; ')
+              : null;
+
+            await storage.finishSyncJob(jobId, anySucceeded ? 'succeeded' : 'failed', {
+              // Kept on partial success too, so a run that synced one mailbox
+              // and lost another does not read as clean.
+              error: failureSummary,
               emailsProcessed: totalEmailsProcessed,
               suggestionsGenerated: totalSuggestionsGenerated,
             });
