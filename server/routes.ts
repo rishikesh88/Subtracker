@@ -1816,18 +1816,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Clear all suggestions
       const suggestionResult = await storage.clearSuggestions(userId);
-      
+
+      // Forget which messages have been screened (#16). Without this a "fresh
+      // start" is not fresh: the next sync skips the whole window and returns
+      // nothing, because the screened-id table still says it has seen it all.
+      const screenedResult = await storage.clearScreenedMessages(userId);
+
       // Reset user's last sync
       await storage.updateUser(userId, { lastSync: null });
       
-      console.log(`✅ Cleared ${emails.length} emails, ${subscriptions.length} subscriptions, and ${suggestionResult.cleared} suggestions`);
+      console.log(`✅ Cleared ${emails.length} emails, ${subscriptions.length} subscriptions, ${suggestionResult.cleared} suggestions, and ${screenedResult.cleared} screened message IDs`);
       
       res.json({
         success: true,
         message: "All data cleared successfully",
         clearedEmails: emails.length,
         clearedSubscriptions: subscriptions.length,
-        clearedSuggestions: suggestionResult.cleared
+        clearedSuggestions: suggestionResult.cleared,
+        clearedScreenedMessages: screenedResult.cleared
       });
     } catch (error) {
       console.error("Clear data error:", error);
