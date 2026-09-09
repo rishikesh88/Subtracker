@@ -377,6 +377,25 @@ rather than leaving it to block the next sync.
 
 Detection quality is the whole point here, so each step is gated on recall.
 
+> **6a is not exercised by the Sync button.** The two `2.5-pro` calls it changes
+> live in `enhancedSubscriptionDetector.ts`, which runs only from the post-OAuth
+> auto-sync — and that is gated on `wasOnboarding && privacyConsentGiven`
+> ([routes.ts:897](../server/routes.ts#L897)), so it fires at **first-time
+> onboarding only**. Reconnecting Gmail on an already-onboarded account does not
+> trigger it.
+>
+> A manual sync goes through `server/core/geminiSubscriptionDetector.ts`, which
+> is protected, already runs `2.5-flash` throughout, and is untouched by this
+> phase. So a normal sync will look identical before and after — that is not
+> evidence 6a is safe.
+>
+> **To test 6a you need a fresh signup**: a new account, consent given, Gmail
+> connected at onboarding. Compare the suggestions that first sync produces
+> against a pre-change signup on the same mailbox.
+>
+> The same gate is why the cost saving is real but bounded: it lands once per new
+> user, not on every sync.
+
 ### 6a. Establish the comparison
 
 Before changing any model, record on the test mailbox:
