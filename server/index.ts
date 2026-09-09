@@ -43,11 +43,26 @@ app.use((req, res, next) => {
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    // A malformed percent-escape in the URL makes Express throw URIError out of
+    // decodeURIComponent before any route sees it. That is a bad request, not a
+    // server fault -- production logged a full stack trace for a scanner sending
+    // "/%c0".
+    const isMalformedUrl = err instanceof URIError;
+    const status = isMalformedUrl ? 400 : (err.status || err.statusCode || 500);
+    const message = isMalformedUrl ? "Malformed URL" : (err.message || "Internal Server Error");
 
-    res.status(status).json({ message });
-    throw err;
+    if (!res.headersSent) {
+      res.status(status).json({ message });
+    }
+
+    // Logged rather than rethrown. Throwing after the response is already sent
+    // produced an unhandled rejection and a stack trace for every bad URL,
+    // without making the error any more visible than this does.
+    if (isMalformedUrl) {
+      console.warn(`Rejected malformed URL: ${err.message}`);
+    } else {
+      console.error('Unhandled request error:', err);
+    }
   });
 
   // importantly only setup vite in development and after
