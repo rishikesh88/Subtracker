@@ -450,6 +450,53 @@ Run before considering any phase complete:
 
 ## Phase 7 — cross-currency / cross-name dedup
 
+Implemented as a **flag, not a merge**. A suggestion that looks like something
+already tracked gets a "Possible duplicate" badge on the review screen with the
+reason; nothing is merged, hidden, or auto-rejected.
+
+That restraint is the design. This account has three genuinely separate Apple
+subscriptions — iCloud+, "iCloud+ with 200 GB", Apple One Family — so a rule
+aggressive enough to merge the Claude pair would eat those.
+
+Two rules, both requiring the same billing frequency:
+
+| Flag | Rule |
+|---|---|
+| `exact` | identical `serviceKey` — same service, same cadence |
+| `likely` | same merchant **and** an equivalent amount once converted |
+
+Amount tolerance is a loose 20%. FX rates come from a hardcoded table, which put
+the Claude pair 13% apart, so a tight comparison would miss the very case this
+exists for. Amount is only ever a supporting signal — merchant plus frequency
+does the work.
+
+### 7a. The known duplicate is flagged
+
+With Claude Pro (INR) already tracked, a Claude Pro or "Anthropic Claude
+Subscription" suggestion in USD should carry the badge.
+
+| | Expected |
+|---|---|
+| ✅ Pass | Badge shown, reason names the existing subscription |
+| ❌ Fail | No badge, or the suggestion is silently dropped |
+
+### 7b. Distinct subscriptions are not flagged
+
+Apple One Family and iCloud+ share a merchant and a frequency but differ in
+amount. Neither should flag the other.
+
+**A false positive here is worse than a missed duplicate** — it trains the user
+to ignore the badge.
+
+### 7c. Nothing is auto-merged
+
+Approving a flagged suggestion must still create or update normally. The badge
+changes nothing but what is displayed.
+
+---
+
+## Phase 7 — original notes
+
 ### 7a. The known duplicate is caught
 
 The reference mailbox produces both **"Anthropic Claude Subscription"

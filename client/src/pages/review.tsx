@@ -13,6 +13,19 @@ interface EmailEvidence {
 
 interface SuggestionWithEvidence extends SubscriptionSuggestion {
   emailEvidence?: EmailEvidence[];
+  /**
+   * Set by the server when this looks like a subscription already tracked (#20).
+   * Advisory only -- nothing is merged or hidden, because two subscriptions from
+   * one merchant are often genuinely separate. The user decides.
+   */
+  possibleDuplicateOf?: {
+    subscriptionId: string;
+    serviceName: string;
+    amount: string;
+    currency: string;
+    reason: string;
+    confidence: 'exact' | 'likely';
+  } | null;
 }
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -493,7 +506,25 @@ export default function ReviewInbox() {
                           >
                             {confidencePercent && `${confidencePercent}% `}{suggestion.confidence}
                           </Badge>
+                          {suggestion.possibleDuplicateOf && (
+                            <Badge
+                              variant="outline"
+                              className="text-xs bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800"
+                              title={suggestion.possibleDuplicateOf.reason}
+                              data-testid="badge-possible-duplicate"
+                            >
+                              Possible duplicate
+                            </Badge>
+                          )}
                         </div>
+                        {suggestion.possibleDuplicateOf && (
+                          <p
+                            className="text-xs text-amber-700 dark:text-amber-300 mt-1"
+                            data-testid="text-duplicate-reason"
+                          >
+                            {suggestion.possibleDuplicateOf.reason}
+                          </p>
+                        )}
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground mt-1">
                           <span className="capitalize">{suggestion.frequency}</span>
                           <span>•</span>
