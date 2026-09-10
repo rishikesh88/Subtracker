@@ -77,7 +77,8 @@ function amountsMatch(
 }
 
 /**
- * Find an existing subscription that a suggestion may duplicate.
+ * Find an existing subscription -- or, with `context: 'suggestion'`, an
+ * earlier pending suggestion -- that a suggestion may duplicate.
  *
  * Two rules, both requiring the same billing frequency — a monthly and a yearly
  * plan for one service are different subscriptions, not duplicates:
@@ -86,25 +87,30 @@ function amountsMatch(
  *   likely — same merchant, and an equivalent amount once converted. This is
  *            the cross-name, cross-currency case. Merchant alone is not enough,
  *            or every Apple subscription would flag every other.
+ *
+ * `context` only changes the wording of the reason shown to the user --
+ * "You already track X" reads wrong when X is itself an unapproved
+ * suggestion sitting two rows down the same review screen.
  */
 export function findDuplicateHint(
   suggestion: ComparableSuggestion,
-  subscriptions: ComparableSubscription[]
+  candidates: ComparableSubscription[],
+  context: 'subscription' | 'suggestion' = 'subscription'
 ): DuplicateHint | null {
   const asHint = (
-    subscription: ComparableSubscription,
+    candidate: ComparableSubscription,
     reason: string,
     confidence: DuplicateHint['confidence']
   ): DuplicateHint => ({
-    subscriptionId: subscription.id,
-    serviceName: subscription.serviceName,
-    amount: subscription.amount,
-    currency: subscription.currency,
+    subscriptionId: candidate.id,
+    serviceName: candidate.serviceName,
+    amount: candidate.amount,
+    currency: candidate.currency,
     reason,
     confidence,
   });
 
-  const sameFrequency = subscriptions.filter(
+  const sameFrequency = candidates.filter(
     s => normalise(s.frequency) === normalise(suggestion.frequency)
   );
 
@@ -112,7 +118,10 @@ export function findDuplicateHint(
     s => s.serviceKey && suggestion.serviceKey && s.serviceKey === suggestion.serviceKey
   );
   if (exact) {
-    return asHint(exact, `You already track ${exact.serviceName}`, 'exact');
+    const reason = context === 'suggestion'
+      ? `Also suggested as ${exact.serviceName}`
+      : `You already track ${exact.serviceName}`;
+    return asHint(exact, reason, 'exact');
   }
 
   const merchant = normalise(suggestion.merchantName);
@@ -122,11 +131,10 @@ export function findDuplicateHint(
     s => normalise(s.merchantName) === merchant && amountsMatch(suggestion, s)
   );
   if (likely) {
-    return asHint(
-      likely,
-      `Same merchant and a similar amount to ${likely.serviceName} (${likely.currency} ${likely.amount})`,
-      'likely'
-    );
+    const reason = context === 'suggestion'
+      ? `Same merchant and a similar amount to another suggestion, ${likely.serviceName} (${likely.currency} ${likely.amount})`
+      : `Same merchant and a similar amount to ${likely.serviceName} (${likely.currency} ${likely.amount})`;
+    return asHint(likely, reason, 'likely');
   }
 
   return null;

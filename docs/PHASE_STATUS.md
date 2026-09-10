@@ -31,7 +31,7 @@ Last updated 2026-09-09.
 | **4** | 16 | Skip already-synced message IDs | ✅ verified (§4a, §4b); §4c fixed, unverified | **medium** |
 | **5** | 18 | `sync_jobs` table + concurrency guard | ✅ deployed, table live; §5a/§5b/§5c unrun | **higher** |
 | **6** | 19 | Model cost optimisation | 🔨 6a built; 6b/6c pending | **higher** |
-| **7** | 20 | Cross-currency / cross-name dedup | 🔨 built — flags, does not merge | **medium** |
+| **7** | 20 | Cross-currency / cross-name dedup | ✅ deployed; also flags within-batch pairs | **medium** |
 
 **#12 and #13 must ship together** — a stall watchdog is untestable without
 progress events to stall on.
@@ -50,6 +50,15 @@ subscription detected for X, updating existing instead`.
 Matching is on `serviceKey` alone. The cross-name case is now handled
 separately by #20, which **flags** rather than merges — merging genuinely
 distinct subscriptions is worse than showing both.
+
+**#20 originally only compared a suggestion against existing subscriptions.**
+The 2026-09-09 cold sync surfaced its blind spot: "Airtel Black" and "Airtel
+Black Plan" arrived as two suggestions in the same batch, at an identical
+₹1,885.64/month, with zero subscriptions yet to compare against -- the exact
+case where a first-sync flood is most likely to double up. `findDuplicateHint`
+now also runs each suggestion against the earlier suggestions in its own page,
+ordered by `detectedAt` then `id` so the same row is always the one flagged.
+Caught by the user, not the badge, which is what led to the fix.
 
 **Phase 5 is deployed and its table is live**, confirmed by every sync claiming
 a job — the `⚠️ Running sync without a job record` warning never appears. What is
