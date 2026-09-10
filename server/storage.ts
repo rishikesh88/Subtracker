@@ -908,9 +908,34 @@ export class DatabaseStorage implements IStorage {
         .from(subscriptions)
         .where(and(eq(subscriptions.userId, userId), eq(subscriptions.status, 'active')));
 
+      // A duplicate pair can also arrive as two suggestions in the same
+      // batch -- neither is an existing subscription yet, so the check above
+      // is blind to it. That was live in production: a 2026-09-09 cold sync
+      // raised both "Airtel Black" and "Airtel Black Plan" at an identical
+      // ₹1,885.64/month, and only the check above ran.
+      //
+      // Ordered by detectedAt then id so the same suggestion is always the
+      // one flagged, regardless of what order the DB happens to return rows
+      // in. Only compares within this page -- a duplicate pair split across
+      // pages is missed, same limitation the existing-subscription check
+      // doesn't have.
+      const byDetectedAt = [...suggestionsResult].sort((a, b) => {
+        const aTime = a.detectedAt ? new Date(a.detectedAt).getTime() : 0;
+        const bTime = b.detectedAt ? new Date(b.detectedAt).getTime() : 0;
+        if (aTime !== bTime) return aTime - bTime;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+
+      const batchHints = new Map<string, ReturnType<typeof findDuplicateHint>>();
+      const seen: SubscriptionSuggestion[] = [];
+      for (const suggestion of byDetectedAt) {
+        batchHints.set(suggestion.id, findDuplicateHint(suggestion, seen, 'suggestion'));
+        seen.push(suggestion);
+      }
+
       const annotated = suggestionsResult.map((suggestion: SubscriptionSuggestion) => ({
         ...suggestion,
-        possibleDuplicateOf: findDuplicateHint(suggestion, existing),
+        possibleDuplicateOf: findDuplicateHint(suggestion, existing) ?? batchHints.get(suggestion.id) ?? null,
       }));
 
       return {
