@@ -937,3 +937,33 @@ a:hover { color: var(--accent-dark); text-decoration: underline; }
   .filings__head, .filing { padding-left: 18px; padding-right: 18px; }
   .faq__q { font-size: 16px; padding: 18px 2px; }
 }
+
+/* --- Cadence chips -------------------------------------------------------
+   Renewal cadence as a coloured chip rather than grey text. All three are
+   defined even though the sample only uses two -- quarterly billing is rare
+   enough in SaaS that no plausible vendor in the list bills that way.        */
+
+.cadence {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .005em;
+  white-space: nowrap;
+}
+
+.cadence--monthly   { background: #E4F0FA; color: #295572; }
+.cadence--quarterly { background: #E7E7F8; color: #3B3A74; }
+.cadence--yearly    { background: #F2E6F6; color: #67396E; }
+
+/* Icon slot. Letter fallback today; drop a 1:1 <img> in and it just works. */
+.ledger__chip img {
+  width: 20px;
+  height: 20px;
+  display: block;
+  object-fit: contain;
+}
+.ledger__chip--plain { background: #FFFFFF; border: 1px solid var(--rule); }
