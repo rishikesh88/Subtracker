@@ -38,13 +38,6 @@
 
 <main class="doc" id="main">
 
-  <div class="doc__head">
-    <a class="brand" href="index.html">
-      <span class="brand__name">Verloq</span>
-    </a>
-    <span class="doc__url">verloq.co/privacy</span>
-  </div>
-
   <h1>Privacy Policy</h1>
   <p class="doc__date">Effective [EFFECTIVE DATE] &middot; Last updated [LAST UPDATED DATE]</p>
 
@@ -115,14 +108,14 @@
   <p>We may also disclose information where we are legally required to, or to protect our rights or the safety of others.</p>
 
   <h2>6. Security</h2>
-  <p>All traffic runs over TLS. Passwords are hashed with bcrypt. Session cookies are HTTP-only and, in production, restricted to HTTPS. Access tokens for your mailbox are held only for as long as the connection is active and are discarded when you disconnect. Invoice files are stored in a private bucket that is not publicly readable.</p>
+  <p>All traffic runs over TLS. Passwords are hashed with bcrypt. Session cookies are HTTP-only and, in production, restricted to HTTPS. Access tokens for your mailbox are held only for as long as the connection is active and are deleted when you disconnect. Invoice files are stored in a private bucket that is not publicly readable.</p>
   <p>No system is perfectly secure, and we do not claim otherwise. If a breach affects your data we will notify you and any regulator we are required to, without undue delay.</p>
 
   <h2>7. How long we keep things</h2>
   <ul>
     <li><strong>While your account is open</strong> &mdash; your account details, detected subscriptions and stored invoices are kept so the service works.</li>
-    <li><strong>When you disconnect a mailbox</strong> &mdash; the stored tokens are deleted and the Google grant revoked. Verloq stops accessing that mailbox immediately.</li>
-    <li><strong>When you delete your account</strong> &mdash; your account, subscriptions, receipt data and stored invoices are deleted. Operational logs may persist for up to [RETENTION PERIOD, e.g. 30 days] before rotating out.</li>
+    <li><strong>When you disconnect a mailbox</strong> &mdash; Verloq deletes the stored access and refresh tokens and stops accessing that mailbox. The authorisation itself remains in your Google account until you remove it at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>, which you can do at any time.</li>
+    <li><strong>When you close your account</strong> &mdash; write to <a href="mailto:[PRIVACY CONTACT EMAIL]">[PRIVACY CONTACT EMAIL]</a>. While Verloq is in beta this is done by hand: your account, subscriptions, receipt data and stored invoices are deleted, and we confirm when it is complete. Operational logs may persist for up to [RETENTION PERIOD, e.g. 30 days] before rotating out.</li>
   </ul>
   <p>You can also clear detected data at any time from within the app without closing your account.</p>
 
@@ -166,7 +159,6 @@
       <nav class="site-footer__col" aria-label="Product">
         <p class="site-footer__heading">Product</p>
         <a href="index.html#how">How it works</a>
-        <a href="index.html#your-data">Your data</a>
       </nav>
       <nav class="site-footer__col" aria-label="Legal">
         <p class="site-footer__heading">Legal</p>

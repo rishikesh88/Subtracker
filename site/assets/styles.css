@@ -625,7 +625,7 @@ a:hover { color: var(--accent-dark); text-decoration: underline; }
   font-size: clamp(32px, 4.4vw, 44px);
   font-weight: 600;
   letter-spacing: -0.032em;
-  margin: 44px 0 14px;
+  margin: 8px 0 14px;
 }
 
 .doc h2 {
@@ -721,10 +721,21 @@ a:hover { color: var(--accent-dark); text-decoration: underline; }
   .section { padding: 80px var(--gutter) 72px; }
   .panel--soft { padding: 72px 40px 76px; }
   .cta { padding: 76px var(--gutter); }
-  .steps { grid-template-columns: 1fr; }
   .site-footer { padding: 56px 40px 36px; }
   .site-footer__top { flex-direction: column; gap: 44px; }
   .site-footer__cols { gap: 48px; flex-wrap: wrap; }
+}
+
+/* Three columns hold down to ~860px, where each card is still ~265px wide.
+   Below that they stack — but capped, because a 780px-wide card holding two
+   lines of text and a gradient band reads as a mistake. */
+@media (max-width: 860px) {
+  .steps {
+    grid-template-columns: 1fr;
+    max-width: 540px;
+    margin-left: auto;
+    margin-right: auto;
+  }
 }
 
 @media (max-width: 680px) {
@@ -770,4 +781,159 @@ a:hover { color: var(--accent-dark); text-decoration: underline; }
   .callout { background: none; border: 1px solid #CCC; }
   a { color: var(--ink); text-decoration: underline; }
   a[href^="http"]::after { content: " (" attr(href) ")"; font-size: 11px; color: #666; }
+}
+
+/* ==========================================================================
+   B2B sections
+   ========================================================================== */
+
+/* --- Three-up strip under the hero --------------------------------------- */
+
+.strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  margin: 0 var(--gutter);
+}
+
+.strip__item {
+  background: var(--ground);
+  padding: 26px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.strip__title { font-size: 15.5px; font-weight: 700; letter-spacing: -0.012em; }
+.strip__text  { font-size: 14px; line-height: 1.55; color: var(--muted); }
+
+/* --- Feature panel: copy one side, artefact the other -------------------- */
+
+.feature {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 64px;
+  align-items: center;
+}
+
+.feature__body { display: flex; flex-direction: column; gap: 18px; }
+
+.feature__points { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+
+.feature__point {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.feature__point svg { flex: 0 0 auto; margin-top: 3px; }
+
+/* --- Filed-invoice artefact ---------------------------------------------- */
+
+.filings {
+  background: rgba(255, 255, 255, .82);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, .9);
+  border-radius: 20px;
+  box-shadow: 0 2px 6px rgba(21, 26, 46, .04), 0 24px 50px -22px rgba(21, 26, 46, .22);
+  overflow: hidden;
+}
+
+.filings__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid rgba(21, 26, 46, .07);
+}
+
+.filings__title { font-family: var(--serif); font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
+
+.filing {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 24px;
+  border-bottom: 1px solid rgba(21, 26, 46, .05);
+}
+.filing:last-child { border-bottom: none; }
+
+.filing__icon {
+  flex: 0 0 auto;
+  width: 30px; height: 34px;
+  border-radius: 5px;
+  background: var(--tint-sky);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8.5px; font-weight: 700; letter-spacing: .04em;
+  color: #46527A;
+}
+
+.filing__meta { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; }
+.filing__name { font-size: 14.5px; font-weight: 600; }
+.filing__sub  { font-size: 12.5px; color: var(--faint); }
+.filing__amount { font-size: 14.5px; font-weight: 600; white-space: nowrap; }
+
+/* --- FAQ ------------------------------------------------------------------ */
+
+.faq { display: flex; flex-direction: column; }
+
+.faq__item { border-bottom: 1px solid var(--rule); }
+.faq__item:first-child { border-top: 1px solid var(--rule); }
+
+.faq__q {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 4px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  cursor: pointer;
+  list-style: none;
+}
+.faq__q::-webkit-details-marker { display: none; }
+
+.faq__q::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 11px; height: 11px;
+  border-right: 2px solid var(--faint);
+  border-bottom: 2px solid var(--faint);
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform .18s ease;
+}
+.faq__item[open] .faq__q::after { transform: rotate(-135deg) translate(-2px, -2px); }
+
+.faq__a {
+  padding: 0 4px 24px;
+  max-width: 720px;
+  font-size: 15.5px;
+  line-height: 1.7;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+
+/* --- Responsive additions ------------------------------------------------- */
+
+@media (max-width: 1080px) {
+  .feature { gap: 44px; }
+}
+
+@media (max-width: 860px) {
+  .feature { grid-template-columns: 1fr; gap: 36px; }
+  .strip { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 680px) {
+  .strip__item { padding: 20px 18px; }
+  .filings__head, .filing { padding-left: 18px; padding-right: 18px; }
+  .faq__q { font-size: 16px; padding: 18px 2px; }
 }

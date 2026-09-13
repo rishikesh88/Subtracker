@@ -4,22 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
-<title>Verloq — every subscription you forgot you were paying for</title>
-<meta name="description" content="Verloq reads the subscription receipts already in your Gmail and turns them into one honest list: what renews, when, and what it costs across every currency you pay in.">
+<title>Verloq — know what your company spends on software</title>
+<meta name="description" content="Verloq reads the receipts in your billing inbox and turns them into one list: every subscription, every renewal date, every invoice, one total. No card feed, no procurement project.">
 <link rel="canonical" href="https://verloq.co/">
 <meta name="theme-color" content="#F4F4F6">
 
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://verloq.co/">
 <meta property="og:site_name" content="Verloq">
-<meta property="og:title" content="Verloq — every subscription you forgot you were paying for">
-<meta property="og:description" content="Verloq reads the subscription receipts already in your Gmail and turns them into one honest list: what renews, when, and what it costs.">
+<meta property="og:title" content="Verloq — know what your company spends on software">
+<meta property="og:description" content="Verloq reads the receipts in your billing inbox and turns them into one list: every subscription, every renewal date, every invoice, one total.">
 <meta property="og:image" content="https://verloq.co/assets/og-cover.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Verloq — every subscription you forgot you were paying for">
-<meta name="twitter:description" content="Verloq reads the subscription receipts already in your Gmail and turns them into one honest list.">
+<meta name="twitter:title" content="Verloq — know what your company spends on software">
+<meta name="twitter:description" content="Verloq reads the receipts in your billing inbox and turns them into one list.">
 <meta name="twitter:image" content="https://verloq.co/assets/og-cover.png">
 
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
@@ -42,6 +42,7 @@
       <div class="nav__links">
         <a class="nav__link" href="#how">How it works</a>
         <a class="nav__link" href="#your-data">Your data</a>
+        <a class="nav__link" href="#faq">FAQ</a>
       </div>
     </div>
     <a class="btn btn--dark btn--sm" href="#waitlist">Join the waitlist</a>
@@ -50,121 +51,83 @@
 
 <main id="main">
 
-  <!-- ── Hero ───────────────────────────────────────────────────────────── -->
-  <section class="section stack-centre" style="padding-bottom:60px">
+  <!-- Hero -->
+  <section class="section stack-centre" style="padding-bottom:56px">
     <p class="badge" style="margin-bottom:30px">
       <span class="badge__tag">BETA</span>
       <span class="badge__text">Private beta — waitlist open</span>
     </p>
 
-    <h1 class="h1" style="max-width:880px;margin-bottom:26px">
-      The receipts are already in your inbox.
+    <h1 class="h1" style="max-width:900px;margin-bottom:26px">
+      Know what your company actually spends on software.
     </h1>
 
-    <p class="lede" style="max-width:616px;margin-bottom:38px">
-      Verloq reads them and gives you one honest list of what you are actually
-      subscribed to — what renews, when, and what it costs across every currency
-      you pay in.
+    <p class="lede" style="max-width:640px;margin-bottom:38px">
+      Verloq reads the receipts already sitting in your billing inbox and turns
+      them into one list — every subscription, what it costs, when it renews,
+      and the receipt it came from. No card feed, no procurement project.
     </p>
 
-    <!--
-      Waitlist form.
-      ▸ Set FORM_ENDPOINT in the script at the bottom of this file before going live.
-      ▸ Formspree: https://formspree.io/f/xxxxxxxx   Tally: https://api.tally.so/...
-      Until it is set, the form tells the visitor to email instead of failing silently.
-    -->
+    <!-- Set FORM_ENDPOINT in the script at the bottom of this file before going live.
+         Formspree gives you https://formspree.io/f/xxxxxxxx after you create a form.
+         Until it is set the form tells the visitor to email instead of failing silently. -->
     <form class="signup" id="waitlist" method="POST" novalidate>
-      <label class="visually-hidden" for="email">Email address</label>
+      <label class="visually-hidden" for="email">Work email address</label>
       <div class="signup__row">
         <input class="signup__field" type="email" id="email" name="email"
                placeholder="you@company.com" autocomplete="email" required>
-        <button class="btn btn--accent" type="submit" id="signup-submit">Join the waitlist</button>
+        <button class="btn btn--accent" type="submit">Join the waitlist</button>
       </div>
-
       <input class="signup__trap" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
       <input type="hidden" name="source" value="verloq.co/">
-
-      <p class="signup__status" id="signup-status" role="status" aria-live="polite"></p>
+      <p class="signup__status" role="status" aria-live="polite"></p>
     </form>
 
-    <p class="micro" style="margin-top:15px;max-width:520px">
+    <p class="micro" style="margin-top:15px;max-width:540px">
       We are completing Google&rsquo;s security review before opening access.
       Waitlist members get in first — no card, free for the beta.
     </p>
   </section>
 
-  <!-- ── Hero panel ─────────────────────────────────────────────────────── -->
-  <div class="panel panel--mesh">
+  <!-- Three-up strip -->
+  <div class="strip">
+    <div class="strip__item">
+      <span class="strip__title">Every mailbox, one list</span>
+      <span class="strip__text">Connect billing@, accounts@, and anyone else who receives vendor receipts.</span>
+    </div>
+    <div class="strip__item">
+      <span class="strip__title">Renewals with dates on them</span>
+      <span class="strip__text">Read from the receipt, not guessed from a transaction pattern.</span>
+    </div>
+    <div class="strip__item">
+      <span class="strip__title">Invoices kept with the subscription</span>
+      <span class="strip__text">With the amount, tax and date already pulled out.</span>
+    </div>
+  </div>
+
+  <!-- Hero panel: gradient + floating ledger -->
+  <div class="panel panel--mesh" style="margin-top:var(--gutter)">
     <div class="stack-centre">
 
       <div class="ledger">
         <div class="ledger__head">
           <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
             <span class="ledger__month">September</span>
-            <span class="ledger__cadence">8 active subscriptions</span>
+            <span class="ledger__cadence">24 active subscriptions</span>
           </div>
-          <span class="ledger__meta">Reconciled from 2,620 emails</span>
+          <span class="ledger__meta">Reconciled from 4,180 emails</span>
         </div>
 
         <div class="ledger__row">
           <div class="ledger__line">
             <div class="ledger__service">
               <span class="ledger__chip ledger__chip--sky" aria-hidden="true">A</span>
-              <span class="ledger__name">Airtel Black</span>
+              <span class="ledger__name">Amazon Web Services</span>
               <span class="ledger__cadence">Monthly</span>
             </div>
             <div class="ledger__amounts">
-              <span class="ledger__due">renews 18 Sep</span>
-              <span class="ledger__amount tabular">&#8377;1,885.64</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="ledger__row">
-          <div class="ledger__line">
-            <div class="ledger__service">
-              <span class="ledger__chip ledger__chip--sky" aria-hidden="true">A</span>
-              <span class="ledger__name">Airtel Black Plan</span>
-              <span class="ledger__cadence">Monthly</span>
-            </div>
-            <div class="ledger__amounts">
-              <span class="ledger__due">renews 18 Sep</span>
-              <span class="ledger__amount tabular">&#8377;1,885.64</span>
-            </div>
-          </div>
-          <p class="flag">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/>
-            </svg>
-            Possible duplicate of Airtel Black
-          </p>
-        </div>
-
-        <div class="ledger__row">
-          <div class="ledger__line">
-            <div class="ledger__service">
-              <span class="ledger__chip ledger__chip--lavender" aria-hidden="true">C</span>
-              <span class="ledger__name">Claude Pro</span>
-              <span class="ledger__cadence">Monthly</span>
-            </div>
-            <div class="ledger__amounts">
-              <span class="ledger__due">renews 29 Sep</span>
-              <span class="ledger__amount tabular">$23.60</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="ledger__row">
-          <div class="ledger__line">
-            <div class="ledger__service">
-              <span class="ledger__chip ledger__chip--blush" aria-hidden="true">N</span>
-              <span class="ledger__name">Netflix</span>
-              <span class="ledger__cadence">Monthly</span>
-            </div>
-            <div class="ledger__amounts">
-              <span class="ledger__due">renews 9 Oct</span>
-              <span class="ledger__amount tabular">&#8377;649.00</span>
+              <span class="ledger__due">renews 1 Oct</span>
+              <span class="ledger__amount tabular">$1,786.60</span>
             </div>
           </div>
         </div>
@@ -173,47 +136,187 @@
           <div class="ledger__line">
             <div class="ledger__service">
               <span class="ledger__chip ledger__chip--lavender" aria-hidden="true">S</span>
-              <span class="ledger__name">Swiggy BLCK</span>
-              <span class="ledger__cadence">Quarterly</span>
+              <span class="ledger__name">Slack</span>
+              <span class="ledger__cadence">Monthly</span>
             </div>
             <div class="ledger__amounts">
-              <span class="ledger__due">renews 6 Dec</span>
-              <span class="ledger__amount tabular">&#8377;299.00</span>
+              <span class="ledger__due">renews 14 Oct</span>
+              <span class="ledger__amount tabular">$1,072.50</span>
             </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--blush" aria-hidden="true">F</span>
+              <span class="ledger__name">Figma</span>
+              <span class="ledger__cadence">Monthly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 22 Sep</span>
+              <span class="ledger__amount tabular">$540.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--sky" aria-hidden="true">N</span>
+              <span class="ledger__name">Notion</span>
+              <span class="ledger__cadence">Monthly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 3 Oct</span>
+              <span class="ledger__amount tabular">$240.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--sky" aria-hidden="true">N</span>
+              <span class="ledger__name">Notion Team Plan</span>
+              <span class="ledger__cadence">Monthly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 3 Oct</span>
+              <span class="ledger__amount tabular">$240.00</span>
+            </div>
+          </div>
+          <p class="flag">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/>
+            </svg>
+            Possible duplicate of Notion
+          </p>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--lavender" aria-hidden="true">H</span>
+              <span class="ledger__name">Hetzner Cloud</span>
+              <span class="ledger__cadence">Monthly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 8 Oct</span>
+              <span class="ledger__amount tabular">&euro;189.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <span class="ledger__cadence" style="padding-left:43px">and 18 more</span>
           </div>
         </div>
 
         <div class="ledger__total">
           <span class="ledger__total-label">Normalised monthly</span>
-          <span class="ledger__total-value tabular">&#8377;6,560.02</span>
+          <span class="ledger__total-value tabular">$18,402.75</span>
         </div>
       </div>
 
       <p class="caption">
-        Sample output. Yearly and quarterly plans are normalised to a monthly
-        figure, foreign currencies converted to yours.
+        Sample output. Annual and quarterly plans are normalised to a monthly
+        figure, and other currencies converted to yours.
       </p>
     </div>
   </div>
 
-  <!-- ── How it works ───────────────────────────────────────────────────── -->
-  <section class="section" id="how">
+  <!-- The invoice archive -->
+  <section class="section" id="invoices">
+    <div class="feature wrap">
+      <div class="feature__body">
+        <p class="eyebrow">The invoice, not just the amount</p>
+        <h2 class="h2">Month end stops being a scavenger hunt.</h2>
+        <p class="lede">
+          A card statement tells you $540 went to Figma. It does not give you
+          anything your accountant can file. Verloq keeps the document the
+          vendor sent, alongside the amount, tax and date it pulled out of it.
+        </p>
+
+        <div class="feature__points">
+          <p class="feature__point">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#6366D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+            When a vendor attaches a PDF invoice, Verloq files it against the subscription.
+          </p>
+          <p class="feature__point">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#6366D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+            When they send an HTML receipt instead, it still captures the amount, tax and date.
+          </p>
+          <p class="feature__point">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#6366D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+            Everything sits under the subscription it belongs to, not in a mailbox search.
+          </p>
+        </div>
+      </div>
+
+      <div class="filings">
+        <div class="filings__head">
+          <span class="filings__title">Amazon Web Services</span>
+          <span class="ledger__meta">6 filed</span>
+        </div>
+
+        <div class="filing">
+          <span class="filing__icon" aria-hidden="true">PDF</span>
+          <span class="filing__meta">
+            <span class="filing__name">September 2026</span>
+            <span class="filing__sub">Invoice 1284-9930 &middot; tax $142.93</span>
+          </span>
+          <span class="filing__amount tabular">$1,786.60</span>
+        </div>
+
+        <div class="filing">
+          <span class="filing__icon" aria-hidden="true">PDF</span>
+          <span class="filing__meta">
+            <span class="filing__name">August 2026</span>
+            <span class="filing__sub">Invoice 1284-8817 &middot; tax $138.20</span>
+          </span>
+          <span class="filing__amount tabular">$1,727.55</span>
+        </div>
+
+        <div class="filing">
+          <span class="filing__icon" aria-hidden="true">PDF</span>
+          <span class="filing__meta">
+            <span class="filing__name">July 2026</span>
+            <span class="filing__sub">Invoice 1284-7702 &middot; tax $151.06</span>
+          </span>
+          <span class="filing__amount tabular">$1,888.20</span>
+        </div>
+
+        <div class="filing">
+          <span class="filing__icon" aria-hidden="true">PDF</span>
+          <span class="filing__meta">
+            <span class="filing__name">June 2026</span>
+            <span class="filing__sub">Invoice 1284-6644 &middot; tax $129.87</span>
+          </span>
+          <span class="filing__amount tabular">$1,623.40</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section class="section" id="how" style="padding-top:0">
     <div class="stack-centre" style="margin-bottom:52px">
       <p class="eyebrow" style="margin-bottom:16px">How it works</p>
       <h2 class="h2" style="margin-bottom:16px">Three steps, then it runs itself</h2>
-      <p class="lede" style="max-width:560px">
-        No imports, no receipts to dig up, no tagging by hand.
-      </p>
+      <p class="lede" style="max-width:560px">No CSV imports, no card feed, no IT project.</p>
     </div>
 
     <div class="steps wrap">
       <article class="step">
         <div class="step__body">
           <p class="step__num step__num--sky">01</p>
-          <h3 class="step__title">Connect Gmail</h3>
+          <h3 class="step__title">Connect your billing inbox</h3>
           <p class="step__text">
-            One Google sign-in, read-only. Choose how far back to look — anywhere
-            from seven days to six months.
+            One Google sign-in, read-only. Add as many mailboxes as you need —
+            billing@, accounts@, or whichever inbox your vendors actually write to.
           </p>
         </div>
         <div class="step__wash step__wash--sky"></div>
@@ -224,8 +327,8 @@
           <p class="step__num step__num--lavender">02</p>
           <h3 class="step__title">Verloq reads the receipts</h3>
           <p class="step__text">
-            It scans message headers to find the receipts, opens only those, and
-            pulls out the service, amount, cadence and renewal date.
+            It scans message headers to find vendor receipts, opens only those,
+            and pulls out the vendor, amount, tax, cadence and renewal date.
           </p>
         </div>
         <div class="step__wash step__wash--lavender"></div>
@@ -236,7 +339,7 @@
           <p class="step__num step__num--blush">03</p>
           <h3 class="step__title">You approve the list</h3>
           <p class="step__text">
-            Nothing is added behind your back. Verloq proposes, flags anything
+            Nothing lands in your ledger unseen. Verloq proposes, flags anything
             that looks like a duplicate, and you decide what to keep.
           </p>
         </div>
@@ -245,16 +348,16 @@
     </div>
   </section>
 
-  <!-- ── Your data ──────────────────────────────────────────────────────── -->
+  <!-- Your data -->
   <section class="panel panel--soft" id="your-data">
     <div class="wrap--narrow">
-      <p class="eyebrow">What Verloq does with your Gmail</p>
+      <p class="eyebrow">What Verloq does with your mail</p>
       <h2 class="h2" style="margin:18px 0;max-width:720px">
         We ask for read access, so we tell you exactly what we read.
       </h2>
       <p class="lede" style="max-width:640px;margin-bottom:48px">
-        Most tools in this category are vague about this. Here is the whole of
-        it, in the same words we use in our privacy policy.
+        You are being asked to connect a company mailbox to a small company.
+        Here is the whole of it, in the same words we use in our privacy policy.
       </p>
 
       <div class="commitments">
@@ -265,8 +368,8 @@
           </svg>
           <h3 class="commitment__title">Read-only, always</h3>
           <p class="commitment__text">
-            The Gmail permission Verloq requests cannot send, delete, label or
-            alter anything. Your inbox is left exactly as it was.
+            The permission Verloq requests cannot send, delete, label or alter
+            anything. Your mailbox is left exactly as it was.
           </p>
         </article>
 
@@ -278,8 +381,8 @@
           <h3 class="commitment__title">Only receipts are opened</h3>
           <p class="commitment__text">
             Every message gets a header-level look to decide whether it is a
-            receipt. Only the ones that pass have their contents read; the rest
-            are discarded.
+            vendor receipt. Only the ones that pass have their contents read;
+            the rest are discarded.
           </p>
         </article>
 
@@ -288,11 +391,10 @@
                stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M12 3a9 9 0 100 18 9 9 0 000-18zM5.6 5.6l12.8 12.8"/>
           </svg>
-          <h3 class="commitment__title">Never sold, never advertised against</h3>
+          <h3 class="commitment__title">No bank or card credentials</h3>
           <p class="commitment__text">
-            Your email data is used to build your subscription list and nothing
-            else. It is not sold, shared for advertising, or used to train
-            general AI models.
+            Verloq never touches your accounts. It reads receipts, which means
+            there is nothing to compromise on the payment side.
           </p>
         </article>
 
@@ -303,8 +405,9 @@
           </svg>
           <h3 class="commitment__title">Leave and it is gone</h3>
           <p class="commitment__text">
-            Disconnect from settings and the Google grant is revoked and your
-            stored data deleted. No retention period, no export request needed.
+            Disconnect a mailbox and Verloq deletes its tokens and stops reading
+            it. You can revoke the authorisation itself in your Google account
+            at any time, independently of us.
           </p>
         </article>
       </div>
@@ -321,17 +424,77 @@
     </div>
   </section>
 
-  <!-- ── Closing CTA ────────────────────────────────────────────────────── -->
+  <!-- FAQ -->
+  <section class="section" id="faq">
+    <div class="wrap--narrow">
+      <div class="stack-centre" style="margin-bottom:44px">
+        <p class="eyebrow" style="margin-bottom:16px">Questions</p>
+        <h2 class="h2">Clear answers before you connect anything</h2>
+      </div>
+
+      <div class="faq">
+        <details class="faq__item">
+          <summary class="faq__q">Which mailbox should we connect?</summary>
+          <p class="faq__a">
+            Whichever one your vendors already write to — usually billing@ or
+            accounts@. You can add more than one, so if receipts are split
+            between a shared inbox and a founder&rsquo;s inbox, connect both.
+            Verloq reconciles across all of them into a single list.
+          </p>
+        </details>
+
+        <details class="faq__item">
+          <summary class="faq__q">Do you need our bank or card details?</summary>
+          <p class="faq__a">
+            No. Verloq works entirely from the receipts vendors email you. It has
+            no connection to your bank, your cards, or your accounting system,
+            and it cannot make or see a payment.
+          </p>
+        </details>
+
+        <details class="faq__item">
+          <summary class="faq__q">Can Verloq change anything in our mailbox?</summary>
+          <p class="faq__a">
+            No. The permission it requests is read-only — it cannot send, delete,
+            label, archive or alter a message. You can revoke it at any time from
+            your Google account settings, independently of us.
+          </p>
+        </details>
+
+        <details class="faq__item">
+          <summary class="faq__q">What happens to our data if we stop using it?</summary>
+          <p class="faq__a">
+            Disconnecting a mailbox deletes Verloq&rsquo;s stored tokens and stops it
+            reading that mailbox. The authorisation itself lives in your Google
+            account and you can revoke it there at any time without involving us.
+            To close your account entirely, email us — during the beta we do that
+            by hand and confirm when everything is gone.
+          </p>
+        </details>
+
+        <details class="faq__item">
+          <summary class="faq__q">Does it work with Outlook or Microsoft 365?</summary>
+          <p class="faq__a">
+            Not yet — Gmail and Google Workspace only for now. Outlook support is
+            written but not enabled. If that is what you need, say so when you
+            join the waitlist and it moves up the list.
+          </p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- Closing CTA -->
   <section class="cta stack-centre">
-    <h2 class="h2" style="max-width:720px;margin-bottom:16px;font-size:clamp(30px,3.6vw,48px)">
-      Find out what you are actually paying.
+    <h2 class="h2" style="max-width:760px;margin-bottom:16px;font-size:clamp(30px,3.6vw,48px)">
+      Find out what you are actually paying for.
     </h2>
-    <p class="lede" style="max-width:520px;margin-bottom:36px;color:#3E445C">
-      One inbox scan, no spreadsheet, no receipts to dig up.
+    <p class="lede" style="max-width:540px;margin-bottom:36px;color:#3E445C">
+      One mailbox, one scan. No spreadsheet, no card feed, no sales call.
     </p>
 
-    <form class="signup" id="waitlist-footer" method="POST" novalidate>
-      <label class="visually-hidden" for="email-footer">Email address</label>
+    <form class="signup" method="POST" novalidate>
+      <label class="visually-hidden" for="email-footer">Work email address</label>
       <div class="signup__row">
         <input class="signup__field" type="email" id="email-footer" name="email"
                placeholder="you@company.com" autocomplete="email" required>
@@ -357,7 +520,7 @@
         <span class="brand__name">Verloq</span>
       </a>
       <p class="site-footer__blurb">
-        Subscription tracking that starts from the receipts you already have.
+        Software spend visibility that starts from the receipts you already have.
       </p>
     </div>
 
@@ -365,11 +528,13 @@
       <nav class="site-footer__col" aria-label="Product">
         <p class="site-footer__heading">Product</p>
         <a href="#how">How it works</a>
-        <a href="#your-data">Your data</a>
+        <a href="#invoices">Invoices</a>
+        <a href="#faq">FAQ</a>
       </nav>
       <nav class="site-footer__col" aria-label="Legal">
         <p class="site-footer__heading">Legal</p>
         <a href="privacy.html">Privacy policy</a>
+        <a href="#your-data">Your data</a>
       </nav>
       <nav class="site-footer__col" aria-label="Contact">
         <p class="site-footer__heading">Contact</p>
@@ -385,12 +550,9 @@
 </footer>
 
 <script>
-/* ==========================================================================
-   Waitlist submission.
-
-   ▸ SET THIS before going live. Formspree gives you a URL like
-     https://formspree.io/f/abcdwxyz after you create a form.
-   ========================================================================== */
+/* Waitlist submission.
+   SET FORM_ENDPOINT before going live. Formspree gives you a URL like
+   https://formspree.io/f/abcdwxyz after you create a form. */
 var FORM_ENDPOINT = '';           // <-- paste your endpoint here
 var CONTACT_EMAIL = '[CONTACT EMAIL]';
 
