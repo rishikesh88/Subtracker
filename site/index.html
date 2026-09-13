@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Verloq — every subscription you forgot you were paying for</title>
+<meta name="description" content="Verloq reads the subscription receipts already in your Gmail and turns them into one honest list: what renews, when, and what it costs across every currency you pay in.">
+<link rel="canonical" href="https://verloq.co/">
+<meta name="theme-color" content="#F4F4F6">
+
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://verloq.co/">
+<meta property="og:site_name" content="Verloq">
+<meta property="og:title" content="Verloq — every subscription you forgot you were paying for">
+<meta property="og:description" content="Verloq reads the subscription receipts already in your Gmail and turns them into one honest list: what renews, when, and what it costs.">
+<meta property="og:image" content="https://verloq.co/assets/og-cover.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Verloq — every subscription you forgot you were paying for">
+<meta name="twitter:description" content="Verloq reads the subscription receipts already in your Gmail and turns them into one honest list.">
+<meta name="twitter:image" content="https://verloq.co/assets/og-cover.png">
+
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/favicon.svg">
+<link rel="preload" href="assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/literata-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header>
+  <nav class="nav" aria-label="Main">
+    <div class="nav__left">
+      <a class="brand" href="index.html">
+        <img src="assets/logo.svg" width="27" height="27" alt="">
+        <span class="brand__name">Verloq</span>
+      </a>
+      <div class="nav__links">
+        <a class="nav__link" href="#how">How it works</a>
+        <a class="nav__link" href="#your-data">Your data</a>
+      </div>
+    </div>
+    <a class="btn btn--dark btn--sm" href="#waitlist">Join the waitlist</a>
+  </nav>
+</header>
+
+<main id="main">
+
+  <!-- ── Hero ───────────────────────────────────────────────────────────── -->
+  <section class="section stack-centre" style="padding-bottom:60px">
+    <p class="badge" style="margin-bottom:30px">
+      <span class="badge__tag">BETA</span>
+      <span class="badge__text">Private beta — waitlist open</span>
+    </p>
+
+    <h1 class="h1" style="max-width:880px;margin-bottom:26px">
+      The receipts are already in your inbox.
+    </h1>
+
+    <p class="lede" style="max-width:616px;margin-bottom:38px">
+      Verloq reads them and gives you one honest list of what you are actually
+      subscribed to — what renews, when, and what it costs across every currency
+      you pay in.
+    </p>
+
+    <!--
+      Waitlist form.
+      ▸ Set FORM_ENDPOINT in the script at the bottom of this file before going live.
+      ▸ Formspree: https://formspree.io/f/xxxxxxxx   Tally: https://api.tally.so/...
+      Until it is set, the form tells the visitor to email instead of failing silently.
+    -->
+    <form class="signup" id="waitlist" method="POST" novalidate>
+      <label class="visually-hidden" for="email">Email address</label>
+      <div class="signup__row">
+        <input class="signup__field" type="email" id="email" name="email"
+               placeholder="you@company.com" autocomplete="email" required>
+        <button class="btn btn--accent" type="submit" id="signup-submit">Join the waitlist</button>
+      </div>
+
+      <input class="signup__trap" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <input type="hidden" name="source" value="verloq.co/">
+
+      <p class="signup__status" id="signup-status" role="status" aria-live="polite"></p>
+    </form>
+
+    <p class="micro" style="margin-top:15px;max-width:520px">
+      We are completing Google&rsquo;s security review before opening access.
+      Waitlist members get in first — no card, free for the beta.
+    </p>
+  </section>
+
+  <!-- ── Hero panel ─────────────────────────────────────────────────────── -->
+  <div class="panel panel--mesh">
+    <div class="stack-centre">
+
+      <div class="ledger">
+        <div class="ledger__head">
+          <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+            <span class="ledger__month">September</span>
+            <span class="ledger__cadence">8 active subscriptions</span>
+          </div>
+          <span class="ledger__meta">Reconciled from 2,620 emails</span>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--sky" aria-hidden="true">A</span>
+              <span class="ledger__name">Airtel Black</span>
+              <span class="ledger__cadence">Monthly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 18 Sep</span>
+              <span class="ledger__amount tabular">&#8377;1,885.64</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--sky" aria-hidden="true">A</span>
+              <span class="ledger__name">Airtel Black Plan</span>
+              <span class="ledger__cadence">Monthly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 18 Sep</span>
+              <span class="ledger__amount tabular">&#8377;1,885.64</span>
+            </div>
+          </div>
+          <p class="flag">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 9v4M12 17h.01M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/>
+            </svg>
+            Possible duplicate of Airtel Black
+          </p>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--lavender" aria-hidden="true">C</span>
+              <span class="ledger__name">Claude Pro</span>
+              <span class="ledger__cadence">Monthly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 29 Sep</span>
+              <span class="ledger__amount tabular">$23.60</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--blush" aria-hidden="true">N</span>
+              <span class="ledger__name">Netflix</span>
+              <span class="ledger__cadence">Monthly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 9 Oct</span>
+              <span class="ledger__amount tabular">&#8377;649.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--lavender" aria-hidden="true">S</span>
+              <span class="ledger__name">Swiggy BLCK</span>
+              <span class="ledger__cadence">Quarterly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 6 Dec</span>
+              <span class="ledger__amount tabular">&#8377;299.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__total">
+          <span class="ledger__total-label">Normalised monthly</span>
+          <span class="ledger__total-value tabular">&#8377;6,560.02</span>
+        </div>
+      </div>
+
+      <p class="caption">
+        Sample output. Yearly and quarterly plans are normalised to a monthly
+        figure, foreign currencies converted to yours.
+      </p>
+    </div>
+  </div>
+
+  <!-- ── How it works ───────────────────────────────────────────────────── -->
+  <section class="section" id="how">
+    <div class="stack-centre" style="margin-bottom:52px">
+      <p class="eyebrow" style="margin-bottom:16px">How it works</p>
+      <h2 class="h2" style="margin-bottom:16px">Three steps, then it runs itself</h2>
+      <p class="lede" style="max-width:560px">
+        No imports, no receipts to dig up, no tagging by hand.
+      </p>
+    </div>
+
+    <div class="steps wrap">
+      <article class="step">
+        <div class="step__body">
+          <p class="step__num step__num--sky">01</p>
+          <h3 class="step__title">Connect Gmail</h3>
+          <p class="step__text">
+            One Google sign-in, read-only. Choose how far back to look — anywhere
+            from seven days to six months.
+          </p>
+        </div>
+        <div class="step__wash step__wash--sky"></div>
+      </article>
+
+      <article class="step">
+        <div class="step__body">
+          <p class="step__num step__num--lavender">02</p>
+          <h3 class="step__title">Verloq reads the receipts</h3>
+          <p class="step__text">
+            It scans message headers to find the receipts, opens only those, and
+            pulls out the service, amount, cadence and renewal date.
+          </p>
+        </div>
+        <div class="step__wash step__wash--lavender"></div>
+      </article>
+
+      <article class="step">
+        <div class="step__body">
+          <p class="step__num step__num--blush">03</p>
+          <h3 class="step__title">You approve the list</h3>
+          <p class="step__text">
+            Nothing is added behind your back. Verloq proposes, flags anything
+            that looks like a duplicate, and you decide what to keep.
+          </p>
+        </div>
+        <div class="step__wash step__wash--blush"></div>
+      </article>
+    </div>
+  </section>
+
+  <!-- ── Your data ──────────────────────────────────────────────────────── -->
+  <section class="panel panel--soft" id="your-data">
+    <div class="wrap--narrow">
+      <p class="eyebrow">What Verloq does with your Gmail</p>
+      <h2 class="h2" style="margin:18px 0;max-width:720px">
+        We ask for read access, so we tell you exactly what we read.
+      </h2>
+      <p class="lede" style="max-width:640px;margin-bottom:48px">
+        Most tools in this category are vague about this. Here is the whole of
+        it, in the same words we use in our privacy policy.
+      </p>
+
+      <div class="commitments">
+        <article class="commitment">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6366D8"
+               stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3l7 3v6c0 4.2-2.9 7.8-7 9-4.1-1.2-7-4.8-7-9V6l7-3z"/>
+          </svg>
+          <h3 class="commitment__title">Read-only, always</h3>
+          <p class="commitment__text">
+            The Gmail permission Verloq requests cannot send, delete, label or
+            alter anything. Your inbox is left exactly as it was.
+          </p>
+        </article>
+
+        <article class="commitment">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6366D8"
+               stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 8l9 6 9-6M3 6h18v12H3z"/>
+          </svg>
+          <h3 class="commitment__title">Only receipts are opened</h3>
+          <p class="commitment__text">
+            Every message gets a header-level look to decide whether it is a
+            receipt. Only the ones that pass have their contents read; the rest
+            are discarded.
+          </p>
+        </article>
+
+        <article class="commitment">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6366D8"
+               stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3a9 9 0 100 18 9 9 0 000-18zM5.6 5.6l12.8 12.8"/>
+          </svg>
+          <h3 class="commitment__title">Never sold, never advertised against</h3>
+          <p class="commitment__text">
+            Your email data is used to build your subscription list and nothing
+            else. It is not sold, shared for advertising, or used to train
+            general AI models.
+          </p>
+        </article>
+
+        <article class="commitment">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6366D8"
+               stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>
+          </svg>
+          <h3 class="commitment__title">Leave and it is gone</h3>
+          <p class="commitment__text">
+            Disconnect from settings and the Google grant is revoked and your
+            stored data deleted. No retention period, no export request needed.
+          </p>
+        </article>
+      </div>
+
+      <p style="margin-top:40px">
+        <a class="link-arrow" href="privacy.html">
+          Read the full privacy policy
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M5 12h14M13 6l6 6-6 6"/>
+          </svg>
+        </a>
+      </p>
+    </div>
+  </section>
+
+  <!-- ── Closing CTA ────────────────────────────────────────────────────── -->
+  <section class="cta stack-centre">
+    <h2 class="h2" style="max-width:720px;margin-bottom:16px;font-size:clamp(30px,3.6vw,48px)">
+      Find out what you are actually paying.
+    </h2>
+    <p class="lede" style="max-width:520px;margin-bottom:36px;color:#3E445C">
+      One inbox scan, no spreadsheet, no receipts to dig up.
+    </p>
+
+    <form class="signup" id="waitlist-footer" method="POST" novalidate>
+      <label class="visually-hidden" for="email-footer">Email address</label>
+      <div class="signup__row">
+        <input class="signup__field" type="email" id="email-footer" name="email"
+               placeholder="you@company.com" autocomplete="email" required>
+        <button class="btn btn--dark" type="submit">Join the waitlist</button>
+      </div>
+      <input class="signup__trap" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <input type="hidden" name="source" value="verloq.co/#cta">
+      <p class="signup__status" role="status" aria-live="polite"></p>
+    </form>
+
+    <p class="micro" style="margin-top:14px">
+      We will only email you about your invite. Nothing else.
+    </p>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__top">
+    <div>
+      <a class="brand" href="index.html">
+        <img src="assets/logo.svg" width="27" height="27" alt="" style="filter:brightness(0) invert(1)">
+        <span class="brand__name">Verloq</span>
+      </a>
+      <p class="site-footer__blurb">
+        Subscription tracking that starts from the receipts you already have.
+      </p>
+    </div>
+
+    <div class="site-footer__cols">
+      <nav class="site-footer__col" aria-label="Product">
+        <p class="site-footer__heading">Product</p>
+        <a href="#how">How it works</a>
+        <a href="#your-data">Your data</a>
+      </nav>
+      <nav class="site-footer__col" aria-label="Legal">
+        <p class="site-footer__heading">Legal</p>
+        <a href="privacy.html">Privacy policy</a>
+      </nav>
+      <nav class="site-footer__col" aria-label="Contact">
+        <p class="site-footer__heading">Contact</p>
+        <a href="mailto:[CONTACT EMAIL]">[CONTACT EMAIL]</a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="site-footer__base">
+    <span>&copy; [YEAR] [LEGAL ENTITY NAME] &middot; [CITY, COUNTRY]</span>
+    <span>[CONTACT EMAIL]</span>
+  </div>
+</footer>
+
+<script>
+/* ==========================================================================
+   Waitlist submission.
+
+   ▸ SET THIS before going live. Formspree gives you a URL like
+     https://formspree.io/f/abcdwxyz after you create a form.
+   ========================================================================== */
+var FORM_ENDPOINT = '';           // <-- paste your endpoint here
+var CONTACT_EMAIL = '[CONTACT EMAIL]';
+
+(function () {
+  'use strict';
+
+  var forms = document.querySelectorAll('form.signup');
+
+  Array.prototype.forEach.call(forms, function (form) {
+    var status = form.querySelector('.signup__status');
+    var button = form.querySelector('button[type="submit"]');
+    var field  = form.querySelector('input[type="email"]');
+    var label  = button.textContent;
+
+    function say(message, state) {
+      status.textContent = message;
+      status.setAttribute('data-state', state);
+    }
+
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+
+      // Honeypot: only a bot fills a field it cannot see.
+      if (form.querySelector('input[name="_gotcha"]').value) return;
+
+      if (!field.checkValidity()) {
+        say('That does not look like an email address.', 'error');
+        field.focus();
+        return;
+      }
+
+      if (!FORM_ENDPOINT) {
+        say('The form is not connected yet — email ' + CONTACT_EMAIL + ' and we will add you.', 'error');
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = 'Sending…';
+      say('', '');
+
+      fetch(FORM_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
+        body: new FormData(form)
+      })
+        .then(function (response) {
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          form.reset();
+          say('You are on the list. We will be in touch when access opens.', 'ok');
+        })
+        .catch(function () {
+          // Never lose a signup to a network blip — give them another route.
+          say('Something went wrong. Email ' + CONTACT_EMAIL + ' and we will add you by hand.', 'error');
+        })
+        .then(function () {
+          button.disabled = false;
+          button.textContent = label;
+        });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
