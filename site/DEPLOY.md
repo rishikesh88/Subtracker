@@ -12,36 +12,25 @@ application. Nothing in this guide should change it.
 
 ### 1a. Text and data
 
-Every placeholder is wrapped in `[SQUARE BRACKETS]`, so you can find them all with
-a search for `[` across the three HTML files. Thirty-nine in total.
+**Done.** Contact email, entity name, year, hosting regions, retention and
+response windows and the minimum age are all filled in. The registered address
+and city/country were dropped at your instruction, and the sentences that held
+them were rewritten rather than left with holes.
 
-| Placeholder | Times | What it is |
+Two markers remain on purpose:
+
+| Marker | Where | What to do |
 |---|---|---|
-| `[PRIVACY CONTACT EMAIL]` | 8 | Where privacy requests go. Can be the same as below |
-| `[CONTACT EMAIL]` | 7 | General contact, shown in the footer |
-| `[LEGAL ENTITY NAME]` | 5 | Registered name of the business |
-| `[YEAR]` | 3 | Copyright year |
-| `[REGION]` | 3 | Hosting region for GCS, Gemini and Resend |
-| `[REGISTERED ADDRESS]` | 2 | Street address of the registered entity |
-| `[CITY]`, `[COUNTRY]` | 2 each | Used in the policy body |
-| `[CITY, COUNTRY]` | 2 | Used in the footer, comma-separated |
-| `[EFFECTIVE DATE]` | 1 | Date the policy takes effect |
-| `[LAST UPDATED DATE]` | 1 | Usually the same on first publication |
-| `[ENTITY TYPE, ...]` | 1 | e.g. "a sole proprietorship", "a private limited company" |
-| `[RETENTION PERIOD, ...]` | 1 | How long operational logs persist |
-| `[RESPONSE WINDOW, ...]` | 1 | How fast you answer a data request |
-| `[MINIMUM AGE, ...]` | 1 | Minimum age for the service |
-| `[IF SERVING EU/UK USERS: ...]` | 1 | Delete, or replace with real GDPR wording |
+| `[SET ON UPLOAD]` | `privacy.html` line 42, twice | Replace both with the date you actually publish, e.g. `13 September 2026`. They are deliberately not pre-filled so the policy is never in force before it existed |
 
-Exact locations:
+Two things worth revisiting, neither blocking:
 
-- **`index.html`** — lines 463, 469, 470, 479
-- **`privacy.html`** — lines 42, 52, 53, 101–103, 118, 123, 125, 131, 137, 169, 175, 176
-- **`404.html`** — line 39
-
-A note on `[REGION]`: check the actual regions in your Google Cloud console,
-Gemini setup and Resend dashboard. Neon and Railway are already filled in as
-Singapore because that is where they are.
+- The contact address is a **personal Gmail**. On a page asking finance teams to
+  grant mailbox access, `privacy@verloq.co` reads very differently — and you own
+  the domain and already run Resend on it.
+- There is **no registered address** in the policy. A privacy policy is expected
+  to identify the data controller contactably, and Google's reviewer checks the
+  policy is complete. Removed as asked; may come back at verification.
 
 ### 1b. The waitlist endpoint
 
