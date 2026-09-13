@@ -959,11 +959,26 @@ a:hover { color: var(--accent-dark); text-decoration: underline; }
 .cadence--quarterly { background: #E7E7F8; color: #3B3A74; }
 .cadence--yearly    { background: #F2E6F6; color: #67396E; }
 
-/* Icon slot. Letter fallback today; drop a 1:1 <img> in and it just works. */
-.ledger__chip img {
-  width: 20px;
-  height: 20px;
-  display: block;
-  object-fit: contain;
+/* Icon slot.
+   The supplied icons are two different kinds: full-bleed app tiles with their
+   own background (Canva, Adobe) and flat marks on white or transparent (Slack,
+   Figma, Notion, Google, Claude). Letting the image fill the whole rounded
+   tile makes both read as the same component -- the gradient ones become the
+   tile, the flat ones sit on a white one. Padding them instead would leave the
+   gradient tiles floating inside a second, differently-coloured square.
+
+   cover rather than contain, because a JPEG carries its own white box and any
+   letterboxing would show as a grey band. */
+.ledger__chip--icon {
+  padding: 0;
+  overflow: hidden;
+  background: #FFFFFF;
+  box-shadow: inset 0 0 0 1px rgba(21, 26, 46, .08);
 }
-.ledger__chip--plain { background: #FFFFFF; border: 1px solid var(--rule); }
+
+.ledger__chip--icon img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
