@@ -52,10 +52,11 @@ Only one is genuinely missing.
 | `assets/og-cover.png` | 1200 × 630 | **Missing.** Referenced by the social-preview meta on both pages. Without it, links shared to Slack, WhatsApp or LinkedIn show a broken image |
 | `assets/favicon.svg` | 32 × 32 | Done |
 | `assets/logo.svg` | 28 × 28 | Done |
+| `assets/icons/` (7 files) | 400 × 400 | Done — the brand marks in the sample ledger |
 
-Nothing else. The site uses no photographs — every graphic is SVG or a CSS
-gradient. If you would rather I generate the OG cover in the site's own visual
-language, say so and I will.
+Nothing else. Apart from the seven service icons the site uses no photographs —
+every other graphic is SVG or a CSS gradient. If you would rather I generate the
+OG cover in the site's own visual language, say so and I will.
 
 ### 1d. Product screenshots
 
@@ -136,7 +137,16 @@ public_html/
     fonts/
       literata-latin.woff2
       manrope-latin.woff2
+    icons/
+      slack.png   figma.png   notion.jpeg   claude.png
+      canva.png   adobe.jpeg  google.png
 ```
+
+`DEPLOY.md` and `assets/icons/README.md` are notes for you, not part of the
+site. Uploading them is harmless — nothing links to them — but you may as well
+leave them out.
+
+The whole upload is about 440 KB.
 
 **Show hidden files** in File Manager (Settings, top right) or you will not see
 whether `.htaccess` uploaded. If it did not, create it manually and paste the
@@ -175,6 +185,10 @@ In this order:
 - `https://verloq.co/privacy.html` loads
 - `https://verloq.co/privacy` also loads (this proves `.htaccess` is working)
 - `https://verloq.co/nonsense` shows the styled 404, not GoDaddy's
+- **All seven icons appear in the ledger** — if you see coloured letter tiles
+  instead, `assets/icons/` did not upload
+- The headings render in a serif face — if everything is sans-serif, the fonts
+  in `assets/fonts/` did not upload
 - Submit the form with a real address, and confirm it arrives in Formspree
 - Open it on a phone
 - **`https://app.verloq.co` still works**
