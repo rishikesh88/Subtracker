@@ -1,7 +1,8 @@
 # Deploying verloq.co
 
 Everything in this folder is plain HTML and CSS. There is no build step, no npm,
-no framework — you upload the files as they are.
+no framework. Netlify publishes it straight from the repo; the manual upload
+route is kept below as a fallback.
 
 **Do not touch `app.verloq.co`.** That subdomain CNAMEs to Railway and serves the
 application. Nothing in this guide should change it.
@@ -41,7 +42,8 @@ you instead of failing silently.
 2. Copy the endpoint — it looks like `https://formspree.io/f/abcdwxyz`
 3. Paste it into `FORM_ENDPOINT` near the bottom of `index.html`
 4. If it is **not** Formspree, also add the host to `connect-src` and
-   `form-action` in `.htaccess`, or the browser will block the request
+   `form-action` in `netlify.toml` (and in `site/.htaccess` if you also use
+   the GoDaddy route), or the browser will block the request silently
 
 ### 1c. Images
 
@@ -87,7 +89,89 @@ Or just paste the values into chat — whichever is easier.
 
 ---
 
-## Part 2 — GoDaddy, step by step
+## Part 2 — Netlify (recommended)
+
+`git push` and the site is live in about thirty seconds. Every branch gets a
+preview URL, and a bad deploy rolls back in one click.
+
+**Your domain does not move.** verloq.co stays registered at GoDaddy and GoDaddy
+keeps serving DNS. Two records in that zone get pointed at Netlify. The `app`
+record — Railway — and your Resend mail records are never touched.
+
+`netlify.toml` at the repository root already carries the security headers, the
+CSP and the cache policy, translated from `.htaccess`. Netlify handles HTTPS,
+the www redirect, extensionless URLs, `404.html` and compression natively, so
+there is nothing else to configure.
+
+### Step 1 — Connect the repository
+
+1. Sign in at [netlify.com](https://netlify.com) with GitHub
+2. **Add new site → Import an existing project →** `rishikesh88/Subtracker`
+3. **Build command: leave empty. Publish directory: `site`.** Netlify reads the
+   rest from `netlify.toml`
+4. Set the production branch to the branch holding the site — `main-tikaex`
+   today, or merge it into `main` first and deploy from there, which is tidier
+5. Deploy
+
+You get a `something.netlify.app` URL. **Check the whole site on that URL before
+you touch DNS** — it is the same files, so anything wrong is wrong now.
+
+### Step 2 — Claim the domain
+
+**Domain management → Add a custom domain →** `verloq.co`. Set the apex as the
+**primary domain** so `www` redirects to it. Netlify will show you the exact DNS
+records to create; use what the dashboard says rather than any value copied from
+a guide, since these change.
+
+### Step 3 — Point two records at it, in GoDaddy
+
+**Domains → verloq.co → DNS**:
+
+| Type | Name | Value |
+|---|---|---|
+| A | `@` | Netlify's load-balancer IP, exactly as its dashboard gives it |
+| CNAME | `www` | your `something.netlify.app` hostname |
+| CNAME | `app` | **do not touch — this is Railway** |
+
+Then two things people miss:
+
+- **Delete the old A record** pointing at GoDaddy hosting, or you will get
+  whichever answers first.
+- **Check Domains → verloq.co → Forwarding is empty.** A leftover domain forward
+  silently overrides DNS, and is the usual reason "I changed the record and
+  nothing happened".
+
+Netlify issues the certificate automatically once DNS resolves — usually
+minutes, occasionally an hour.
+
+### Step 4 — Check the headers landed
+
+The rest of the checklist is Part 2b Step 5, which applies either way. This part
+is specific to the move:
+
+```
+curl -sI https://verloq.co | grep -iE 'content-security-policy|x-frame|cache-control'
+curl -sI https://verloq.co/assets/styles.css | grep -i cache-control
+```
+
+Expect the CSP and `no-cache` on the page, and
+`public, max-age=31536000, immutable` on the stylesheet. If the CSP is missing,
+`netlify.toml` is not being read — check it sits at the **repository root**, not
+inside `site/`.
+
+### Updating the site afterwards
+
+Push to the production branch. That is the whole procedure. Pushes that do not
+touch `site/` are skipped automatically, so ordinary app work does not trigger
+deploys.
+
+---
+
+## Part 2b — GoDaddy cPanel (fallback)
+
+Only needed if you would rather not use Netlify, or want a second copy live.
+Everything here is manual: no preview, no rollback, and you repeat it in full
+for every change.
 
 ### Step 0 — Work out which product you have
 
@@ -183,7 +267,7 @@ In this order:
 - `http://verloq.co` redirects to HTTPS
 - `https://www.verloq.co` redirects to the bare domain
 - `https://verloq.co/privacy.html` loads
-- `https://verloq.co/privacy` also loads (this proves `.htaccess` is working)
+- `https://verloq.co/privacy` also loads, without the extension
 - `https://verloq.co/nonsense` shows the styled 404, not GoDaddy's
 - **All seven icons appear in the ledger** — if you see coloured letter tiles
   instead, `assets/icons/` did not upload
@@ -213,8 +297,12 @@ contradicts this privacy policy too. A reviewer reads both.
 
 ## Updating the site later
 
-Edit the file, re-upload it, done. There is no build and no cache to clear —
-`.htaccess` tells browsers not to cache the HTML, so changes appear immediately.
-Assets under `assets/` are cached for a year, so if you change the CSS or a font,
-rename the file and update the reference, or the change will not reach people who
-have already visited.
+**On Netlify:** push to the production branch. Nothing else.
+
+**On GoDaddy:** edit the file and re-upload it. There is no build and no cache
+to clear — `.htaccess` tells browsers not to cache the HTML, so changes appear
+immediately.
+
+Either way, **assets under `assets/` are cached for a year and their filenames
+carry no fingerprint.** If you change the stylesheet, a font or an icon, rename
+the file and update the reference, or returning visitors keep the old one.
