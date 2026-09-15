@@ -902,7 +902,9 @@ select.signup__input:invalid { color: #9BA1B2; }
   .nav__left { gap: 20px; width: 100%; justify-content: space-between; }
   .nav__links { gap: 18px; }
   .nav__link { font-size: 14px; }
-  .nav > .btn { width: 100%; }
+  /* The hero's own sign-up sits a few hundred pixels below this, so a nav
+     button here put two identical calls to action in one screenful. */
+  .nav > .btn { display: none; }
 
   .section { padding: 64px var(--gutter) 56px; }
   .panel--mesh { padding: 36px 20px 40px; }
@@ -918,9 +920,42 @@ select.signup__input:invalid { color: #9BA1B2; }
   .ledger__head { flex-direction: column; align-items: flex-start; gap: 6px; }
   .ledger__row { padding: 12px 18px; }
   .ledger__head, .ledger__total { padding-left: 18px; padding-right: 18px; }
-  .ledger__line { flex-direction: column; align-items: flex-start; gap: 8px; }
-  .ledger__amounts { width: 100%; justify-content: space-between; gap: 12px; padding-left: 43px; }
-  .ledger__amount { min-width: 0; }
+
+  /* Service on the left, money on the right, the way a statement reads.
+     Previously the row stacked into two blocks and the date and amount landed
+     on their own line indented past the icon, which looked like a separate row
+     rather than part of this one. The amount sits above the date because it is
+     what the eye is scanning for; column-reverse gets that order visually while
+     leaving the DOM sequence alone for screen readers. */
+  .ledger__line { align-items: flex-start; gap: 10px; }
+  /* At 390px the name, the cadence chip and the date sit within a few pixels of
+     the available width, so whether the chip wrapped came down to how long the
+     service name happened to be and the rows read as ragged. Giving the chip a
+     line of its own makes every row the same shape regardless of name length,
+     with the icon spanning both. */
+  .ledger__service {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: 30px minmax(0, 1fr);
+    grid-template-areas: "icon name" "icon cadence";
+    align-items: center;
+    column-gap: 10px;
+    row-gap: 4px;
+  }
+  .ledger__service .ledger__chip { grid-area: icon; }
+  /* The ledger sits inside a centred stack, which was invisible while these
+     were flex items sized to their content. As grid cells they are full-column
+     width, so the inherited centring has to be undone explicitly. */
+  .ledger__service .ledger__name { grid-area: name; justify-self: start; text-align: left; }
+  .ledger__service .cadence { grid-area: cadence; justify-self: start; }
+  .ledger__amounts {
+    flex: 0 0 auto;
+    flex-direction: column-reverse;
+    align-items: flex-end;
+    gap: 2px;
+  }
+  .ledger__due { font-size: 12px; white-space: nowrap; }
+  .ledger__amount { font-size: 15px; min-width: 0; }
   .flag { margin-left: 43px; }
 
   .doc { padding: 24px var(--gutter) 72px; }
@@ -1004,13 +1039,15 @@ select.signup__input:invalid { color: #9BA1B2; }
 
 .filings__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 14px;
   padding: 20px 24px 16px;
   border-bottom: 1px solid rgba(21, 26, 46, .07);
 }
 
+.filings__brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.filings__brand .ledger__chip { flex: 0 0 auto; }
 .filings__title { font-family: var(--serif); font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
 
 .filing {
@@ -1022,15 +1059,16 @@ select.signup__input:invalid { color: #9BA1B2; }
 }
 .filing:last-child { border-bottom: none; }
 
+/* Drawn rather than a lettered tile: at this size a real document silhouette
+   with a folded corner reads as "a file you can open" in a way three letters
+   in a rounded square does not. */
 .filing__icon {
   flex: 0 0 auto;
-  width: 30px; height: 34px;
-  border-radius: 5px;
-  background: var(--tint-sky);
   display: flex; align-items: center; justify-content: center;
-  font-size: 8.5px; font-weight: 700; letter-spacing: .04em;
-  color: #46527A;
+  width: 26px; height: 30px;
+  filter: drop-shadow(0 1px 2px rgba(21, 26, 46, .10));
 }
+.filing__icon svg { display: block; }
 
 .filing__meta { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; }
 .filing__name { font-size: 14.5px; font-weight: 600; }
