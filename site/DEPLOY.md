@@ -41,17 +41,21 @@ script, and the POST goes to this same origin so the CSP needed no host added.
 Both forms (hero and closing CTA) share `name="waitlist"`, so submissions land
 in one list under **Netlify → Forms**.
 
-It asks in two steps. The email field alone is visible; entering a valid address
-reveals five more — name, organisation, role, team size and monthly spend — and
-only then does anything send. Six questions up front would cost signups; an
-email alone would not tell you who is worth inviting.
+It asks in two steps. The email boxes in the hero and closing CTA are triggers,
+not forms — submitting either opens a dialog titled **Sign up for Early Access**
+with the address already filled, and the remaining five questions are answered
+there: name, organisation, role, team size and monthly spend. The nav button
+opens the same dialog empty. Six questions up front would cost signups; an email
+alone would not tell you who is worth inviting.
 
-Two things to know:
+Three things to know:
 
-- **The hidden fields must stay in the markup.** Netlify parses the built HTML
-  at deploy time to learn which fields a submission may carry. They are hidden
-  with the `hidden` attribute, not removed. Delete them from the DOM and that
-  data is silently dropped on receipt.
+- **There is exactly one Netlify form on the page**, inside the dialog. Netlify
+  parses the built HTML at deploy time to learn which fields a submission may
+  carry, so the fields must stay in the markup. Build them with JavaScript
+  instead and submissions still arrive — with those columns empty.
+- **A hidden `source` field records which trigger opened it** (`#hero`, `#cta`
+  or `#nav`), so you can see which part of the page converts.
 - **The free tier caps submissions per month** (around 100). Ample for a beta,
   but worth watching if a post lands well.
 
@@ -285,8 +289,8 @@ In this order:
   instead, `assets/icons/` did not upload
 - The headings render in a serif face — if everything is sans-serif, the fonts
   in `assets/fonts/` did not upload
-- Submit the form with a real address, and confirm it appears under
-  **Netlify → Forms → waitlist**
+- Click **Join the waitlist**, confirm the dialog opens with the email
+  prefilled, submit it, and check it appears under **Netlify → Forms → waitlist**
 - Open it on a phone
 - **`https://app.verloq.co` still works**
 

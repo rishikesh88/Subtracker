@@ -71,61 +71,15 @@
          land in one place. The second-step fields sit in the markup from the
          start, hidden rather than absent, because Netlify parses the built HTML
          at deploy time to learn which fields a submission may carry. -->
-    <form class="signup" id="waitlist" name="waitlist" method="POST"
-          data-netlify="true" data-netlify-honeypot="_gotcha" novalidate>
-      <input type="hidden" name="form-name" value="waitlist">
-      <label class="visually-hidden" for="email">Work email address</label>
+    <!-- Trigger only. The real form lives in the dialog at the foot of this
+         file — one form, so Netlify records one list however it was opened. -->
+    <form class="signup" id="waitlist" data-opens="signup-modal" data-source="hero" novalidate>
+      <label class="visually-hidden" for="email-hero">Work email address</label>
       <div class="signup__row">
-        <input class="signup__field" type="email" id="email" name="email"
+        <input class="signup__field" type="email" id="email-hero" name="email"
                placeholder="you@company.com" autocomplete="email" required>
         <button class="btn btn--accent" type="submit">Join the waitlist</button>
       </div>
-      <div class="signup__more" id="more-hero" hidden>
-        <div class="signup__grid">
-          <p class="signup__cell">
-            <label class="signup__label" for="name-hero">Name</label>
-            <input class="signup__input" type="text" id="name-hero" name="name" autocomplete="name">
-          </p>
-          <p class="signup__cell">
-            <label class="signup__label" for="org-hero">Organisation</label>
-            <input class="signup__input" type="text" id="org-hero" name="organization" autocomplete="organization">
-          </p>
-          <p class="signup__cell">
-            <label class="signup__label" for="role-hero">Your role</label>
-            <select class="signup__input" id="role-hero" name="role" required>
-              <option value="" selected>Select&hellip;</option>
-              <option>Finance</option>
-              <option>Operations</option>
-              <option>Founder or CEO</option>
-              <option>IT</option>
-              <option>Other</option>
-            </select>
-          </p>
-          <p class="signup__cell">
-            <label class="signup__label" for="team-hero">Team size</label>
-            <select class="signup__input" id="team-hero" name="team_size" required>
-              <option value="" selected>Select&hellip;</option>
-              <option>1&ndash;10</option>
-              <option>11&ndash;50</option>
-              <option>51&ndash;200</option>
-              <option>200+</option>
-            </select>
-          </p>
-          <p class="signup__cell signup__cell--wide">
-            <label class="signup__label" for="spend-hero">Monthly software spend</label>
-            <select class="signup__input" id="spend-hero" name="monthly_spend" required>
-              <option value="" selected>Select&hellip;</option>
-              <option>Under $1,000</option>
-              <option>$1,000 &ndash; $5,000</option>
-              <option>$5,000 &ndash; $20,000</option>
-              <option>Over $20,000</option>
-              <option>Not sure</option>
-            </select>
-          </p>
-        </div>
-      </div>
-      <input class="signup__trap" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
-      <input type="hidden" name="source" value="verloq.co/">
       <p class="signup__status" role="status" aria-live="polite"></p>
     </form>
 
@@ -470,61 +424,13 @@
       One mailbox, one scan. No spreadsheet, no card feed, no sales call.
     </p>
 
-    <form class="signup" name="waitlist" method="POST"
-          data-netlify="true" data-netlify-honeypot="_gotcha" novalidate>
-      <input type="hidden" name="form-name" value="waitlist">
-      <label class="visually-hidden" for="email-footer">Work email address</label>
+    <form class="signup" data-opens="signup-modal" data-source="cta" novalidate>
+      <label class="visually-hidden" for="email-cta">Work email address</label>
       <div class="signup__row">
-        <input class="signup__field" type="email" id="email-footer" name="email"
+        <input class="signup__field" type="email" id="email-cta" name="email"
                placeholder="you@company.com" autocomplete="email" required>
         <button class="btn btn--dark" type="submit">Join the waitlist</button>
       </div>
-      <div class="signup__more" id="more-cta" hidden>
-        <div class="signup__grid">
-          <p class="signup__cell">
-            <label class="signup__label" for="name-cta">Name</label>
-            <input class="signup__input" type="text" id="name-cta" name="name" autocomplete="name">
-          </p>
-          <p class="signup__cell">
-            <label class="signup__label" for="org-cta">Organisation</label>
-            <input class="signup__input" type="text" id="org-cta" name="organization" autocomplete="organization">
-          </p>
-          <p class="signup__cell">
-            <label class="signup__label" for="role-cta">Your role</label>
-            <select class="signup__input" id="role-cta" name="role" required>
-              <option value="" selected>Select&hellip;</option>
-              <option>Finance</option>
-              <option>Operations</option>
-              <option>Founder or CEO</option>
-              <option>IT</option>
-              <option>Other</option>
-            </select>
-          </p>
-          <p class="signup__cell">
-            <label class="signup__label" for="team-cta">Team size</label>
-            <select class="signup__input" id="team-cta" name="team_size" required>
-              <option value="" selected>Select&hellip;</option>
-              <option>1&ndash;10</option>
-              <option>11&ndash;50</option>
-              <option>51&ndash;200</option>
-              <option>200+</option>
-            </select>
-          </p>
-          <p class="signup__cell signup__cell--wide">
-            <label class="signup__label" for="spend-cta">Monthly software spend</label>
-            <select class="signup__input" id="spend-cta" name="monthly_spend" required>
-              <option value="" selected>Select&hellip;</option>
-              <option>Under $1,000</option>
-              <option>$1,000 &ndash; $5,000</option>
-              <option>$5,000 &ndash; $20,000</option>
-              <option>Over $20,000</option>
-              <option>Not sure</option>
-            </select>
-          </p>
-        </div>
-      </div>
-      <input class="signup__trap" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
-      <input type="hidden" name="source" value="verloq.co/#cta">
       <p class="signup__status" role="status" aria-live="polite"></p>
     </form>
 
@@ -571,109 +477,259 @@
   </div>
 </footer>
 
+<!-- Waitlist dialog ---------------------------------------------------------
+     The only Netlify form on the page. Both triggers open this one, so every
+     signup lands in a single list regardless of where it started. The fields
+     must stay in the built HTML: Netlify parses it at deploy time to learn
+     which fields a submission may carry. -->
+<dialog class="modal" id="signup-modal" aria-labelledby="signup-title">
+
+  <form class="modal__panel" name="waitlist" method="POST"
+        data-netlify="true" data-netlify-honeypot="_gotcha" novalidate>
+    <input type="hidden" name="form-name" value="waitlist">
+
+    <button class="modal__close" type="button" data-close aria-label="Close">
+      <svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true">
+        <path d="M1.5 1.5l12 12M13.5 1.5l-12 12" fill="none" stroke="currentColor"
+              stroke-width="1.7" stroke-linecap="round"/>
+      </svg>
+    </button>
+
+    <h2 class="modal__title" id="signup-title">Sign up for Early Access</h2>
+    <p class="modal__lede">
+      We are completing Google&rsquo;s security review before opening access.
+      Waitlist members get in first — no card, free for the beta.
+    </p>
+
+    <div class="signup__grid">
+      <p class="signup__cell signup__cell--wide">
+        <label class="signup__label" for="m-email">Work email</label>
+        <input class="signup__input" type="email" id="m-email" name="email"
+               autocomplete="email" placeholder="you@company.com" required>
+      </p>
+      <p class="signup__cell">
+        <label class="signup__label" for="m-name">Name</label>
+        <input class="signup__input" type="text" id="m-name" name="name" autocomplete="name">
+      </p>
+      <p class="signup__cell">
+        <label class="signup__label" for="m-org">Organisation</label>
+        <input class="signup__input" type="text" id="m-org" name="organization" autocomplete="organization">
+      </p>
+      <p class="signup__cell">
+        <label class="signup__label" for="m-role">Your role</label>
+        <select class="signup__input" id="m-role" name="role" required>
+          <option value="" selected>Select&hellip;</option>
+          <option>Finance</option>
+          <option>Operations</option>
+          <option>Founder or CEO</option>
+          <option>IT</option>
+          <option>Other</option>
+        </select>
+      </p>
+      <p class="signup__cell">
+        <label class="signup__label" for="m-team">Team size</label>
+        <select class="signup__input" id="m-team" name="team_size" required>
+          <option value="" selected>Select&hellip;</option>
+          <option>1&ndash;10</option>
+          <option>11&ndash;50</option>
+          <option>51&ndash;200</option>
+          <option>200+</option>
+        </select>
+      </p>
+      <p class="signup__cell signup__cell--wide">
+        <label class="signup__label" for="m-spend">Monthly software spend</label>
+        <select class="signup__input" id="m-spend" name="monthly_spend" required>
+          <option value="" selected>Select&hellip;</option>
+          <option>Under $1,000</option>
+          <option>$1,000 &ndash; $5,000</option>
+          <option>$5,000 &ndash; $20,000</option>
+          <option>Over $20,000</option>
+          <option>Not sure</option>
+        </select>
+      </p>
+    </div>
+
+    <input class="signup__trap" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
+    <input type="hidden" name="source" value="verloq.co/">
+
+    <p class="signup__status" role="status" aria-live="polite"></p>
+
+    <button class="btn btn--accent modal__submit" type="submit">Sign up</button>
+
+    <p class="modal__fine">
+      We will only email you about your invite. Nothing else.
+      <a href="privacy.html">Privacy policy</a>
+    </p>
+  </form>
+
+  <div class="modal__panel modal__done" hidden>
+    <div class="modal__tick" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 22 22">
+        <path d="M4.5 11.5l4.5 4.5 8.5-9" fill="none" stroke="currentColor"
+              stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h2 class="modal__title">You are on the list.</h2>
+    <p class="modal__lede">
+      We will be in touch when access opens. Nothing else lands in your inbox.
+    </p>
+    <button class="btn btn--accent modal__submit" type="button" data-close>Done</button>
+  </div>
+
+</dialog>
+
 <script>
-/* Waitlist — two steps, one submission.
+/* Waitlist — one dialog, two entry points.
 
-   Step 1 is the email field that is always visible. Entering a valid address
-   reveals the rest; nothing is sent yet. Step 2 submits the lot to Netlify.
+   The email boxes in the hero and the closing CTA are triggers, not forms.
+   Submitting either validates the address, opens the dialog with it already
+   filled, and records which one it came from. The only real form is inside the
+   dialog, so every signup lands in one Netlify list however it started.
 
-   Asking six questions up front would cost signups, and asking only for an
-   email would not tell us who is worth inviting. Splitting them means the
-   commitment is made before the effort is seen.
-
-   Netlify Forms needs no endpoint and no third-party script. The POST goes to
-   this same origin, which is why the CSP needs no host added for it. */
+   Netlify Forms needs no endpoint and no third-party script: the POST goes to
+   this same origin, which is why the CSP names no external host. */
 
 var CONTACT_EMAIL = 'rishikesh.kulkarni88@gmail.com';
 
 (function () {
   'use strict';
 
-  Array.prototype.forEach.call(document.querySelectorAll('form.signup'), function (form) {
-    var status = form.querySelector('.signup__status');
-    var button = form.querySelector('button[type="submit"]');
-    var email  = form.querySelector('input[type="email"]');
-    var more   = form.querySelector('.signup__more');
-    var label  = button.textContent;
-    var opened = false;
+  var modal  = document.getElementById('signup-modal');
+  if (!modal) return;
 
-    function say(message, state) {
-      status.textContent = message;
-      status.setAttribute('data-state', state);
-    }
+  var form   = modal.querySelector('form');
+  var done   = modal.querySelector('.modal__done');
+  var status = form.querySelector('.signup__status');
+  var button = form.querySelector('button[type="submit"]');
+  var email  = form.querySelector('#m-email');
+  var source = form.querySelector('input[name="source"]');
+  var label  = button.textContent;
+  var opener = null;
 
-    /* Only the fields on show are required. A select that is still hidden must
-       not block submission, or the browser refuses to submit and — because the
-       offending control is invisible — reports nothing the visitor can act on. */
-    function setRequired(on) {
-      Array.prototype.forEach.call(more.querySelectorAll('select'), function (el) {
-        if (on) el.setAttribute('required', '');
-        else el.removeAttribute('required');
-      });
-    }
-    setRequired(false);
+  function say(message, state) {
+    status.textContent = message;
+    status.setAttribute('data-state', state || '');
+  }
 
-    function open() {
-      more.hidden = false;
-      opened = true;
-      setRequired(true);
-      button.textContent = 'Request an invite';
-      say('A few details so we can prioritise your invite.', '');
-      var first = more.querySelector('input, select');
-      if (first) first.focus();
-    }
+  /* <dialog> is not universally supported. Where showModal is missing the
+     triggers stay ordinary in-page forms rather than silently doing nothing. */
+  var supported = typeof modal.showModal === 'function';
 
-    form.addEventListener('submit', function (event) {
+  function open(prefill, from, trigger) {
+    opener = trigger || null;
+    form.hidden = false;
+    done.hidden = true;
+    say('', '');
+    button.disabled = false;
+    button.textContent = label;
+    if (prefill) email.value = prefill;
+    if (source && from) source.value = 'verloq.co/#' + from;
+    modal.showModal();
+    // Focus the first thing still to fill in, not the field they just typed.
+    var target = prefill ? form.querySelector('#m-name') : email;
+    if (target) target.focus();
+  }
+
+  function close() {
+    modal.close();
+    if (opener && opener.focus) opener.focus();
+  }
+
+  // --- triggers -------------------------------------------------------------
+  Array.prototype.forEach.call(document.querySelectorAll('[data-opens]'), function (trigger) {
+    var field = trigger.querySelector('input[type="email"]');
+    var note  = trigger.querySelector('.signup__status');
+
+    trigger.addEventListener('submit', function (event) {
       event.preventDefault();
-
-      // Honeypot: only a bot fills a field it cannot see.
-      if (form.querySelector('input[name="_gotcha"]').value) return;
-
-      if (!email.checkValidity()) {
-        say('That does not look like an email address.', 'error');
-        email.focus();
+      if (!supported) { window.location.href = 'mailto:' + CONTACT_EMAIL + '?subject=Verloq%20waitlist'; return; }
+      if (!field.checkValidity()) {
+        note.textContent = 'That does not look like an email address.';
+        note.setAttribute('data-state', 'error');
+        field.focus();
         return;
       }
-
-      if (!opened) { open(); return; }
-
-      var missing = null;
-      Array.prototype.forEach.call(more.querySelectorAll('select'), function (el) {
-        if (!missing && !el.value) missing = el;
-      });
-      if (missing) {
-        say('Please answer the remaining questions.', 'error');
-        missing.focus();
-        return;
-      }
-
-      button.disabled = true;
-      button.textContent = 'Sending…';
-      say('', '');
-
-      fetch('/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams(new FormData(form)).toString()
-      })
-        .then(function (response) {
-          if (!response.ok) throw new Error('HTTP ' + response.status);
-          form.reset();
-          more.hidden = true;
-          opened = false;
-          setRequired(false);
-          say('You are on the list. We will be in touch when access opens.', 'ok');
-        })
-        .catch(function () {
-          // Never lose a signup to a network blip — give them another route.
-          say('Something went wrong. Email ' + CONTACT_EMAIL + ' and we will add you by hand.', 'error');
-        })
-        .then(function () {
-          button.disabled = false;
-          if (status.getAttribute('data-state') !== 'ok') button.textContent = opened ? 'Request an invite' : label;
-          else button.textContent = label;
-        });
+      note.textContent = '';
+      note.setAttribute('data-state', '');
+      open(field.value, trigger.getAttribute('data-source'), trigger.querySelector('button'));
     });
+  });
+
+  // The nav button has no email box; it opens the dialog empty.
+  Array.prototype.forEach.call(document.querySelectorAll('a[href="#waitlist"]'), function (link) {
+    link.addEventListener('click', function (event) {
+      if (!supported) return;          // fall back to the in-page anchor
+      event.preventDefault();
+      open('', 'nav', link);
+    });
+  });
+
+  // --- closing --------------------------------------------------------------
+  Array.prototype.forEach.call(modal.querySelectorAll('[data-close]'), function (el) {
+    el.addEventListener('click', close);
+  });
+
+  // Clicking the backdrop closes. The dialog itself fills the whole viewport as
+  // far as the DOM is concerned, so the click is only outside when it misses
+  // the panel's box.
+  modal.addEventListener('click', function (event) {
+    if (event.target !== modal) return;
+    var panel = form.hidden ? done : form;
+    var r = panel.getBoundingClientRect();
+    var out = event.clientX < r.left || event.clientX > r.right ||
+              event.clientY < r.top  || event.clientY > r.bottom;
+    if (out) close();
+  });
+
+  modal.addEventListener('close', function () {
+    if (opener && opener.focus) opener.focus();
+  });
+
+  // --- submission -----------------------------------------------------------
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
+
+    // Honeypot: only a bot fills a field it cannot see.
+    if (form.querySelector('input[name="_gotcha"]').value) return;
+
+    if (!email.checkValidity()) {
+      say('That does not look like an email address.', 'error');
+      email.focus();
+      return;
+    }
+
+    var missing = null;
+    Array.prototype.forEach.call(form.querySelectorAll('select'), function (el) {
+      if (!missing && !el.value) missing = el;
+    });
+    if (missing) {
+      say('Please answer the remaining questions.', 'error');
+      missing.focus();
+      return;
+    }
+
+    button.disabled = true;
+    button.textContent = 'Sending…';
+    say('', '');
+
+    fetch('/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(new FormData(form)).toString()
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        form.reset();
+        form.hidden = true;
+        done.hidden = false;
+        done.querySelector('button').focus();
+      })
+      .catch(function () {
+        // Never lose a signup to a network blip — give them another route.
+        say('Something went wrong. Email ' + CONTACT_EMAIL + ' and we will add you by hand.', 'error');
+        button.disabled = false;
+        button.textContent = label;
+      });
   });
 })();
 </script>

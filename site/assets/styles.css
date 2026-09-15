@@ -390,6 +390,105 @@ select.signup__input:invalid { color: #9BA1B2; }
   .signup__grid { grid-template-columns: 1fr; }
 }
 
+/* --- Waitlist dialog ------------------------------------------------------
+   Native <dialog>, so focus trapping, Escape and inertness of the page behind
+   come from the browser rather than from script that has to be maintained. */
+
+.modal {
+  width: 100%;
+  max-width: 540px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  overflow: visible;
+}
+.modal::backdrop {
+  background: rgba(21, 26, 46, .52);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+.modal__panel {
+  position: relative;
+  width: 100%;
+  max-width: none;
+  padding: 34px 34px 28px;
+  text-align: left;
+  background: var(--white);
+  border-radius: 20px;
+  box-shadow: 0 2px 6px rgba(21, 26, 46, .05), 0 40px 80px -30px rgba(21, 26, 46, .45);
+}
+
+.modal__close {
+  position: absolute;
+  top: 16px; right: 16px;
+  display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px;
+  padding: 0;
+  color: var(--faint);
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.modal__close:hover { color: var(--ink); background: var(--ground); }
+.modal__close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.modal__title {
+  margin: 0 0 8px;
+  padding-right: 34px;
+  font-family: var(--serif);
+  font-size: 27px;
+  line-height: 1.2;
+  letter-spacing: -.012em;
+  color: var(--ink);
+}
+
+.modal__lede {
+  margin: 0 0 22px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.modal__submit { width: 100%; margin-top: 18px; }
+
+.modal__fine {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--faint);
+  text-align: center;
+}
+.modal__fine a { color: var(--faint); text-decoration: underline; }
+
+/* Success state, shown in place of the form once the POST lands. */
+.modal__done { text-align: center; }
+.modal__tick {
+  display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px;
+  margin: 4px auto 16px;
+  color: #1F7A5C;
+  background: #E4F3EC;
+  border-radius: 50%;
+}
+.modal__done .modal__title,
+.modal__done .modal__lede { padding-right: 0; }
+
+/* Phone: full-width sheet with its own scroll, so a small screen in landscape
+   can still reach the submit button. */
+@media (max-width: 560px) {
+  .modal { max-width: none; width: calc(100% - 24px); margin: 12px auto; }
+  .modal__panel {
+    padding: 28px 20px 22px;
+    max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+  }
+  .modal__title { font-size: 24px; }
+}
+
 /* --- Ledger card --------------------------------------------------------- */
 
 .ledger {
