@@ -108,7 +108,7 @@ export default function OrgSetup() {
             <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
               <Building2 className="h-5 w-5 text-primary" />
             </div>
-            <CardTitle className="text-2xl">Welcome to SubTracker</CardTitle>
+            <CardTitle className="text-2xl">Welcome to Verloq</CardTitle>
           </div>
           <CardDescription>
             Let's set up your organization to track subscriptions effectively

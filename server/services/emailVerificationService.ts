@@ -15,7 +15,7 @@ export async function sendVerificationEmail({ to, code, firstName }: SendVerific
     await resend.emails.send({
       from: 'Verloq <noreply@verloq.co>',
       to,
-      subject: 'Verify your SubTracker account',
+      subject: 'Verify your Verloq account',
       html: `
         <!DOCTYPE html>
         <html>
@@ -64,20 +64,20 @@ export async function sendVerificationEmail({ to, code, firstName }: SendVerific
         </head>
         <body>
           <div class="header">
-            <h1 style="margin: 0; color: #2563eb;">SubTracker</h1>
+            <h1 style="margin: 0; color: #2563eb;">Verloq</h1>
           </div>
           <div class="content">
             <p>Hi ${name},</p>
-            <p>Welcome to SubTracker! Please verify your email address to complete your registration.</p>
+            <p>Welcome to Verloq! Please verify your email address to complete your registration.</p>
             <p>Enter this verification code in the app:</p>
             <div class="code-box">
               <div class="code">${code}</div>
             </div>
             <p>This code will expire in 15 minutes.</p>
-            <p>If you didn't create an account with SubTracker, you can safely ignore this email.</p>
+            <p>If you didn't create an account with Verloq, you can safely ignore this email.</p>
           </div>
           <div class="footer">
-            <p>&copy; ${new Date().getFullYear()} SubTracker. All rights reserved.</p>
+            <p>&copy; ${new Date().getFullYear()} Verloq. All rights reserved.</p>
           </div>
         </body>
         </html>
@@ -85,15 +85,15 @@ export async function sendVerificationEmail({ to, code, firstName }: SendVerific
       text: `
 Hi ${name},
 
-Welcome to SubTracker! Please verify your email address to complete your registration.
+Welcome to Verloq! Please verify your email address to complete your registration.
 
 Your verification code is: ${code}
 
 This code will expire in 15 minutes.
 
-If you didn't create an account with SubTracker, you can safely ignore this email.
+If you didn't create an account with Verloq, you can safely ignore this email.
 
-&copy; ${new Date().getFullYear()} SubTracker. All rights reserved.
+&copy; ${new Date().getFullYear()} Verloq. All rights reserved.
       `.trim(),
     });
     

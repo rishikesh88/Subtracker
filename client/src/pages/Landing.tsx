@@ -20,7 +20,7 @@ export function Landing() {
         )}
         <div className="space-y-4">
           <h1 className="text-4xl font-bold text-foreground" data-testid="landing-title">
-            SubTracker
+            Verloq
           </h1>
           <p className="text-xl text-muted-foreground" data-testid="landing-description">
             Automatically detect and track your subscriptions from Gmail emails using AI-powered analysis.
