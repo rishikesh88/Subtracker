@@ -67,15 +67,62 @@
       and the receipt it came from. No card feed, no procurement project.
     </p>
 
-    <!-- Set FORM_ENDPOINT in the script at the bottom of this file before going live.
-         Formspree gives you https://formspree.io/f/xxxxxxxx after you create a form.
-         Until it is set the form tells the visitor to email instead of failing silently. -->
-    <form class="signup" id="waitlist" method="POST" novalidate>
+    <!-- Netlify Forms. Both waitlist forms share name="waitlist" so submissions
+         land in one place. The second-step fields sit in the markup from the
+         start, hidden rather than absent, because Netlify parses the built HTML
+         at deploy time to learn which fields a submission may carry. -->
+    <form class="signup" id="waitlist" name="waitlist" method="POST"
+          data-netlify="true" data-netlify-honeypot="_gotcha" novalidate>
+      <input type="hidden" name="form-name" value="waitlist">
       <label class="visually-hidden" for="email">Work email address</label>
       <div class="signup__row">
         <input class="signup__field" type="email" id="email" name="email"
                placeholder="you@company.com" autocomplete="email" required>
         <button class="btn btn--accent" type="submit">Join the waitlist</button>
+      </div>
+      <div class="signup__more" id="more-hero" hidden>
+        <div class="signup__grid">
+          <p class="signup__cell">
+            <label class="signup__label" for="name-hero">Name</label>
+            <input class="signup__input" type="text" id="name-hero" name="name" autocomplete="name">
+          </p>
+          <p class="signup__cell">
+            <label class="signup__label" for="org-hero">Organisation</label>
+            <input class="signup__input" type="text" id="org-hero" name="organization" autocomplete="organization">
+          </p>
+          <p class="signup__cell">
+            <label class="signup__label" for="role-hero">Your role</label>
+            <select class="signup__input" id="role-hero" name="role" required>
+              <option value="" selected>Select&hellip;</option>
+              <option>Finance</option>
+              <option>Operations</option>
+              <option>Founder or CEO</option>
+              <option>IT</option>
+              <option>Other</option>
+            </select>
+          </p>
+          <p class="signup__cell">
+            <label class="signup__label" for="team-hero">Team size</label>
+            <select class="signup__input" id="team-hero" name="team_size" required>
+              <option value="" selected>Select&hellip;</option>
+              <option>1&ndash;10</option>
+              <option>11&ndash;50</option>
+              <option>51&ndash;200</option>
+              <option>200+</option>
+            </select>
+          </p>
+          <p class="signup__cell signup__cell--wide">
+            <label class="signup__label" for="spend-hero">Monthly software spend</label>
+            <select class="signup__input" id="spend-hero" name="monthly_spend" required>
+              <option value="" selected>Select&hellip;</option>
+              <option>Under $1,000</option>
+              <option>$1,000 &ndash; $5,000</option>
+              <option>$5,000 &ndash; $20,000</option>
+              <option>Over $20,000</option>
+              <option>Not sure</option>
+            </select>
+          </p>
+        </div>
       </div>
       <input class="signup__trap" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
       <input type="hidden" name="source" value="verloq.co/">
@@ -423,12 +470,58 @@
       One mailbox, one scan. No spreadsheet, no card feed, no sales call.
     </p>
 
-    <form class="signup" method="POST" novalidate>
+    <form class="signup" name="waitlist" method="POST"
+          data-netlify="true" data-netlify-honeypot="_gotcha" novalidate>
+      <input type="hidden" name="form-name" value="waitlist">
       <label class="visually-hidden" for="email-footer">Work email address</label>
       <div class="signup__row">
         <input class="signup__field" type="email" id="email-footer" name="email"
                placeholder="you@company.com" autocomplete="email" required>
         <button class="btn btn--dark" type="submit">Join the waitlist</button>
+      </div>
+      <div class="signup__more" id="more-cta" hidden>
+        <div class="signup__grid">
+          <p class="signup__cell">
+            <label class="signup__label" for="name-cta">Name</label>
+            <input class="signup__input" type="text" id="name-cta" name="name" autocomplete="name">
+          </p>
+          <p class="signup__cell">
+            <label class="signup__label" for="org-cta">Organisation</label>
+            <input class="signup__input" type="text" id="org-cta" name="organization" autocomplete="organization">
+          </p>
+          <p class="signup__cell">
+            <label class="signup__label" for="role-cta">Your role</label>
+            <select class="signup__input" id="role-cta" name="role" required>
+              <option value="" selected>Select&hellip;</option>
+              <option>Finance</option>
+              <option>Operations</option>
+              <option>Founder or CEO</option>
+              <option>IT</option>
+              <option>Other</option>
+            </select>
+          </p>
+          <p class="signup__cell">
+            <label class="signup__label" for="team-cta">Team size</label>
+            <select class="signup__input" id="team-cta" name="team_size" required>
+              <option value="" selected>Select&hellip;</option>
+              <option>1&ndash;10</option>
+              <option>11&ndash;50</option>
+              <option>51&ndash;200</option>
+              <option>200+</option>
+            </select>
+          </p>
+          <p class="signup__cell signup__cell--wide">
+            <label class="signup__label" for="spend-cta">Monthly software spend</label>
+            <select class="signup__input" id="spend-cta" name="monthly_spend" required>
+              <option value="" selected>Select&hellip;</option>
+              <option>Under $1,000</option>
+              <option>$1,000 &ndash; $5,000</option>
+              <option>$5,000 &ndash; $20,000</option>
+              <option>Over $20,000</option>
+              <option>Not sure</option>
+            </select>
+          </p>
+        </div>
       </div>
       <input class="signup__trap" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
       <input type="hidden" name="source" value="verloq.co/#cta">
@@ -479,26 +572,55 @@
 </footer>
 
 <script>
-/* Waitlist submission.
-   SET FORM_ENDPOINT before going live. Formspree gives you a URL like
-   https://formspree.io/f/abcdwxyz after you create a form. */
-var FORM_ENDPOINT = '';           // <-- paste your endpoint here
+/* Waitlist — two steps, one submission.
+
+   Step 1 is the email field that is always visible. Entering a valid address
+   reveals the rest; nothing is sent yet. Step 2 submits the lot to Netlify.
+
+   Asking six questions up front would cost signups, and asking only for an
+   email would not tell us who is worth inviting. Splitting them means the
+   commitment is made before the effort is seen.
+
+   Netlify Forms needs no endpoint and no third-party script. The POST goes to
+   this same origin, which is why the CSP needs no host added for it. */
+
 var CONTACT_EMAIL = 'rishikesh.kulkarni88@gmail.com';
 
 (function () {
   'use strict';
 
-  var forms = document.querySelectorAll('form.signup');
-
-  Array.prototype.forEach.call(forms, function (form) {
+  Array.prototype.forEach.call(document.querySelectorAll('form.signup'), function (form) {
     var status = form.querySelector('.signup__status');
     var button = form.querySelector('button[type="submit"]');
-    var field  = form.querySelector('input[type="email"]');
+    var email  = form.querySelector('input[type="email"]');
+    var more   = form.querySelector('.signup__more');
     var label  = button.textContent;
+    var opened = false;
 
     function say(message, state) {
       status.textContent = message;
       status.setAttribute('data-state', state);
+    }
+
+    /* Only the fields on show are required. A select that is still hidden must
+       not block submission, or the browser refuses to submit and — because the
+       offending control is invisible — reports nothing the visitor can act on. */
+    function setRequired(on) {
+      Array.prototype.forEach.call(more.querySelectorAll('select'), function (el) {
+        if (on) el.setAttribute('required', '');
+        else el.removeAttribute('required');
+      });
+    }
+    setRequired(false);
+
+    function open() {
+      more.hidden = false;
+      opened = true;
+      setRequired(true);
+      button.textContent = 'Request an invite';
+      say('A few details so we can prioritise your invite.', '');
+      var first = more.querySelector('input, select');
+      if (first) first.focus();
     }
 
     form.addEventListener('submit', function (event) {
@@ -507,14 +629,21 @@ var CONTACT_EMAIL = 'rishikesh.kulkarni88@gmail.com';
       // Honeypot: only a bot fills a field it cannot see.
       if (form.querySelector('input[name="_gotcha"]').value) return;
 
-      if (!field.checkValidity()) {
+      if (!email.checkValidity()) {
         say('That does not look like an email address.', 'error');
-        field.focus();
+        email.focus();
         return;
       }
 
-      if (!FORM_ENDPOINT) {
-        say('The form is not connected yet — email ' + CONTACT_EMAIL + ' and we will add you.', 'error');
+      if (!opened) { open(); return; }
+
+      var missing = null;
+      Array.prototype.forEach.call(more.querySelectorAll('select'), function (el) {
+        if (!missing && !el.value) missing = el;
+      });
+      if (missing) {
+        say('Please answer the remaining questions.', 'error');
+        missing.focus();
         return;
       }
 
@@ -522,14 +651,17 @@ var CONTACT_EMAIL = 'rishikesh.kulkarni88@gmail.com';
       button.textContent = 'Sending…';
       say('', '');
 
-      fetch(FORM_ENDPOINT, {
+      fetch('/', {
         method: 'POST',
-        headers: { 'Accept': 'application/json' },
-        body: new FormData(form)
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(new FormData(form)).toString()
       })
         .then(function (response) {
           if (!response.ok) throw new Error('HTTP ' + response.status);
           form.reset();
+          more.hidden = true;
+          opened = false;
+          setRequired(false);
           say('You are on the list. We will be in touch when access opens.', 'ok');
         })
         .catch(function () {
@@ -538,7 +670,8 @@ var CONTACT_EMAIL = 'rishikesh.kulkarni88@gmail.com';
         })
         .then(function () {
           button.disabled = false;
-          button.textContent = label;
+          if (status.getAttribute('data-state') !== 'ok') button.textContent = opened ? 'Request an invite' : label;
+          else button.textContent = label;
         });
     });
   });

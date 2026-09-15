@@ -29,10 +29,10 @@ ErrorDocument 404 /404.html
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
   Header always set Permissions-Policy "geolocation=(), microphone=(), camera=(), interest-cohort=()"
 
-  # The only outbound request this site makes is the waitlist POST. Add your
-  # form host to connect-src when you set FORM_ENDPOINT in index.html —
-  # e.g. https://formspree.io or https://api.tally.so
-  Header always set Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://formspree.io; form-action 'self' https://formspree.io; base-uri 'self'; frame-ancestors 'self'"
+  # The waitlist posts to Netlify Forms, which is the same origin, so 'self'
+  # covers it. An external form service would need its host in BOTH connect-src
+  # and form-action, or the browser blocks the POST with no visible error.
+  Header always set Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'self'; frame-ancestors 'self'"
 </IfModule>
 
 # --- Caching --------------------------------------------------------------

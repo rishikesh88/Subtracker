@@ -33,17 +33,30 @@ Two things worth revisiting, neither blocking:
   to identify the data controller contactably, and Google's reviewer checks the
   policy is complete. Removed as asked; may come back at verification.
 
-### 1b. The waitlist endpoint
+### 1b. The waitlist form
 
-The form does not submit anywhere yet. Until it does, it tells visitors to email
-you instead of failing silently.
+**Done — it uses Netlify Forms.** No endpoint, no account, no third-party
+script, and the POST goes to this same origin so the CSP needed no host added.
 
-1. Create a form at [formspree.io](https://formspree.io) (or Tally)
-2. Copy the endpoint — it looks like `https://formspree.io/f/abcdwxyz`
-3. Paste it into `FORM_ENDPOINT` near the bottom of `index.html`
-4. If it is **not** Formspree, also add the host to `connect-src` and
-   `form-action` in `netlify.toml` (and in `site/.htaccess` if you also use
-   the GoDaddy route), or the browser will block the request silently
+Both forms (hero and closing CTA) share `name="waitlist"`, so submissions land
+in one list under **Netlify → Forms**.
+
+It asks in two steps. The email field alone is visible; entering a valid address
+reveals five more — name, organisation, role, team size and monthly spend — and
+only then does anything send. Six questions up front would cost signups; an
+email alone would not tell you who is worth inviting.
+
+Two things to know:
+
+- **The hidden fields must stay in the markup.** Netlify parses the built HTML
+  at deploy time to learn which fields a submission may carry. They are hidden
+  with the `hidden` attribute, not removed. Delete them from the DOM and that
+  data is silently dropped on receipt.
+- **The free tier caps submissions per month** (around 100). Ample for a beta,
+  but worth watching if a post lands well.
+
+Submissions export as CSV from the Netlify dashboard. There is no linked Google
+Sheet — that would need Zapier or Make in between.
 
 ### 1c. Images
 
@@ -81,11 +94,10 @@ sub-processors, and section 8, if you serve EU or UK customers.
 ```
 verloq-assets/
   og-cover.png            1200x630
-  details.txt             the placeholder values, one per line
-  formspree-endpoint.txt  the URL
 ```
 
-Or just paste the values into chat — whichever is easier.
+That is the only outstanding asset. Or say the word and I will generate it in
+the site's own palette and typeface.
 
 ---
 
@@ -273,7 +285,8 @@ In this order:
   instead, `assets/icons/` did not upload
 - The headings render in a serif face — if everything is sans-serif, the fonts
   in `assets/fonts/` did not upload
-- Submit the form with a real address, and confirm it arrives in Formspree
+- Submit the form with a real address, and confirm it appears under
+  **Netlify → Forms → waitlist**
 - Open it on a phone
 - **`https://app.verloq.co` still works**
 
