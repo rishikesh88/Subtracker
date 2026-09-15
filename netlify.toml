@@ -40,10 +40,27 @@
     Cache-Control = "no-cache"
 
 # --- Static assets ----------------------------------------------------------
-# Everything under assets/ is immutable for a year. Since the names are not
-# fingerprinted either, RENAME the file and update the reference when you change
-# a stylesheet, font or icon — otherwise returning visitors keep the old one.
+# No filename here carries a fingerprint, so a long cache on a file we actually
+# edit means returning visitors keep the old copy while we see the new one. The
+# default above is therefore no-cache for EVERYTHING, and only the two
+# directories that genuinely never change opt back in below.
+#
+# Deliberately no broad "/assets/*" rule: with only these deeper paths as
+# exceptions, the result does not depend on how Netlify resolves overlapping
+# rules — and if it ever resolved them the other way, fonts and icons would
+# merely revalidate rather than the stylesheet going stale. The failure
+# direction is slower, not wrong.
+#
+# styles.css, logo.svg, favicon.svg and og-cover.png fall through to no-cache
+# and update the moment they are pushed. When the design settles and the
+# stylesheet stops moving, it is worth giving it a long cache under a
+# versioned filename.
 [[headers]]
-  for = "/assets/*"
+  for = "/assets/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/assets/icons/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
