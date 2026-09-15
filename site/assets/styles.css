@@ -928,26 +928,8 @@ select.signup__input:invalid { color: #9BA1B2; }
      what the eye is scanning for; column-reverse gets that order visually while
      leaving the DOM sequence alone for screen readers. */
   .ledger__line { align-items: flex-start; gap: 10px; }
-  /* At 390px the name, the cadence chip and the date sit within a few pixels of
-     the available width, so whether the chip wrapped came down to how long the
-     service name happened to be and the rows read as ragged. Giving the chip a
-     line of its own makes every row the same shape regardless of name length,
-     with the icon spanning both. */
-  .ledger__service {
-    flex: 1 1 auto;
-    display: grid;
-    grid-template-columns: 30px minmax(0, 1fr);
-    grid-template-areas: "icon name" "icon cadence";
-    align-items: center;
-    column-gap: 10px;
-    row-gap: 4px;
-  }
-  .ledger__service .ledger__chip { grid-area: icon; }
-  /* The ledger sits inside a centred stack, which was invisible while these
-     were flex items sized to their content. As grid cells they are full-column
-     width, so the inherited centring has to be undone explicitly. */
-  .ledger__service .ledger__name { grid-area: name; justify-self: start; text-align: left; }
-  .ledger__service .cadence { grid-area: cadence; justify-self: start; }
+  .ledger__service { flex: 1 1 auto; gap: 10px; min-width: 0; }
+  .ledger__name { min-width: 0; }
   .ledger__amounts {
     flex: 0 0 auto;
     flex-direction: column-reverse;
@@ -1176,4 +1158,15 @@ select.signup__input:invalid { color: #9BA1B2; }
   height: 100%;
   display: block;
   object-fit: cover;
+}
+
+/* Dropped on phones. The chip was the element competing for horizontal room in
+   a ledger row, and whether it wrapped depended on how long the service name
+   happened to be, so the rows came out ragged. The renewal date beneath the
+   amount carries the same information in context.
+
+   Declared here rather than with the other narrow-width rules because the base
+   .cadence rule above sets display and would win on source order. */
+@media (max-width: 680px) {
+  .cadence { display: none; }
 }
