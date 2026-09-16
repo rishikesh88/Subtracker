@@ -232,7 +232,20 @@ RESEND_API_KEY=
 PRIVATE_OBJECT_DIR=/YOUR_BUCKET/private
 GOOGLE_APPLICATION_CREDENTIALS_JSON=<one-line JSON>
 GCS_PROJECT_ID=
+TOKEN_ENCRYPTION_KEY=<openssl rand -base64 32>
+ADMIN_EMAIL=
+ADMIN_PASSWORD_HASH=
 ```
+
+`TOKEN_ENCRYPTION_KEY` encrypts mailbox tokens at rest. It must be the *output*
+of `openssl rand -base64 32`, not the command itself — pasting the command was
+a real outage, and the key must decode to exactly 32 bytes. It is resolved on
+first use rather than at import, so a wrong value still lets the app boot and
+serve sign-in; only mailbox operations fail, and they fail loudly.
+
+`ADMIN_EMAIL` and `ADMIN_PASSWORD_HASH` enable the admin console at `/admin`
+(see [docs/ADMIN_CONSOLE.md](docs/ADMIN_CONSOLE.md)). Generate the hash with
+`npm run admin:password`. If either is unset the console is not mounted at all.
 
 Do **not** set `PORT` (Railway injects it), and do not set `GOOGLE_REDIRECT_URI`,
 `MICROSOFT_REDIRECT_URI`, `REPLIT_DOMAINS`, `REPL_ID`, or `ISSUER_URL`.

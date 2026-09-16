@@ -11,7 +11,9 @@
     "db:push": "drizzle-kit push",
     "tokens:status": "tsx server/scripts/tokenStatus.ts",
     "account:delete": "tsx server/scripts/deleteAccount.ts",
-    "test:crypto": "tsx server/lib/tokenCrypto.test.ts"
+    "admin:password": "tsx server/scripts/adminPassword.ts",
+    "test:crypto": "tsx server/lib/tokenCrypto.test.ts",
+    "test:admin-auth": "tsx server/lib/adminAuth.test.ts"
   },
   "engines": {
     "node": ">=20"

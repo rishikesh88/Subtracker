@@ -23,7 +23,8 @@ const stageLabels: Record<string, string> = {
   'filtering_complete': 'Filtering Candidates', 
   'llm_analysis_start': 'Starting AI Analysis',
   'llm_analysis_complete': 'AI Analysis Complete',
-  'sync_complete': 'Sync Complete'
+  'sync_complete': 'Sync Complete',
+  'error': 'Sync Failed'
 };
 
 const stageDescriptions: Record<string, string> = {
@@ -54,15 +55,20 @@ export function SyncProgressModal({ isOpen, onOpenChange, userId, onComplete }: 
     progress.resetProgress();
   };
 
-  const isComplete = progress.progress === 100;
-  const isInProgress = progress.progress > 0 && progress.progress < 100;
+  // The server reports a run where every account failed as stage 'error' at
+  // 99%, deliberately short of 100 so nothing here reads it as success.
+  const isFailed = progress.currentStage === 'error';
+  const isComplete = !isFailed && progress.progress === 100;
+  const isInProgress = !isFailed && progress.progress > 0 && progress.progress < 100;
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[500px]" data-testid="sync-progress-modal">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {isComplete ? (
+            {isFailed ? (
+              <AlertCircle className="h-5 w-5 text-destructive" />
+            ) : isComplete ? (
               <CheckCircle className="h-5 w-5 text-green-500" />
             ) : isInProgress ? (
               <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
@@ -96,8 +102,13 @@ export function SyncProgressModal({ isOpen, onOpenChange, userId, onComplete }: 
               data-testid="progress-bar"
             />
             
-            <p className="text-sm text-muted-foreground" data-testid="progress-message">
-              {stageDescriptions[progress.currentStage] || progress.message}
+            <p
+              className={isFailed ? "text-sm text-destructive" : "text-sm text-muted-foreground"}
+              data-testid="progress-message"
+            >
+              {isFailed
+                ? progress.message
+                : stageDescriptions[progress.currentStage] || progress.message}
             </p>
 
             {progress.details && (

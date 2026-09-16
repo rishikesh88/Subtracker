@@ -14,6 +14,7 @@ import { ObjectPermission } from "./objectAcl";
 import { randomBytes } from "crypto";
 import { z } from "zod";
 import { registerGeminiRoutes } from "./routes/geminiSync";
+import { registerAdminRoutes } from "./routes/admin";
 import { setupAuth, isAuthenticated } from "./auth";
 import { generateServiceKey } from "./utils/serviceKey";
 import bcrypt from "bcrypt";
@@ -185,6 +186,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Setup Replit Auth
   await setupAuth(app);
+
+  // The admin console. Registered after setupAuth so `trust proxy` is already
+  // set when its sign-in limiter reads req.ip, and before the SPA catch-all
+  // that index.ts adds afterwards, so /admin reaches these routes rather than
+  // being served the React shell. It has its own session and shares nothing
+  // with the passport middleware above.
+  registerAdminRoutes(app);
 
   // Setup Google OAuth Strategy for authentication
   setupGoogleAuthStrategy(storage);

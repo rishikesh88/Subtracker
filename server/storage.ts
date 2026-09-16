@@ -488,6 +488,11 @@ export class DatabaseStorage implements IStorage {
         
         for (const invoice of subscriptionInvoices) {
           try {
+            // A receipt that lived in the email body has no file to remove, and
+            // the fallback branch below would otherwise build a path out of an
+            // empty string and try to delete it.
+            if (!invoice.fileUrl) continue;
+
             let objectPath: string;
             
             // Handle normalized /objects/... URLs
@@ -1187,10 +1192,14 @@ export class DatabaseStorage implements IStorage {
           console.log(`📎 Creating invoices for subscription: ${createdSubscription.serviceName}`);
           console.log(`📧 Evidence emails: ${suggestion.evidenceEmailIds.length}`);
           try {
-            // Fetch email records with attachment metadata
+            // Fetch the evidence emails. Subject and receivedAt are read too,
+            // because a receipt with nothing attached still becomes an invoice
+            // row — it just carries no file.
             const evidenceEmails = await this.db
               .select({
                 gmailId: emails.gmailId,
+                subject: emails.subject,
+                receivedAt: emails.receivedAt,
                 attachmentData: emails.attachmentData
               })
               .from(emails)
@@ -1203,15 +1212,21 @@ export class DatabaseStorage implements IStorage {
 
             console.log(`📎 Found ${evidenceEmails.length} evidence emails`);
 
-            // Parse attachments and create invoice records for files already in object storage
+            // One pass per evidence email. An email with a stored receipt file
+            // produces an invoice pointing at that file; an email without one
+            // produces an invoice with no file rather than nothing at all.
             let createdCount = 0;
+            let filelessCount = 0;
             let skippedCount = 0;
 
             for (const evidenceEmail of evidenceEmails) {
-              if (!evidenceEmail.attachmentData) continue;
+              // Set by the attachment loop below. If it is still false when the
+              // email is done, the receipt was in the email body rather than a
+              // file, and gets a fileless invoice row instead.
+              let emailProducedAnInvoice = false;
 
               try {
-                const attachmentDataParsed = JSON.parse(evidenceEmail.attachmentData);
+                const attachmentDataParsed = JSON.parse(evidenceEmail.attachmentData || '{}');
                 const attachmentsList = attachmentDataParsed.attachments || [];
 
                 for (const attachment of attachmentsList) {
@@ -1234,6 +1249,9 @@ export class DatabaseStorage implements IStorage {
                     .limit(1);
 
                   if (existingInvoice.length > 0) {
+                    // Still counts as this email having produced an invoice, or
+                    // re-approving would add a fileless row beside the file one.
+                    emailProducedAnInvoice = true;
                     skippedCount++;
                     continue;
                   }
@@ -1249,24 +1267,89 @@ export class DatabaseStorage implements IStorage {
                     source: 'gmail'
                   });
                   createdCount++;
+                  emailProducedAnInvoice = true;
                   console.log(`✅ Created invoice from synced attachment: ${attachment.filename}`);
                 }
               } catch (parseError) {
                 console.error('Error parsing attachment data:', parseError);
               }
+
+              if (emailProducedAnInvoice) continue;
+
+              // Nothing was stored for this email, either because it had no
+              // attachment at all or because none of them was a receipt file.
+              // Most services send the receipt as the email body, so this is the
+              // common case, not the exception.
+              //
+              // The row is recorded with NO FILE: fileUrl stays empty and no
+              // document is generated from the email. Inventing a PDF would put
+              // a file in the archive that the merchant never issued, which is
+              // worse than an honest blank.
+              //
+              // fileUrl is NOT NULL in the schema, so an empty string is the
+              // "no file" marker. Every deletion path already skips falsy
+              // fileUrl values, so nothing tries to remove a file that is not
+              // there.
+              try {
+                const receiptDate = evidenceEmail.receivedAt
+                  ? new Date(evidenceEmail.receivedAt)
+                  : new Date();
+
+                // uploadedAt carries the date of the receipt itself rather than
+                // the moment the sync ran, because that is the date the archive
+                // shows and the only one the user cares about.
+                const alreadyRecorded = await this.db
+                  .select({ id: invoices.id })
+                  .from(invoices)
+                  .where(
+                    and(
+                      eq(invoices.subscriptionId, createdSubscription.id),
+                      eq(invoices.fileUrl, ''),
+                      eq(invoices.uploadedAt, receiptDate)
+                    )
+                  )
+                  .limit(1);
+
+                if (alreadyRecorded.length > 0) {
+                  skippedCount++;
+                  continue;
+                }
+
+                const subject = (evidenceEmail.subject || '').trim();
+                const fileName = subject
+                  ? (subject.length > 120 ? `${subject.slice(0, 117)}…` : subject)
+                  : `${createdSubscription.serviceName} receipt`;
+
+                await this.db.insert(invoices).values({
+                  subscriptionId: createdSubscription.id,
+                  userId,
+                  fileName,
+                  fileType: 'email',
+                  fileSize: 0,
+                  fileUrl: '',
+                  source: 'gmail',
+                  uploadedAt: receiptDate
+                });
+
+                filelessCount++;
+                console.log(`✅ Recorded receipt with no attached file: ${fileName}`);
+              } catch (filelessError) {
+                console.error('Error recording a receipt with no file:', filelessError);
+              }
             }
 
             if (createdCount > 0) {
-              console.log(`✅ Created ${createdCount} invoice(s) for subscription: ${createdSubscription.serviceName}`);
+              console.log(`✅ Created ${createdCount} invoice(s) with a file for subscription: ${createdSubscription.serviceName}`);
+            }
+            if (filelessCount > 0) {
+              console.log(`✅ Recorded ${filelessCount} receipt(s) with no attached file for subscription: ${createdSubscription.serviceName}`);
             }
             if (skippedCount > 0) {
               console.log(`⏭️  Skipped ${skippedCount} duplicate invoice(s)`);
             }
-            if (createdCount === 0 && skippedCount === 0) {
-              // Says why, so an empty result is not read as a failure. Invoices
-              // come only from attachments captured during the sync, and most
-              // receipts are HTML with nothing attached.
-              console.log(`ℹ️  No invoices for ${createdSubscription.serviceName}: none of its ${evidenceEmails.length} evidence email(s) carried a stored attachment`);
+            if (createdCount === 0 && filelessCount === 0 && skippedCount === 0) {
+              // Says why, so an empty result is not read as a failure.
+              console.log(`ℹ️  No invoices for ${createdSubscription.serviceName}: none of its ${evidenceEmails.length} evidence email(s) produced one`);
             }
           } catch (invoiceError) {
             // Don't fail the entire approval if invoice creation fails
@@ -1566,14 +1649,18 @@ export class DatabaseStorage implements IStorage {
    * database says gone but the invoices are still in the bucket, is worse than
    * one that failed cleanly and can be retried.
    */
-  async deleteUserAccount(userId: string): Promise<{
+  /**
+   * Removes everything a user owns, but not the user row or their sessions.
+   *
+   * Shared by deleteUserData (which keeps the account) and deleteUserAccount
+   * (which does not), so the two can never drift apart on which tables count
+   * as "this person's data".
+   */
+  private async purgeUserOwnedRows(userId: string): Promise<{
     filesDeleted: number;
     grantsRevoked: number;
     rowsDeleted: Record<string, number>;
   }> {
-    const user = await this.getUser(userId);
-    if (!user) throw new Error(`No user with id ${userId}`);
-
     // --- 1. Object storage, before anything in the database changes --------
     const userInvoices = await this.db
       .select({ fileUrl: invoices.fileUrl })
@@ -1609,7 +1696,7 @@ export class DatabaseStorage implements IStorage {
       if (token && (await revokeGoogleToken(token))) grantsRevoked++;
     }
 
-    // --- 3. Rows, child tables before the user itself ----------------------
+    // --- 3. Rows, child tables first ---------------------------------------
     const rowsDeleted: Record<string, number> = {};
     const tables: Array<[string, any, any]> = [
       ["invoices", invoices, invoices.userId],
@@ -1626,6 +1713,61 @@ export class DatabaseStorage implements IStorage {
       const result = await this.db.delete(table).where(eq(column, userId)).returning();
       rowsDeleted[name] = result.length;
     }
+
+    return { filesDeleted, grantsRevoked, rowsDeleted };
+  }
+
+  /**
+   * Clears a user's data but leaves the account able to sign in.
+   *
+   * Everything they own goes: invoices and their stored files, detected
+   * subscriptions, cached emails, sync history, and the mailbox connections
+   * themselves -- with the Google grant revoked, not merely forgotten. What
+   * survives is the user row, their password and their sessions, so they stay
+   * signed in and can reconnect a mailbox and start again from empty.
+   *
+   * Their onboarding status is deliberately left alone. Someone who had
+   * finished onboarding lands on an empty dashboard rather than being pushed
+   * back through the flow, which is the right place to reconnect from.
+   */
+  async deleteUserData(userId: string): Promise<{
+    filesDeleted: number;
+    grantsRevoked: number;
+    rowsDeleted: Record<string, number>;
+  }> {
+    const user = await this.getUser(userId);
+    if (!user) throw new Error(`No user with id ${userId}`);
+    return this.purgeUserOwnedRows(userId);
+  }
+
+  /**
+   * Deletes a user and everything belonging to them.
+   *
+   * There are no foreign keys in this schema, so nothing cascades: every table
+   * has to be named explicitly. Miss one and rows holding that person's data
+   * outlive the deletion, which would make privacy.html section 7 false. The
+   * tables here were taken from every pgTable in shared/schema.ts carrying a
+   * userId column, plus sessions, which stores the id inside its JSON payload.
+   *
+   * Order matters in two places. Invoice file paths are read before the
+   * invoice rows go, or the pointers to the stored PDFs would be lost while
+   * the files themselves remained. And the provider grants are revoked before
+   * the tokens are deleted, for the same reason.
+   *
+   * Object storage is deleted first and the whole operation aborts if any file
+   * fails, before a single row is touched. A half-deleted account, where the
+   * database says gone but the invoices are still in the bucket, is worse than
+   * one that failed cleanly and can be retried.
+   */
+  async deleteUserAccount(userId: string): Promise<{
+    filesDeleted: number;
+    grantsRevoked: number;
+    rowsDeleted: Record<string, number>;
+  }> {
+    const user = await this.getUser(userId);
+    if (!user) throw new Error(`No user with id ${userId}`);
+
+    const { filesDeleted, grantsRevoked, rowsDeleted } = await this.purgeUserOwnedRows(userId);
 
     // verification_codes is declared inside its own methods rather than at the
     // top of this file, so it is imported the same way here.
@@ -1655,6 +1797,98 @@ export class DatabaseStorage implements IStorage {
     rowsDeleted["users"] = deletedUser.length;
 
     return { filesDeleted, grantsRevoked, rowsDeleted };
+  }
+
+  // ---------------------------------------------------------------------
+  // Admin console reads
+  //
+  // These exist to answer "who has signed up and is the app working for
+  // them", so they return counts and timestamps only. No mailbox token is
+  // selected by any of them, deliberately: the console never needs one, and a
+  // read path that cannot fetch a token cannot leak one. That is why the
+  // mailbox list below picks its columns by hand instead of calling
+  // getGmailAccounts, which decrypts.
+  // ---------------------------------------------------------------------
+
+  async listUsersForAdmin(): Promise<any[]> {
+    const result = await this.db.execute(sql`
+      SELECT
+        u.id,
+        u.email,
+        u.first_name,
+        u.last_name,
+        u.created_at,
+        u.email_verified,
+        u.onboarding_status,
+        u.organization_name,
+        u.preferred_currency,
+        (SELECT count(*) FROM gmail_accounts g WHERE g.user_id = u.id)          AS gmail_accounts,
+        (SELECT count(*) FROM outlook_accounts o WHERE o.user_id = u.id)        AS outlook_accounts,
+        (SELECT count(*) FROM gmail_accounts g
+           WHERE g.user_id = u.id AND g.sync_status = 'error')                  AS mailboxes_in_error,
+        (SELECT max(g.last_sync) FROM gmail_accounts g WHERE g.user_id = u.id)  AS last_mailbox_sync,
+        (SELECT count(*) FROM subscriptions s
+           WHERE s.user_id = u.id AND s.status = 'active')                      AS subscriptions,
+        (SELECT count(*) FROM subscription_suggestions sg
+           WHERE sg.user_id = u.id AND sg.status = 'pending')                   AS pending_suggestions,
+        (SELECT count(*) FROM invoices i WHERE i.user_id = u.id)                AS invoices,
+        (SELECT count(*) FROM invoices i
+           WHERE i.user_id = u.id AND i.file_url <> '')                         AS invoices_with_file,
+        (SELECT count(*) FROM emails e WHERE e.user_id = u.id)                  AS emails,
+        j.status      AS last_sync_status,
+        j.started_at  AS last_sync_started,
+        j.finished_at AS last_sync_finished,
+        j.error       AS last_sync_error
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT status, started_at, finished_at, error
+        FROM sync_jobs
+        WHERE user_id = u.id
+        ORDER BY started_at DESC
+        LIMIT 1
+      ) j ON true
+      ORDER BY u.created_at DESC NULLS LAST
+    `);
+    return ((result as any)?.rows ?? []) as any[];
+  }
+
+  async getUserDetailForAdmin(userId: string): Promise<any | undefined> {
+    const rows = await this.listUsersForAdmin();
+    const summary = rows.find((row: any) => row.id === userId);
+    if (!summary) return undefined;
+
+    const mailboxes = await this.db.execute(sql`
+      SELECT 'gmail' AS provider, id, gmail_email AS address, last_sync, sync_status, sync_error, created_at
+      FROM gmail_accounts WHERE user_id = ${userId}
+      UNION ALL
+      SELECT 'outlook' AS provider, id, outlook_email AS address, last_sync, sync_status, sync_error, created_at
+      FROM outlook_accounts WHERE user_id = ${userId}
+      ORDER BY created_at
+    `);
+
+    const subs = await this.db.execute(sql`
+      SELECT s.id, s.service_name, s.amount, s.currency, s.frequency, s.status,
+             s.next_billing_date, s.last_email_date,
+             (SELECT count(*) FROM invoices i WHERE i.subscription_id = s.id)                    AS invoices,
+             (SELECT count(*) FROM invoices i WHERE i.subscription_id = s.id AND i.file_url = '') AS invoices_without_file
+      FROM subscriptions s
+      WHERE s.user_id = ${userId}
+      ORDER BY s.service_name
+    `);
+
+    const recentSyncs = await this.db.execute(sql`
+      SELECT status, trigger_source, started_at, finished_at, error,
+             emails_processed, suggestions_generated
+      FROM sync_jobs WHERE user_id = ${userId}
+      ORDER BY started_at DESC LIMIT 10
+    `);
+
+    return {
+      ...summary,
+      mailboxes: (mailboxes as any)?.rows ?? [],
+      subscriptions_detail: (subs as any)?.rows ?? [],
+      recent_syncs: (recentSyncs as any)?.rows ?? [],
+    };
   }
 
   async deleteGmailAccount(id: string): Promise<boolean> {
