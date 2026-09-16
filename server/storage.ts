@@ -7,6 +7,18 @@ import { convertCurrency } from "./utils/currencyConverter";
 import { advanceOnePeriod, ensureFutureBillingDate } from "./utils/billingDate";
 import { findDuplicateHint } from "./utils/duplicateHints";
 import { invoiceExtractor } from "./services/invoiceExtractor";
+import { encryptFields, decryptFields } from "./lib/tokenCrypto";
+import { revokeGoogleToken } from "./lib/oauthRevoke";
+import { ObjectStorageService } from "./objectStorage";
+
+/**
+ * Token columns encrypted at rest. Every read and write of these tables goes
+ * through this file, which is why the wrapping lives here: the eleven other
+ * modules that handle tokens keep seeing plaintext and needed no changes.
+ */
+const ACCOUNT_TOKEN_FIELDS = ["accessToken", "refreshToken"] as const;
+const USER_TOKEN_FIELDS = ["gmailAccessToken", "gmailRefreshToken"] as const;
+
 
 export interface IStorage {
   // User methods
@@ -105,7 +117,7 @@ export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
     try {
       const result = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], USER_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting user:', error);
       throw error;
@@ -115,7 +127,7 @@ export class DatabaseStorage implements IStorage {
   async getUserByUsername(username: string): Promise<User | undefined> {
     try {
       const result = await this.db.select().from(users).where(eq(users.email, username)).limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], USER_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting user by username:', error);
       throw error;
@@ -125,7 +137,7 @@ export class DatabaseStorage implements IStorage {
   async getUserByEmail(email: string): Promise<User | undefined> {
     try {
       const result = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], USER_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting user by email:', error);
       throw error;
@@ -203,8 +215,10 @@ export class DatabaseStorage implements IStorage {
           .set(updateData)
           .where(eq(users.id, userData.id))
           .returning();
-        
-        return result[0];
+
+        // This branch returns an existing row, so its token columns may hold
+        // ciphertext even though this method never writes them.
+        return decryptFields(result[0], USER_TOKEN_FIELDS);
       } else {
         // Create new user with specified ID
         const insertData = {
@@ -228,11 +242,11 @@ export class DatabaseStorage implements IStorage {
     try {
       const result = await this.db
         .update(users)
-        .set({ ...updates, updatedAt: new Date() })
+        .set({ ...encryptFields(updates, USER_TOKEN_FIELDS), updatedAt: new Date() })
         .where(eq(users.id, id))
         .returning();
-      
-      return result[0] || undefined;
+
+      return result[0] ? decryptFields(result[0], USER_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error updating user:', error);
       throw error;
@@ -1467,7 +1481,7 @@ export class DatabaseStorage implements IStorage {
         .from(gmailAccounts)
         .where(eq(gmailAccounts.userId, userId))
         .orderBy(desc(gmailAccounts.createdAt));
-      return result;
+      return result.map((row: any) => decryptFields(row, ACCOUNT_TOKEN_FIELDS));
     } catch (error) {
       console.error('Error getting Gmail accounts:', error);
       throw error;
@@ -1481,7 +1495,7 @@ export class DatabaseStorage implements IStorage {
         .from(gmailAccounts)
         .where(eq(gmailAccounts.id, id))
         .limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], ACCOUNT_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting Gmail account:', error);
       throw error;
@@ -1498,7 +1512,7 @@ export class DatabaseStorage implements IStorage {
           eq(gmailAccounts.gmailEmail, gmailEmail)
         ))
         .limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], ACCOUNT_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting Gmail account by email:', error);
       throw error;
@@ -1507,8 +1521,11 @@ export class DatabaseStorage implements IStorage {
 
   async createGmailAccount(account: InsertGmailAccount): Promise<GmailAccount> {
     try {
-      const result = await this.db.insert(gmailAccounts).values(account).returning();
-      return result[0];
+      const result = await this.db
+        .insert(gmailAccounts)
+        .values(encryptFields(account, ACCOUNT_TOKEN_FIELDS))
+        .returning();
+      return decryptFields(result[0], ACCOUNT_TOKEN_FIELDS);
     } catch (error) {
       console.error('Error creating Gmail account:', error);
       throw error;
@@ -1519,14 +1536,125 @@ export class DatabaseStorage implements IStorage {
     try {
       const result = await this.db
         .update(gmailAccounts)
-        .set(updates)
+        .set(encryptFields(updates, ACCOUNT_TOKEN_FIELDS))
         .where(eq(gmailAccounts.id, id))
         .returning();
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], ACCOUNT_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error updating Gmail account:', error);
       throw error;
     }
+  }
+
+
+  /**
+   * Deletes a user and everything belonging to them.
+   *
+   * There are no foreign keys in this schema, so nothing cascades: every table
+   * has to be named explicitly. Miss one and rows holding that person's data
+   * outlive the deletion, which would make privacy.html section 7 false. The
+   * tables here were taken from every pgTable in shared/schema.ts carrying a
+   * userId column, plus sessions, which stores the id inside its JSON payload.
+   *
+   * Order matters in two places. Invoice file paths are read before the
+   * invoice rows go, or the pointers to the stored PDFs would be lost while
+   * the files themselves remained. And the provider grants are revoked before
+   * the tokens are deleted, for the same reason.
+   *
+   * Object storage is deleted first and the whole operation aborts if any file
+   * fails, before a single row is touched. A half-deleted account, where the
+   * database says gone but the invoices are still in the bucket, is worse than
+   * one that failed cleanly and can be retried.
+   */
+  async deleteUserAccount(userId: string): Promise<{
+    filesDeleted: number;
+    grantsRevoked: number;
+    rowsDeleted: Record<string, number>;
+  }> {
+    const user = await this.getUser(userId);
+    if (!user) throw new Error(`No user with id ${userId}`);
+
+    // --- 1. Object storage, before anything in the database changes --------
+    const userInvoices = await this.db
+      .select({ fileUrl: invoices.fileUrl })
+      .from(invoices)
+      .where(eq(invoices.userId, userId));
+
+    const objectStorage = new ObjectStorageService();
+    const failures: string[] = [];
+    let filesDeleted = 0;
+
+    for (const invoice of userInvoices) {
+      if (!invoice.fileUrl) continue;
+      try {
+        if (await objectStorage.deleteObjectEntity(invoice.fileUrl)) filesDeleted++;
+      } catch (error) {
+        failures.push(`${invoice.fileUrl}: ${(error as Error).message}`);
+      }
+    }
+
+    if (failures.length > 0) {
+      throw new Error(
+        `Aborted before deleting any rows: ${failures.length} invoice file(s) could not be removed ` +
+          `from object storage. Nothing has been deleted; fix and retry.\n  ` +
+          failures.join("\n  ")
+      );
+    }
+
+    // --- 2. Tell the providers, while the tokens still exist ---------------
+    let grantsRevoked = 0;
+    const gmail = await this.getGmailAccounts(userId);
+    for (const account of gmail) {
+      const token = account.refreshToken || account.accessToken;
+      if (token && (await revokeGoogleToken(token))) grantsRevoked++;
+    }
+
+    // --- 3. Rows, child tables before the user itself ----------------------
+    const rowsDeleted: Record<string, number> = {};
+    const tables: Array<[string, any, any]> = [
+      ["invoices", invoices, invoices.userId],
+      ["subscription_suggestions", subscriptionSuggestions, subscriptionSuggestions.userId],
+      ["subscriptions", subscriptions, subscriptions.userId],
+      ["emails", emails, emails.userId],
+      ["screened_messages", screenedMessages, screenedMessages.userId],
+      ["sync_jobs", syncJobs, syncJobs.userId],
+      ["gmail_accounts", gmailAccounts, gmailAccounts.userId],
+      ["outlook_accounts", outlookAccounts, outlookAccounts.userId],
+    ];
+
+    for (const [name, table, column] of tables) {
+      const result = await this.db.delete(table).where(eq(column, userId)).returning();
+      rowsDeleted[name] = result.length;
+    }
+
+    // verification_codes is declared inside its own methods rather than at the
+    // top of this file, so it is imported the same way here.
+    const { verificationCodes } = await import("@shared/schema");
+    const codes = await this.db
+      .delete(verificationCodes)
+      .where(eq(verificationCodes.userId, userId))
+      .returning();
+    rowsDeleted["verification_codes"] = codes.length;
+
+    // Sessions are keyed by sid, with the user id inside the JSON payload, so
+    // they cannot be matched by column. Left behind, a valid cookie would keep
+    // working against a user row that no longer exists.
+    // Passport stores the whole user object at sess.passport.user, shaped
+    // { authType, userId, claims? }. Password and OAuth logins carry the id at
+    // userId; Replit OIDC carries it at claims.sub, the same split getUserId
+    // handles in routes.ts. Both are matched here.
+    const sessionRows = await this.db.execute(
+      sql`DELETE FROM sessions
+          WHERE sess -> 'passport' -> 'user' ->> 'userId' = ${userId}
+             OR sess -> 'passport' -> 'user' -> 'claims' ->> 'sub' = ${userId}
+          RETURNING sid`
+    );
+    rowsDeleted["sessions"] = (sessionRows as any)?.rows?.length ?? 0;
+
+    const deletedUser = await this.db.delete(users).where(eq(users.id, userId)).returning();
+    rowsDeleted["users"] = deletedUser.length;
+
+    return { filesDeleted, grantsRevoked, rowsDeleted };
   }
 
   async deleteGmailAccount(id: string): Promise<boolean> {
@@ -1547,7 +1675,7 @@ export class DatabaseStorage implements IStorage {
         .from(outlookAccounts)
         .where(eq(outlookAccounts.userId, userId))
         .orderBy(desc(outlookAccounts.createdAt));
-      return result;
+      return result.map((row: any) => decryptFields(row, ACCOUNT_TOKEN_FIELDS));
     } catch (error) {
       console.error('Error getting Outlook accounts:', error);
       throw error;
@@ -1561,7 +1689,7 @@ export class DatabaseStorage implements IStorage {
         .from(outlookAccounts)
         .where(eq(outlookAccounts.id, id))
         .limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], ACCOUNT_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting Outlook account:', error);
       throw error;
@@ -1578,7 +1706,7 @@ export class DatabaseStorage implements IStorage {
           eq(outlookAccounts.outlookEmail, outlookEmail)
         ))
         .limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], ACCOUNT_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting Outlook account by email:', error);
       throw error;
@@ -1587,8 +1715,11 @@ export class DatabaseStorage implements IStorage {
 
   async createOutlookAccount(account: InsertOutlookAccount): Promise<OutlookAccount> {
     try {
-      const result = await this.db.insert(outlookAccounts).values(account).returning();
-      return result[0];
+      const result = await this.db
+        .insert(outlookAccounts)
+        .values(encryptFields(account, ACCOUNT_TOKEN_FIELDS))
+        .returning();
+      return decryptFields(result[0], ACCOUNT_TOKEN_FIELDS);
     } catch (error) {
       console.error('Error creating Outlook account:', error);
       throw error;
@@ -1599,10 +1730,10 @@ export class DatabaseStorage implements IStorage {
     try {
       const result = await this.db
         .update(outlookAccounts)
-        .set(updates)
+        .set(encryptFields(updates, ACCOUNT_TOKEN_FIELDS))
         .where(eq(outlookAccounts.id, id))
         .returning();
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], ACCOUNT_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error updating Outlook account:', error);
       throw error;

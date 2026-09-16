@@ -21,6 +21,9 @@ import passport from "passport";
 import { setupGoogleAuthStrategy } from "./auth/googleAuthStrategy";
 import { MicrosoftAuthService } from "./auth/microsoftAuthService";
 import { sendVerificationEmail, generateVerificationCode } from "./services/emailVerificationService";
+import rateLimit from "express-rate-limit";
+import { revokeGoogleToken } from "./lib/oauthRevoke";
+
 
 // Helper function to get userId from normalized session structure
 function getUserId(req: any): string {
@@ -28,6 +31,46 @@ function getUserId(req: any): string {
   // For OIDC (replit_oidc), use claims.sub
   return req.user.authType === 'replit_oidc' ? req.user.claims.sub : req.user.userId;
 }
+
+/**
+ * Rate limiters for the authentication routes.
+ *
+ * The app runs on Railway behind a reverse proxy, and `setupAuth` already
+ * sets `trust proxy` so `req.ip` reflects the real client address rather
+ * than the proxy's -- without that, these limiters would share one bucket
+ * across every user. JSON error bodies match the `{ message: "..." }` shape
+ * the rest of this file returns, so client-side error handling keeps working.
+ */
+const authRateLimitHandler = (req: any, res: any) => {
+  res.status(429).json({ message: "Too many attempts. Please try again later." });
+};
+
+// Login/signup: guards against credential stuffing.
+const loginSignupLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 8,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: authRateLimitHandler,
+});
+
+// Verify-email: the code is a short, guessable string.
+const verifyEmailLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: authRateLimitHandler,
+});
+
+// Resend-verification: each hit sends a real email and costs money.
+const resendVerificationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: authRateLimitHandler,
+});
 
 // Request validation schemas
 const approveSuggestionsSchema = z.object({
@@ -147,7 +190,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   setupGoogleAuthStrategy(storage);
 
   // Email+Password authentication routes
-  app.post('/api/auth/signup', async (req, res) => {
+  app.post('/api/auth/signup', loginSignupLimiter, async (req, res) => {
     try {
       // Validate request body with Zod schema
       const validationResult = signupSchema.safeParse(req.body);
@@ -251,7 +294,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Email verification endpoint
-  app.post('/api/auth/verify-email', isAuthenticated, async (req: any, res) => {
+  app.post('/api/auth/verify-email', verifyEmailLimiter, isAuthenticated, async (req: any, res) => {
     try {
       // Get userId from normalized session structure
       const userId = getUserId(req);
@@ -300,7 +343,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Resend verification email endpoint with rate limiting
   const resendAttempts = new Map<string, { count: number; resetAt: number }>();
 
-  app.post('/api/auth/resend-verification', isAuthenticated, async (req: any, res) => {
+  app.post('/api/auth/resend-verification', resendVerificationLimiter, isAuthenticated, async (req: any, res) => {
     try {
       // Get userId from normalized session structure
       const userId = getUserId(req);
@@ -353,7 +396,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/auth/login', async (req, res) => {
+  app.post('/api/auth/login', loginSignupLimiter, async (req, res) => {
     try {
       // Validate request body with Zod schema
       const validationResult = loginSchema.safeParse(req.body);
@@ -934,8 +977,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const accounts = await storage.getGmailAccounts(userId);
-      
+
+      let revokedCount = 0;
       for (const account of accounts) {
+        // Prefer the refresh token: revoking it invalidates the whole grant,
+        // including any derived access tokens. Fall back to the access token.
+        const tokenToRevoke = account.refreshToken || account.accessToken;
+        if (tokenToRevoke) {
+          const revoked = await revokeGoogleToken(tokenToRevoke);
+          if (revoked) {
+            revokedCount++;
+          }
+        }
+
+        // The user asked to disconnect and must end up disconnected locally
+        // regardless of what Google's revoke endpoint reports.
         await storage.deleteGmailAccount(account.id);
       }
 
@@ -944,8 +1000,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updatedAt: new Date()
       });
 
-      console.log(`Gmail disconnected successfully for user ${user.id} - removed ${accounts.length} account(s)`);
-      res.json({ message: "All Gmail accounts disconnected successfully", gmailConnected: false, accountsRemoved: accounts.length });
+      console.log(`Gmail disconnected successfully for user ${user.id} - removed ${accounts.length} account(s), revoked ${revokedCount}/${accounts.length} Google grant(s)`);
+      res.json({ message: "All Gmail accounts disconnected successfully", gmailConnected: false, accountsRemoved: accounts.length, grantsRevoked: revokedCount });
     } catch (error) {
       console.error("Gmail disconnect error:", error);
       res.status(500).json({ message: "Failed to disconnect Gmail" });

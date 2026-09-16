@@ -1,0 +1,66 @@
+# Verloq — verloq.co
+#
+# Publishes the static site in site/ to Netlify. There is no build step: the
+# page is plain HTML, CSS, seven icons and two woff2 fonts.
+#
+# site/.htaccess is the Apache equivalent of this file. It is kept so the
+# GoDaddy cPanel route still works as a fallback; Netlify ignores it.
+#
+# Not configured here, because Netlify does them natively:
+#   - HTTPS and certificate issue      (Domain settings → Force HTTPS)
+#   - www → apex redirect              (set the apex as the primary domain)
+#   - /privacy serving privacy.html    (extensionless URLs are the default)
+#   - 404.html for unmatched paths
+#   - gzip and brotli compression
+
+[build]
+  publish = "site"
+  command = ""
+
+  # Most pushes to this repo touch the app, not the site. Exit 0 skips the
+  # deploy, and `git diff --quiet` exits 0 when nothing changed under site/.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- site/"
+
+# --- Security headers -------------------------------------------------------
+# Mirrors site/.htaccess. The waitlist posts to Netlify Forms, which is this
+# same origin, so 'self' covers it and no third-party host appears here at all.
+# If you ever move the form to an external service, add its host to BOTH
+# connect-src and form-action or the browser will block the POST silently.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=(), interest-cohort=()"
+    Content-Security-Policy = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'self'; frame-ancestors 'self'"
+
+    # Pages must not be cached: the filenames carry no fingerprint, so a cached
+    # copy would outlive any edit. This rule covers /, /privacy and /404.
+    Cache-Control = "no-cache"
+
+# --- Static assets ----------------------------------------------------------
+# No filename here carries a fingerprint, so a long cache on a file we actually
+# edit means returning visitors keep the old copy while we see the new one. The
+# default above is therefore no-cache for EVERYTHING, and only the two
+# directories that genuinely never change opt back in below.
+#
+# Deliberately no broad "/assets/*" rule: with only these deeper paths as
+# exceptions, the result does not depend on how Netlify resolves overlapping
+# rules — and if it ever resolved them the other way, fonts and icons would
+# merely revalidate rather than the stylesheet going stale. The failure
+# direction is slower, not wrong.
+#
+# styles.css, logo.svg, favicon.svg and og-cover.png fall through to no-cache
+# and update the moment they are pushed. When the design settles and the
+# stylesheet stops moving, it is worth giving it a long cache under a
+# versioned filename.
+[[headers]]
+  for = "/assets/fonts/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/assets/icons/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

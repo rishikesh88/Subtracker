@@ -151,7 +151,7 @@ export default function Connect() {
               Privacy & Data Access
             </DialogTitle>
             <DialogDescription className="text-base mt-4">
-              We take your privacy seriously. Here's exactly what we access and how we use it.
+              Exactly what Verloq reads, what it cannot do, and what happens when you disconnect.
             </DialogDescription>
           </DialogHeader>
 
@@ -163,9 +163,12 @@ export default function Connect() {
                   <Database className="h-5 w-5 text-blue-500" />
                 </div>
                 <div>
-                  <h4 className="font-medium">Metadata Only</h4>
+                  <h4 className="font-medium">What Verloq reads</h4>
                   <p className="text-sm text-muted-foreground">
-                    We only access email subject lines, sender info, and dates. We never read your email content.
+                    It scans message headers (subject, sender and date) across the window you pick,
+                    then opens only the messages that look like receipts. Those it reads in full,
+                    including any attached invoice, and sends to Google's Gemini API to pull out the
+                    service, amount and date. The rest of your mail is never opened.
                   </p>
                 </div>
               </div>
@@ -187,9 +190,21 @@ export default function Connect() {
                   <Lock className="h-5 w-5 text-purple-500" />
                 </div>
                 <div>
-                  <h4 className="font-medium">Disconnect Anytime</h4>
+                  <h4 className="font-medium">Disconnect anytime</h4>
                   <p className="text-sm text-muted-foreground">
-                    You can revoke access instantly from your settings. Your data will be deleted.
+                    Disconnecting deletes the tokens Verloq holds and asks Google to revoke the
+                    permission, so it stops reading your mailbox and drops off your account
+                    permissions. Subscriptions it already found stay until you clear them. You can
+                    also remove the permission yourself at{" "}
+                    <a
+                      href="https://myaccount.google.com/permissions"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline underline-offset-2"
+                    >
+                      myaccount.google.com/permissions
+                    </a>
+                    .
                   </p>
                 </div>
               </div>

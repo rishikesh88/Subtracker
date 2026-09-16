@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<title>Verloq: know what your company spends on software</title>
+<meta name="description" content="Verloq reads the receipts in your billing inbox and turns them into one list: every subscription, every renewal date, every invoice, one total. No card feed, no procurement project.">
+<link rel="canonical" href="https://verloq.co/">
+<meta name="theme-color" content="#F4F4F6">
+
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://verloq.co/">
+<meta property="og:site_name" content="Verloq">
+<meta property="og:title" content="Verloq: know what your company spends on software">
+<meta property="og:description" content="Verloq reads the receipts in your billing inbox and turns them into one list: every subscription, every renewal date, every invoice, one total.">
+<meta property="og:image" content="https://verloq.co/assets/og-cover.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Verloq: know what your company spends on software">
+<meta name="twitter:description" content="Verloq reads the receipts in your billing inbox and turns them into one list.">
+<meta name="twitter:image" content="https://verloq.co/assets/og-cover.png">
+
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/favicon.svg">
+<link rel="preload" href="assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/literata-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header>
+  <nav class="nav" aria-label="Main">
+    <div class="nav__left">
+      <a class="brand" href="index.html">
+        <img src="assets/logo.svg" width="27" height="27" alt="">
+        <span class="brand__name">Verloq</span>
+      </a>
+      <div class="nav__links">
+        <a class="nav__link" href="#how">How it works</a>
+        <a class="nav__link" href="#faq">FAQ</a>
+      </div>
+    </div>
+    <a class="btn btn--dark btn--sm" href="#waitlist">Join the waitlist</a>
+  </nav>
+</header>
+
+<main id="main">
+
+  <!-- Hero -->
+  <section class="section stack-centre" style="padding-bottom:56px">
+    <p class="badge" style="margin-bottom:30px">
+      <span class="badge__tag">BETA</span>
+      <span class="badge__text">Private beta, waitlist open</span>
+    </p>
+
+    <h1 class="h1" style="max-width:900px;margin-bottom:26px">
+      Know what your company actually spends on software.
+    </h1>
+
+    <p class="lede" style="max-width:640px;margin-bottom:38px">
+      Every subscription your company pays for, pulled from the receipts you
+      already have.
+    </p>
+
+    <!-- Netlify Forms. Both waitlist forms share name="waitlist" so submissions
+         land in one place. The second-step fields sit in the markup from the
+         start, hidden rather than absent, because Netlify parses the built HTML
+         at deploy time to learn which fields a submission may carry. -->
+    <!-- Trigger only. The real form lives in the dialog at the foot of this
+         file. One form, so Netlify records one list however it was opened. -->
+    <form class="signup" id="waitlist" data-opens="signup-modal" data-source="hero" novalidate>
+      <label class="visually-hidden" for="email-hero">Work email address</label>
+      <div class="signup__row">
+        <input class="signup__field" type="email" id="email-hero" name="email"
+               placeholder="you@company.com" autocomplete="email" required>
+        <button class="btn btn--accent" type="submit">Join the waitlist</button>
+      </div>
+      <p class="signup__status" role="status" aria-live="polite"></p>
+    </form>
+
+    <p class="micro" style="margin-top:15px;max-width:540px">
+      Waitlist members get in first. No card, free for the beta.
+    </p>
+  </section>
+
+  <!-- Three-up strip -->
+  <div class="strip">
+    <div class="strip__item">
+      <span class="strip__title">The real monthly total</span>
+      <span class="strip__text">Every tool, every currency, normalised into one number.</span>
+    </div>
+    <div class="strip__item">
+      <span class="strip__title">Renewals before they bill</span>
+      <span class="strip__text">Dates read off the receipt, not guessed from a pattern.</span>
+    </div>
+    <div class="strip__item">
+      <span class="strip__title">A faster month end</span>
+      <span class="strip__text">Invoices filed against the subscription, tax already split out.</span>
+    </div>
+  </div>
+
+  <!-- Hero panel: gradient + floating ledger -->
+  <div class="panel panel--mesh" style="margin-top:var(--gutter)">
+    <div class="stack-centre">
+
+      <div class="ledger">
+        <div class="ledger__head">
+          <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">
+            <span class="ledger__month">September</span>
+            <span class="ledger__cadence">24 active subscriptions</span>
+          </div>
+          <span class="ledger__meta">Reconciled from 4,180 emails</span>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--icon"><img src="assets/icons/slack.png" alt=""></span>
+              <span class="ledger__name">Slack</span>
+              <span class="cadence cadence--monthly">Monthly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 14 Oct 2026</span>
+              <span class="ledger__amount tabular">$450.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--icon"><img src="assets/icons/figma.png" alt=""></span>
+              <span class="ledger__name">Figma</span>
+              <span class="cadence cadence--monthly">Monthly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 22 Sep 2026</span>
+              <span class="ledger__amount tabular">$180.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--icon"><img src="assets/icons/notion.jpeg" alt=""></span>
+              <span class="ledger__name">Notion</span>
+              <span class="cadence cadence--monthly">Monthly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 3 Oct 2026</span>
+              <span class="ledger__amount tabular">$540.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--icon"><img src="assets/icons/claude.png" alt=""></span>
+              <span class="ledger__name">Claude</span>
+              <span class="cadence cadence--monthly">Monthly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 29 Sep 2026</span>
+              <span class="ledger__amount tabular">$20.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--icon"><img src="assets/icons/canva.png" alt=""></span>
+              <span class="ledger__name">Canva</span>
+              <span class="cadence cadence--monthly">Monthly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 11 Oct 2026</span>
+              <span class="ledger__amount tabular">$120.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--icon"><img src="assets/icons/adobe.jpeg" alt=""></span>
+              <span class="ledger__name">Adobe Creative Cloud</span>
+              <span class="cadence cadence--yearly">Yearly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 3 Mar 2027</span>
+              <span class="ledger__amount tabular">$4,319.52</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <div class="ledger__service">
+              <span class="ledger__chip ledger__chip--icon"><img src="assets/icons/google.png" alt=""></span>
+              <span class="ledger__name">Google Workspace</span>
+              <span class="cadence cadence--yearly">Yearly</span>
+            </div>
+            <div class="ledger__amounts">
+              <span class="ledger__due">renews 18 Jan 2027</span>
+              <span class="ledger__amount tabular">$4,320.00</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="ledger__row">
+          <div class="ledger__line">
+            <span class="ledger__cadence" style="padding-left:43px">and 17 more</span>
+          </div>
+        </div>
+
+        <div class="ledger__total">
+          <span class="ledger__total-label">Normalised monthly</span>
+          <span class="ledger__total-value tabular">$12,260.20</span>
+        </div>
+      </div>
+
+      <p class="caption">
+        Sample output. Annual and quarterly plans are normalised to a monthly
+        figure, and other currencies converted to yours.
+      </p>
+    </div>
+  </div>
+
+  <!-- The invoice archive -->
+  <section class="section" id="invoices">
+    <div class="feature wrap">
+      <div class="feature__body">
+        <p class="eyebrow">The invoice, not just the amount</p>
+        <h2 class="h2">Month end stops being a scavenger hunt.</h2>
+        <p class="lede">
+          A card statement tells you $180 went to Figma. It does not give you
+          anything your accountant can file. Verloq keeps the document the
+          vendor sent, alongside the amount, tax and date it pulled out of it.
+        </p>
+
+        <div class="feature__points">
+          <p class="feature__point">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#6366D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+            When a vendor attaches a PDF invoice, Verloq files it against the subscription.
+          </p>
+          <p class="feature__point">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#6366D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+            When they send an HTML receipt instead, it still captures the amount, tax and date.
+          </p>
+          <p class="feature__point">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#6366D8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>
+            Everything sits under the subscription it belongs to, not in a mailbox search.
+          </p>
+        </div>
+      </div>
+
+      <div class="filings">
+        <div class="filings__head">
+          <span class="filings__brand">
+            <span class="ledger__chip ledger__chip--icon"><img src="assets/icons/claude.png" alt=""></span>
+            <span class="filings__title">Claude</span>
+          </span>
+          <span class="ledger__meta">6 filed</span>
+        </div>
+
+        <div class="filing">
+          <span class="filing__icon" aria-hidden="true">
+            <svg viewBox="0 0 26 30" width="26" height="30">
+              <path d="M2.5 1.5h13l8 8v19a1 1 0 0 1-1 1h-20a1 1 0 0 1-1-1v-26a1 1 0 0 1 1-1z"
+                    fill="#FFFFFF" stroke="#C3D2E8" stroke-width="1.3" stroke-linejoin="round"/>
+              <path d="M15.5 1.8v7.2a.5.5 0 0 0 .5.5h7"
+                    fill="#EAF1FA" stroke="#C3D2E8" stroke-width="1.3" stroke-linejoin="round"/>
+              <rect x="1.5" y="16" width="19" height="9" rx="2" fill="#D64A3F"/>
+              <text x="11" y="22.6" font-family="Manrope, system-ui, sans-serif" font-size="6.6"
+                    font-weight="700" fill="#FFFFFF" text-anchor="middle" letter-spacing=".3">PDF</text>
+            </svg>
+          </span>
+          <span class="filing__meta">
+            <span class="filing__name">September 2026</span>
+            <span class="filing__sub">Invoice INV-8C41-0912 &middot; tax $3.70</span>
+          </span>
+          <span class="filing__amount tabular">$47.30</span>
+        </div>
+
+        <div class="filing">
+          <span class="filing__icon" aria-hidden="true">
+            <svg viewBox="0 0 26 30" width="26" height="30">
+              <path d="M2.5 1.5h13l8 8v19a1 1 0 0 1-1 1h-20a1 1 0 0 1-1-1v-26a1 1 0 0 1 1-1z"
+                    fill="#FFFFFF" stroke="#C3D2E8" stroke-width="1.3" stroke-linejoin="round"/>
+              <path d="M15.5 1.8v7.2a.5.5 0 0 0 .5.5h7"
+                    fill="#EAF1FA" stroke="#C3D2E8" stroke-width="1.3" stroke-linejoin="round"/>
+              <rect x="1.5" y="16" width="19" height="9" rx="2" fill="#D64A3F"/>
+              <text x="11" y="22.6" font-family="Manrope, system-ui, sans-serif" font-size="6.6"
+                    font-weight="700" fill="#FFFFFF" text-anchor="middle" letter-spacing=".3">PDF</text>
+            </svg>
+          </span>
+          <span class="filing__meta">
+            <span class="filing__name">August 2026</span>
+            <span class="filing__sub">Invoice INV-8C41-0814 &middot; tax $1.57</span>
+          </span>
+          <span class="filing__amount tabular">$20.00</span>
+        </div>
+
+        <div class="filing">
+          <span class="filing__icon" aria-hidden="true">
+            <svg viewBox="0 0 26 30" width="26" height="30">
+              <path d="M2.5 1.5h13l8 8v19a1 1 0 0 1-1 1h-20a1 1 0 0 1-1-1v-26a1 1 0 0 1 1-1z"
+                    fill="#FFFFFF" stroke="#C3D2E8" stroke-width="1.3" stroke-linejoin="round"/>
+              <path d="M15.5 1.8v7.2a.5.5 0 0 0 .5.5h7"
+                    fill="#EAF1FA" stroke="#C3D2E8" stroke-width="1.3" stroke-linejoin="round"/>
+              <rect x="1.5" y="16" width="19" height="9" rx="2" fill="#D64A3F"/>
+              <text x="11" y="22.6" font-family="Manrope, system-ui, sans-serif" font-size="6.6"
+                    font-weight="700" fill="#FFFFFF" text-anchor="middle" letter-spacing=".3">PDF</text>
+            </svg>
+          </span>
+          <span class="filing__meta">
+            <span class="filing__name">July 2026</span>
+            <span class="filing__sub">Invoice INV-8C41-0711 &middot; tax $6.76</span>
+          </span>
+          <span class="filing__amount tabular">$86.40</span>
+        </div>
+
+        <div class="filing">
+          <span class="filing__icon" aria-hidden="true">
+            <svg viewBox="0 0 26 30" width="26" height="30">
+              <path d="M2.5 1.5h13l8 8v19a1 1 0 0 1-1 1h-20a1 1 0 0 1-1-1v-26a1 1 0 0 1 1-1z"
+                    fill="#FFFFFF" stroke="#C3D2E8" stroke-width="1.3" stroke-linejoin="round"/>
+              <path d="M15.5 1.8v7.2a.5.5 0 0 0 .5.5h7"
+                    fill="#EAF1FA" stroke="#C3D2E8" stroke-width="1.3" stroke-linejoin="round"/>
+              <rect x="1.5" y="16" width="19" height="9" rx="2" fill="#D64A3F"/>
+              <text x="11" y="22.6" font-family="Manrope, system-ui, sans-serif" font-size="6.6"
+                    font-weight="700" fill="#FFFFFF" text-anchor="middle" letter-spacing=".3">PDF</text>
+            </svg>
+          </span>
+          <span class="filing__meta">
+            <span class="filing__name">June 2026</span>
+            <span class="filing__sub">Invoice INV-8C41-0609 &middot; tax $2.52</span>
+          </span>
+          <span class="filing__amount tabular">$32.15</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section class="section" id="how" style="padding-top:0">
+    <div class="stack-centre" style="margin-bottom:52px">
+      <p class="eyebrow" style="margin-bottom:16px">How it works</p>
+      <h2 class="h2" style="margin-bottom:16px">Three steps, then it runs itself</h2>
+      <p class="lede" style="max-width:560px">No CSV imports, no card feed, no IT project.</p>
+    </div>
+
+    <div class="steps wrap">
+      <article class="step">
+        <div class="step__body">
+          <p class="step__num step__num--sky">01</p>
+          <h3 class="step__title">Connect your billing inbox</h3>
+          <p class="step__text">
+            One Google sign-in, read-only. Add as many mailboxes as you need:
+            billing@, accounts@, or whichever inbox your vendors actually write to.
+          </p>
+        </div>
+        <div class="step__wash step__wash--sky"></div>
+      </article>
+
+      <article class="step">
+        <div class="step__body">
+          <p class="step__num step__num--lavender">02</p>
+          <h3 class="step__title">Verloq reads the receipts</h3>
+          <p class="step__text">
+            It scans message headers to find vendor receipts, opens only those,
+            and pulls out the vendor, amount, tax, cadence and renewal date.
+          </p>
+        </div>
+        <div class="step__wash step__wash--lavender"></div>
+      </article>
+
+      <article class="step">
+        <div class="step__body">
+          <p class="step__num step__num--blush">03</p>
+          <h3 class="step__title">You approve the list</h3>
+          <p class="step__text">
+            Nothing lands in your ledger unseen. Verloq proposes what it found,
+            and you decide what to keep.
+          </p>
+        </div>
+        <div class="step__wash step__wash--blush"></div>
+      </article>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section class="section" id="faq">
+    <div class="wrap--narrow">
+      <div class="stack-centre" style="margin-bottom:44px">
+        <p class="eyebrow" style="margin-bottom:16px">Questions</p>
+        <h2 class="h2">Clear answers before you connect anything</h2>
+      </div>
+
+      <div class="faq">
+        <details class="faq__item">
+          <summary class="faq__q">Which mailbox should we connect?</summary>
+          <p class="faq__a">
+            Whichever one your vendors already write to, usually billing@ or
+            accounts@. You can add more than one, so if receipts are split
+            between a shared inbox and a founder&rsquo;s inbox, connect both.
+            Verloq reconciles across all of them into a single list.
+          </p>
+        </details>
+
+        <details class="faq__item">
+          <summary class="faq__q">Do you need our bank or card details?</summary>
+          <p class="faq__a">
+            No. Verloq works entirely from the receipts vendors email you. It has
+            no connection to your bank, your cards, or your accounting system,
+            and it cannot make or see a payment.
+          </p>
+        </details>
+
+        <details class="faq__item">
+          <summary class="faq__q">Can Verloq change anything in our mailbox?</summary>
+          <p class="faq__a">
+            No. The permission it requests is read-only. It cannot send, delete,
+            label, archive or alter a message. You can revoke it at any time from
+            your Google account settings, independently of us.
+          </p>
+        </details>
+
+        <details class="faq__item">
+          <summary class="faq__q">What happens to our data if we stop using it?</summary>
+          <p class="faq__a">
+            Disconnecting a mailbox deletes Verloq&rsquo;s stored tokens and stops it
+            reading that mailbox. The authorisation itself lives in your Google
+            account and you can revoke it there at any time without involving us.
+            To close your account entirely, email us. During the beta we do that
+            by hand and confirm when everything is gone.
+          </p>
+        </details>
+
+        <details class="faq__item">
+          <summary class="faq__q">Does it work with Outlook or Microsoft 365?</summary>
+          <p class="faq__a">
+            Outlook and Microsoft 365 support is coming soon. The adapter is
+            built but not switched on, so today Verloq reads Gmail and Google
+            Workspace only. Tell us when you join the waitlist and it moves up
+            the list.
+          </p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- Closing CTA -->
+  <section class="cta stack-centre">
+    <h2 class="h2" style="max-width:760px;margin-bottom:16px;font-size:clamp(30px,3.6vw,48px)">
+      Find out what you are actually paying for.
+    </h2>
+    <p class="lede" style="max-width:540px;margin-bottom:36px;color:#3E445C">
+      One mailbox, one scan. No spreadsheet, no card feed, no sales call.
+    </p>
+
+    <form class="signup" data-opens="signup-modal" data-source="cta" novalidate>
+      <label class="visually-hidden" for="email-cta">Work email address</label>
+      <div class="signup__row">
+        <input class="signup__field" type="email" id="email-cta" name="email"
+               placeholder="you@company.com" autocomplete="email" required>
+        <button class="btn btn--dark" type="submit">Join the waitlist</button>
+      </div>
+      <p class="signup__status" role="status" aria-live="polite"></p>
+    </form>
+
+    <p class="micro" style="margin-top:14px">
+      We will only email you about your invite. Nothing else.
+    </p>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer__top">
+    <div>
+      <a class="brand" href="index.html">
+        <img src="assets/logo.svg" width="27" height="27" alt="" style="filter:brightness(0) invert(1)">
+        <span class="brand__name">Verloq</span>
+      </a>
+      <p class="site-footer__blurb">
+        Software spend visibility that starts from the receipts you already have.
+      </p>
+    </div>
+
+    <div class="site-footer__cols">
+      <nav class="site-footer__col" aria-label="Product">
+        <p class="site-footer__heading">Product</p>
+        <a href="#how">How it works</a>
+        <a href="#invoices">Invoices</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+      <nav class="site-footer__col" aria-label="Legal">
+        <p class="site-footer__heading">Legal</p>
+        <a href="privacy.html">Privacy policy</a>
+      </nav>
+      <nav class="site-footer__col" aria-label="Contact">
+        <p class="site-footer__heading">Contact</p>
+        <a href="mailto:rishikesh.kulkarni88@gmail.com">rishikesh.kulkarni88@gmail.com</a>
+      </nav>
+    </div>
+  </div>
+
+  <div class="site-footer__base">
+    <span>&copy; 2026 Verloq</span>
+    <span>rishikesh.kulkarni88@gmail.com</span>
+  </div>
+</footer>
+
+<!-- Waitlist dialog ---------------------------------------------------------
+     The only Netlify form on the page. Both triggers open this one, so every
+     signup lands in a single list regardless of where it started. The fields
+     must stay in the built HTML: Netlify parses it at deploy time to learn
+     which fields a submission may carry. -->
+<dialog class="modal" id="signup-modal" aria-labelledby="signup-title">
+
+  <form class="modal__panel" name="waitlist" method="POST"
+        data-netlify="true" data-netlify-honeypot="_gotcha" novalidate>
+    <input type="hidden" name="form-name" value="waitlist">
+
+    <button class="modal__close" type="button" data-close aria-label="Close">
+      <svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true">
+        <path d="M1.5 1.5l12 12M13.5 1.5l-12 12" fill="none" stroke="currentColor"
+              stroke-width="1.7" stroke-linecap="round"/>
+      </svg>
+    </button>
+
+    <h2 class="modal__title" id="signup-title">Sign up for Early Access</h2>
+    <p class="modal__lede">
+      Waitlist members get in first. No card, free for the beta.
+    </p>
+
+    <div class="signup__grid">
+      <p class="signup__cell signup__cell--wide">
+        <label class="signup__label" for="m-email">Work email</label>
+        <input class="signup__input" type="email" id="m-email" name="email"
+               autocomplete="email" placeholder="you@company.com" required>
+      </p>
+      <p class="signup__cell">
+        <label class="signup__label" for="m-name">Name</label>
+        <input class="signup__input" type="text" id="m-name" name="name" autocomplete="name">
+      </p>
+      <p class="signup__cell">
+        <label class="signup__label" for="m-org">Organisation</label>
+        <input class="signup__input" type="text" id="m-org" name="organization" autocomplete="organization">
+      </p>
+      <p class="signup__cell">
+        <label class="signup__label" for="m-role">Your role</label>
+        <select class="signup__input" id="m-role" name="role" required>
+          <option value="" selected>Select&hellip;</option>
+          <option>Finance</option>
+          <option>Operations</option>
+          <option>Founder or CEO</option>
+          <option>IT</option>
+          <option>Other</option>
+        </select>
+      </p>
+      <p class="signup__cell">
+        <label class="signup__label" for="m-team">Team size</label>
+        <select class="signup__input" id="m-team" name="team_size" required>
+          <option value="" selected>Select&hellip;</option>
+          <option>1&ndash;10</option>
+          <option>11&ndash;50</option>
+          <option>51&ndash;200</option>
+          <option>200+</option>
+        </select>
+      </p>
+      <p class="signup__cell signup__cell--wide">
+        <label class="signup__label" for="m-spend">Monthly software spend</label>
+        <select class="signup__input" id="m-spend" name="monthly_spend" required>
+          <option value="" selected>Select&hellip;</option>
+          <option>Under $1,000</option>
+          <option>$1,000 &ndash; $5,000</option>
+          <option>$5,000 &ndash; $20,000</option>
+          <option>Over $20,000</option>
+          <option>Not sure</option>
+        </select>
+      </p>
+    </div>
+
+    <input class="signup__trap" type="text" name="_gotcha" tabindex="-1" autocomplete="off" aria-hidden="true">
+    <input type="hidden" name="source" value="verloq.co/">
+
+    <p class="signup__status" role="status" aria-live="polite"></p>
+
+    <button class="btn btn--accent modal__submit" type="submit">Sign up</button>
+
+    <p class="modal__fine">
+      We will only email you about your invite. Nothing else.
+      <a href="privacy.html">Privacy policy</a>
+    </p>
+  </form>
+
+  <div class="modal__panel modal__done" hidden>
+    <div class="modal__tick" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 22 22">
+        <path d="M4.5 11.5l4.5 4.5 8.5-9" fill="none" stroke="currentColor"
+              stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h2 class="modal__title">You are on the list.</h2>
+    <p class="modal__lede">
+      We will be in touch when access opens. Nothing else lands in your inbox.
+    </p>
+    <button class="btn btn--accent modal__submit" type="button" data-close>Done</button>
+  </div>
+
+</dialog>
+
+<script>
+/* Waitlist: one dialog, two entry points.
+
+   The email boxes in the hero and the closing CTA are triggers, not forms.
+   Submitting either validates the address, opens the dialog with it already
+   filled, and records which one it came from. The only real form is inside the
+   dialog, so every signup lands in one Netlify list however it started.
+
+   Netlify Forms needs no endpoint and no third-party script: the POST goes to
+   this same origin, which is why the CSP names no external host. */
+
+var CONTACT_EMAIL = 'rishikesh.kulkarni88@gmail.com';
+
+(function () {
+  'use strict';
+
+  var modal  = document.getElementById('signup-modal');
+  if (!modal) return;
+
+  var form   = modal.querySelector('form');
+  var done   = modal.querySelector('.modal__done');
+  var status = form.querySelector('.signup__status');
+  var button = form.querySelector('button[type="submit"]');
+  var email  = form.querySelector('#m-email');
+  var source = form.querySelector('input[name="source"]');
+  var label  = button.textContent;
+  var opener = null;
+
+  function say(message, state) {
+    status.textContent = message;
+    status.setAttribute('data-state', state || '');
+  }
+
+  /* <dialog> is not universally supported. Where showModal is missing the
+     triggers stay ordinary in-page forms rather than silently doing nothing. */
+  var supported = typeof modal.showModal === 'function';
+
+  function open(prefill, from, trigger) {
+    opener = trigger || null;
+    form.hidden = false;
+    done.hidden = true;
+    say('', '');
+    button.disabled = false;
+    button.textContent = label;
+    if (prefill) email.value = prefill;
+    if (source && from) source.value = 'verloq.co/#' + from;
+    modal.showModal();
+    // Focus the first thing still to fill in, not the field they just typed.
+    var target = prefill ? form.querySelector('#m-name') : email;
+    if (target) target.focus();
+  }
+
+  function close() {
+    modal.close();
+    if (opener && opener.focus) opener.focus();
+  }
+
+  // --- triggers -------------------------------------------------------------
+  Array.prototype.forEach.call(document.querySelectorAll('[data-opens]'), function (trigger) {
+    var field = trigger.querySelector('input[type="email"]');
+    var note  = trigger.querySelector('.signup__status');
+
+    trigger.addEventListener('submit', function (event) {
+      event.preventDefault();
+      if (!supported) { window.location.href = 'mailto:' + CONTACT_EMAIL + '?subject=Verloq%20waitlist'; return; }
+      if (!field.checkValidity()) {
+        note.textContent = 'That does not look like an email address.';
+        note.setAttribute('data-state', 'error');
+        field.focus();
+        return;
+      }
+      note.textContent = '';
+      note.setAttribute('data-state', '');
+      open(field.value, trigger.getAttribute('data-source'), trigger.querySelector('button'));
+    });
+  });
+
+  // The nav button has no email box; it opens the dialog empty.
+  Array.prototype.forEach.call(document.querySelectorAll('a[href="#waitlist"]'), function (link) {
+    link.addEventListener('click', function (event) {
+      if (!supported) return;          // fall back to the in-page anchor
+      event.preventDefault();
+      open('', 'nav', link);
+    });
+  });
+
+  // --- closing --------------------------------------------------------------
+  Array.prototype.forEach.call(modal.querySelectorAll('[data-close]'), function (el) {
+    el.addEventListener('click', close);
+  });
+
+  // Clicking the backdrop closes. The dialog itself fills the whole viewport as
+  // far as the DOM is concerned, so the click is only outside when it misses
+  // the panel's box.
+  modal.addEventListener('click', function (event) {
+    if (event.target !== modal) return;
+    var panel = form.hidden ? done : form;
+    var r = panel.getBoundingClientRect();
+    var out = event.clientX < r.left || event.clientX > r.right ||
+              event.clientY < r.top  || event.clientY > r.bottom;
+    if (out) close();
+  });
+
+  modal.addEventListener('close', function () {
+    if (opener && opener.focus) opener.focus();
+  });
+
+  // --- submission -----------------------------------------------------------
+  form.addEventListener('submit', function (event) {
+    event.preventDefault();
+
+    // Honeypot: only a bot fills a field it cannot see.
+    if (form.querySelector('input[name="_gotcha"]').value) return;
+
+    if (!email.checkValidity()) {
+      say('That does not look like an email address.', 'error');
+      email.focus();
+      return;
+    }
+
+    var missing = null;
+    Array.prototype.forEach.call(form.querySelectorAll('select'), function (el) {
+      if (!missing && !el.value) missing = el;
+    });
+    if (missing) {
+      say('Please answer the remaining questions.', 'error');
+      missing.focus();
+      return;
+    }
+
+    button.disabled = true;
+    button.textContent = 'Sending…';
+    say('', '');
+
+    fetch('/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(new FormData(form)).toString()
+    })
+      .then(function (response) {
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        form.reset();
+        form.hidden = true;
+        done.hidden = false;
+        done.querySelector('button').focus();
+      })
+      .catch(function () {
+        // Never lose a signup to a network blip. Give them another route.
+        say('Something went wrong. Email ' + CONTACT_EMAIL + ' and we will add you by hand.', 'error');
+        button.disabled = false;
+        button.textContent = label;
+      });
+  });
+})();
+</script>
+
+</body>
+</html>

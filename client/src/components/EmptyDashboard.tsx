@@ -22,7 +22,7 @@ export function EmptyDashboard({
       case "no-accounts":
         return {
           icon: <Mail className="h-16 w-16 text-muted-foreground/40" />,
-          title: "Welcome to SubTracker",
+          title: "Welcome to Verloq",
           description: "Connect your email accounts to start tracking subscriptions automatically",
           cta: (
             <Link href="/onboarding/connect">
