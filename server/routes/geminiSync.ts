@@ -1010,18 +1010,60 @@ export function registerGeminiRoutes(app: Express) {
           console.log(`   • Total emails processed: ${totalEmailsProcessed}`);
           console.log(`   • Total suggestions generated: ${totalSuggestionsGenerated}`);
       
-          // Send final completion update
+          // Send final update.
+          //
+          // Account failures are returned as {success:false} rather than
+          // thrown, so reaching here says nothing about whether the sync
+          // worked. This previously reported 'sync_complete' regardless and
+          // built its message only from successfulResults, so a run where the
+          // single account failed rendered as "Sync complete! Found 0
+          // subscription suggestions across 0 accounts" -- indistinguishable
+          // from a healthy sync of an already-screened mailbox. A fatal error
+          // looked like a quiet day, and the message that would have explained
+          // it was already sitting in failedResults.
+          const everyAccountFailed = successfulResults.length === 0 && failedResults.length > 0;
+          const failureDetail = failedResults
+            .map(r => `${r.gmailEmail || (r as any).outlookEmail || r.accountId}: ${r.error || 'unknown error'}`)
+            .join('; ');
+
+          let finalStage: string;
+          let finalMessage: string;
+
+          if (everyAccountFailed) {
+            finalStage = 'error';
+            finalMessage = failedResults.length === 1
+              ? `Sync failed. ${failedResults[0].error || 'Unknown error'}`
+              : `Sync failed for all ${failedResults.length} accounts. ${failureDetail}`;
+          } else if (failedResults.length > 0) {
+            // Partial success still has to name what was lost, or the missing
+            // mailbox reads as a mailbox with nothing in it.
+            finalStage = 'sync_complete';
+            finalMessage =
+              `Synced ${successfulResults.length} of ${totalAccounts} accounts and found ` +
+              `${totalSuggestionsGenerated} suggestion${totalSuggestionsGenerated === 1 ? '' : 's'}. ` +
+              `${failedResults.length} account${failedResults.length === 1 ? '' : 's'} failed: ${failureDetail}`;
+          } else {
+            finalStage = 'sync_complete';
+            finalMessage =
+              `Sync complete! Found ${totalSuggestionsGenerated} subscription ` +
+              `suggestion${totalSuggestionsGenerated === 1 ? '' : 's'} across ` +
+              `${successfulResults.length} account${successfulResults.length === 1 ? '' : 's'}`;
+          }
+
           sendProgressUpdate(userId, {
-            stage: 'sync_complete',
-            progress: 100,
-            message: `Sync complete! Found ${totalSuggestionsGenerated} subscription suggestions across ${successfulResults.length} accounts`,
-            details: { 
+            stage: finalStage,
+            // A failed run must not reach 100: the client treats progress >= 100
+            // as completion and would show "Sync Complete!" over the error.
+            progress: everyAccountFailed ? 99 : 100,
+            message: finalMessage,
+            details: {
               totalAccounts,
               gmailAccounts: gmailAccounts.length,
               outlookAccounts: outlookAccounts.length,
               successful: successfulResults.length,
               failed: failedResults.length,
-              suggestionsGenerated: totalSuggestionsGenerated
+              suggestionsGenerated: totalSuggestionsGenerated,
+              errors: failedResults.length ? failureDetail : undefined
             }
           });
       

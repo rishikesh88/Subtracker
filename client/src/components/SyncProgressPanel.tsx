@@ -195,8 +195,14 @@ export function SyncProgressPanel() {
             setIsClosed(false);
             setLastProgressAt(Date.now()); // Feeds the stall watchdog
 
-            // Check if sync is complete
-            if (data.stage === 'suggestions_ready' || data.progress >= 100) {
+            // A failure reported by the server has to set isError, which is
+            // what renders "Sync Failed" instead of "Sync Complete!". Before
+            // this, isError was only ever set by the SSE connection dropping,
+            // so a sync that failed server-side and said so still displayed as
+            // a success.
+            if (data.stage === 'error') {
+              setIsError(true);
+            } else if (data.stage === 'suggestions_ready' || data.progress >= 100) {
               setIsComplete(true);
             }
           }
