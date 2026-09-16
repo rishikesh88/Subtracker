@@ -21,7 +21,7 @@ import type { Express } from "express";
 import rateLimit from "express-rate-limit";
 import { storage } from "../storage";
 import {
-  adminConfigured,
+  adminConfigProblem,
   verifyAdminCredentials,
   issueAdminCookie,
   clearAdminCookie,
@@ -166,10 +166,12 @@ function describe(result: any, verb: string): string {
 }
 
 export function registerAdminRoutes(app: Express): void {
-  if (!adminConfigured()) {
-    console.log(
-      "[Admin] ADMIN_EMAIL and ADMIN_PASSWORD_HASH are not both set, so the admin console is not mounted."
-    );
+  const problem = adminConfigProblem();
+  if (problem) {
+    // Loud, and specific about which of the three things is wrong. A console
+    // that will not sign anyone in looks identical to one that is simply
+    // switched off, and the difference is only visible here.
+    console.warn(`[Admin] Console NOT mounted. ${problem}`);
     return;
   }
 

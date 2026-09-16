@@ -54,6 +54,37 @@ function signedInRequest(csrf?: string) {
 // --- Configuration --------------------------------------------------------
 
 check("configured when both variables are set", m.adminConfigured() === true);
+check("no problem reported when configured", m.adminConfigProblem() === null);
+
+// The mistake that actually happened in production: ADMIN_PASSWORD_HASH set to
+// the password itself. bcrypt.compare against a non-hash returns false for
+// every input, so the console used to mount and then refuse the right password
+// forever, with nothing anywhere saying why.
+process.env.ADMIN_PASSWORD_HASH = PASSWORD;
+check("a plain password in ADMIN_PASSWORD_HASH is not accepted as configured", m.adminConfigured() === false);
+const plainProblem = m.adminConfigProblem() ?? "";
+check("and the reason says it must be a bcrypt hash", /bcrypt hash/.test(plainProblem));
+check("and the reason names the command that makes one", /admin:password/.test(plainProblem));
+check("and the reason does not echo the value", !plainProblem.includes(PASSWORD));
+
+process.env.ADMIN_PASSWORD_HASH = "$2b$12$tooshort";
+check("a truncated hash is rejected", m.adminConfigured() === false);
+
+// Dashboards that keep the quotes when a value is pasted with them.
+process.env.ADMIN_PASSWORD_HASH = '"' + HASH + '"';
+check("a hash wrapped in quotes still works", m.adminConfigured() === true);
+check("and a quoted hash still verifies the password", await m.verifyAdminCredentials("admin@example.com", PASSWORD));
+
+process.env.ADMIN_PASSWORD_HASH = HASH;
+
+// Each half missing on its own.
+const savedEmail = process.env.ADMIN_EMAIL;
+delete process.env.ADMIN_EMAIL;
+check("missing email is named specifically", /ADMIN_EMAIL is not/.test(m.adminConfigProblem() ?? ""));
+process.env.ADMIN_EMAIL = savedEmail;
+delete process.env.ADMIN_PASSWORD_HASH;
+check("missing hash is named specifically", /ADMIN_PASSWORD_HASH is not/.test(m.adminConfigProblem() ?? ""));
+process.env.ADMIN_PASSWORD_HASH = HASH;
 
 // --- Credentials ----------------------------------------------------------
 
@@ -179,6 +210,7 @@ check(
 
 delete process.env.ADMIN_PASSWORD_HASH;
 check("not configured without a password hash", m.adminConfigured() === false);
+check("and that is reported as the missing variable", /ADMIN_PASSWORD_HASH is not/.test(m.adminConfigProblem() ?? ""));
 check("no cookie is accepted while unconfigured", !m.isAdminSignedIn(reqWithCookie(`verloq_admin=${cookie.value}`)));
 check("credentials are refused while unconfigured", !(await m.verifyAdminCredentials("admin@example.com", PASSWORD)));
 
