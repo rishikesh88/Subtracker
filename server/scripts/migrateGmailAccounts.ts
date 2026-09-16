@@ -2,6 +2,7 @@ import { drizzle } from 'drizzle-orm/neon-http';
 import { neon } from '@neondatabase/serverless';
 import { users, gmailAccounts, emails, subscriptions, subscriptionSuggestions } from '@shared/schema';
 import { eq, and, isNotNull } from 'drizzle-orm';
+import { encryptFields } from "../lib/tokenCrypto";
 
 async function migrateGmailAccounts() {
   if (!process.env.DATABASE_URL) {
@@ -70,15 +71,22 @@ async function migrateGmailAccounts() {
       }
 
       console.log(`  ✨ Creating new Gmail account record for: ${user.gmailEmail}`);
-      const [newAccount] = await db.insert(gmailAccounts).values({
-        userId: user.id,
-        gmailEmail: user.gmailEmail,
-        accessToken: user.gmailAccessToken,
-        refreshToken: user.gmailRefreshToken,
-        tokenExpiry: user.gmailTokenExpiry,
-        lastSync: user.lastSync,
-        syncStatus: 'idle',
-      }).returning();
+      // This script writes to gmail_accounts directly rather than through
+      // storage.ts, so it has to encrypt the tokens itself. Without this it
+      // would insert plaintext, which still works -- decryptToken passes
+      // unversioned values through -- but silently undoes encryption at rest
+      // for every row it touches.
+      const [newAccount] = await db.insert(gmailAccounts).values(
+        encryptFields({
+          userId: user.id,
+          gmailEmail: user.gmailEmail,
+          accessToken: user.gmailAccessToken,
+          refreshToken: user.gmailRefreshToken,
+          tokenExpiry: user.gmailTokenExpiry,
+          lastSync: user.lastSync,
+          syncStatus: 'idle',
+        }, ["accessToken", "refreshToken"])
+      ).returning();
 
       console.log(`  📝 Created account ID: ${newAccount.id}`);
 

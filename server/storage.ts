@@ -7,6 +7,16 @@ import { convertCurrency } from "./utils/currencyConverter";
 import { advanceOnePeriod, ensureFutureBillingDate } from "./utils/billingDate";
 import { findDuplicateHint } from "./utils/duplicateHints";
 import { invoiceExtractor } from "./services/invoiceExtractor";
+import { encryptFields, decryptFields } from "./lib/tokenCrypto";
+
+/**
+ * Token columns encrypted at rest. Every read and write of these tables goes
+ * through this file, which is why the wrapping lives here: the eleven other
+ * modules that handle tokens keep seeing plaintext and needed no changes.
+ */
+const ACCOUNT_TOKEN_FIELDS = ["accessToken", "refreshToken"] as const;
+const USER_TOKEN_FIELDS = ["gmailAccessToken", "gmailRefreshToken"] as const;
+
 
 export interface IStorage {
   // User methods
@@ -105,7 +115,7 @@ export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
     try {
       const result = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], USER_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting user:', error);
       throw error;
@@ -115,7 +125,7 @@ export class DatabaseStorage implements IStorage {
   async getUserByUsername(username: string): Promise<User | undefined> {
     try {
       const result = await this.db.select().from(users).where(eq(users.email, username)).limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], USER_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting user by username:', error);
       throw error;
@@ -125,7 +135,7 @@ export class DatabaseStorage implements IStorage {
   async getUserByEmail(email: string): Promise<User | undefined> {
     try {
       const result = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], USER_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting user by email:', error);
       throw error;
@@ -203,8 +213,10 @@ export class DatabaseStorage implements IStorage {
           .set(updateData)
           .where(eq(users.id, userData.id))
           .returning();
-        
-        return result[0];
+
+        // This branch returns an existing row, so its token columns may hold
+        // ciphertext even though this method never writes them.
+        return decryptFields(result[0], USER_TOKEN_FIELDS);
       } else {
         // Create new user with specified ID
         const insertData = {
@@ -228,11 +240,11 @@ export class DatabaseStorage implements IStorage {
     try {
       const result = await this.db
         .update(users)
-        .set({ ...updates, updatedAt: new Date() })
+        .set({ ...encryptFields(updates, USER_TOKEN_FIELDS), updatedAt: new Date() })
         .where(eq(users.id, id))
         .returning();
-      
-      return result[0] || undefined;
+
+      return result[0] ? decryptFields(result[0], USER_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error updating user:', error);
       throw error;
@@ -1467,7 +1479,7 @@ export class DatabaseStorage implements IStorage {
         .from(gmailAccounts)
         .where(eq(gmailAccounts.userId, userId))
         .orderBy(desc(gmailAccounts.createdAt));
-      return result;
+      return result.map((row: any) => decryptFields(row, ACCOUNT_TOKEN_FIELDS));
     } catch (error) {
       console.error('Error getting Gmail accounts:', error);
       throw error;
@@ -1481,7 +1493,7 @@ export class DatabaseStorage implements IStorage {
         .from(gmailAccounts)
         .where(eq(gmailAccounts.id, id))
         .limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], ACCOUNT_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting Gmail account:', error);
       throw error;
@@ -1498,7 +1510,7 @@ export class DatabaseStorage implements IStorage {
           eq(gmailAccounts.gmailEmail, gmailEmail)
         ))
         .limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], ACCOUNT_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting Gmail account by email:', error);
       throw error;
@@ -1507,8 +1519,11 @@ export class DatabaseStorage implements IStorage {
 
   async createGmailAccount(account: InsertGmailAccount): Promise<GmailAccount> {
     try {
-      const result = await this.db.insert(gmailAccounts).values(account).returning();
-      return result[0];
+      const result = await this.db
+        .insert(gmailAccounts)
+        .values(encryptFields(account, ACCOUNT_TOKEN_FIELDS))
+        .returning();
+      return decryptFields(result[0], ACCOUNT_TOKEN_FIELDS);
     } catch (error) {
       console.error('Error creating Gmail account:', error);
       throw error;
@@ -1519,10 +1534,10 @@ export class DatabaseStorage implements IStorage {
     try {
       const result = await this.db
         .update(gmailAccounts)
-        .set(updates)
+        .set(encryptFields(updates, ACCOUNT_TOKEN_FIELDS))
         .where(eq(gmailAccounts.id, id))
         .returning();
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], ACCOUNT_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error updating Gmail account:', error);
       throw error;
@@ -1547,7 +1562,7 @@ export class DatabaseStorage implements IStorage {
         .from(outlookAccounts)
         .where(eq(outlookAccounts.userId, userId))
         .orderBy(desc(outlookAccounts.createdAt));
-      return result;
+      return result.map((row: any) => decryptFields(row, ACCOUNT_TOKEN_FIELDS));
     } catch (error) {
       console.error('Error getting Outlook accounts:', error);
       throw error;
@@ -1561,7 +1576,7 @@ export class DatabaseStorage implements IStorage {
         .from(outlookAccounts)
         .where(eq(outlookAccounts.id, id))
         .limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], ACCOUNT_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting Outlook account:', error);
       throw error;
@@ -1578,7 +1593,7 @@ export class DatabaseStorage implements IStorage {
           eq(outlookAccounts.outlookEmail, outlookEmail)
         ))
         .limit(1);
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], ACCOUNT_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error getting Outlook account by email:', error);
       throw error;
@@ -1587,8 +1602,11 @@ export class DatabaseStorage implements IStorage {
 
   async createOutlookAccount(account: InsertOutlookAccount): Promise<OutlookAccount> {
     try {
-      const result = await this.db.insert(outlookAccounts).values(account).returning();
-      return result[0];
+      const result = await this.db
+        .insert(outlookAccounts)
+        .values(encryptFields(account, ACCOUNT_TOKEN_FIELDS))
+        .returning();
+      return decryptFields(result[0], ACCOUNT_TOKEN_FIELDS);
     } catch (error) {
       console.error('Error creating Outlook account:', error);
       throw error;
@@ -1599,10 +1617,10 @@ export class DatabaseStorage implements IStorage {
     try {
       const result = await this.db
         .update(outlookAccounts)
-        .set(updates)
+        .set(encryptFields(updates, ACCOUNT_TOKEN_FIELDS))
         .where(eq(outlookAccounts.id, id))
         .returning();
-      return result[0] || undefined;
+      return result[0] ? decryptFields(result[0], ACCOUNT_TOKEN_FIELDS) : undefined;
     } catch (error) {
       console.error('Error updating Outlook account:', error);
       throw error;
