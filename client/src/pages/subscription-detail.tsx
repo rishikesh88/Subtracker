@@ -471,7 +471,7 @@ export default function SubscriptionDetail() {
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>Invoices</CardTitle>
-                <CardDescription>Upload and manage invoice files</CardDescription>
+                <CardDescription>Receipts found in your email, plus anything you upload</CardDescription>
               </div>
               <ObjectUploader
                 maxNumberOfFiles={10}
@@ -489,8 +489,8 @@ export default function SubscriptionDetail() {
             {invoices.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
                 <FileText className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>No invoices uploaded yet</p>
-                <p className="text-sm">Upload PDFs, images, or documents to track your invoices</p>
+                <p>No invoices yet</p>
+                <p className="text-sm">Receipts found in your email appear here after a sync. You can also upload PDFs, images or documents yourself.</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -505,19 +505,24 @@ export default function SubscriptionDetail() {
                       <div>
                         <p className="text-sm font-medium">{invoice.fileName}</p>
                         <p className="text-xs text-muted-foreground">
-                          {formatFileSize(invoice.fileSize)} • {invoice.uploadedAt ? format(new Date(invoice.uploadedAt), 'PP') : 'Unknown date'}
+                          {invoice.fileUrl ? formatFileSize(invoice.fileSize) : 'From the email — no file attached'} • {invoice.uploadedAt ? format(new Date(invoice.uploadedAt), 'PP') : 'Unknown date'}
                         </p>
                       </div>
                     </div>
                     <div className="flex space-x-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => window.open(invoice.fileUrl, '_blank')}
-                        data-testid={`download-invoice-${invoice.id}`}
-                      >
-                        <Download className="h-4 w-4" />
-                      </Button>
+                      {/* Only shown when there is actually a file. Some
+                          merchants put the receipt in the email body and attach
+                          nothing, and those rows have no URL to open. */}
+                      {invoice.fileUrl && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => window.open(invoice.fileUrl, '_blank')}
+                          data-testid={`download-invoice-${invoice.id}`}
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
