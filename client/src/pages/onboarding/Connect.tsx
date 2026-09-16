@@ -192,9 +192,10 @@ export default function Connect() {
                 <div>
                   <h4 className="font-medium">Disconnect anytime</h4>
                   <p className="text-sm text-muted-foreground">
-                    Disconnecting deletes the tokens Verloq holds, so it stops reading your mailbox.
-                    Subscriptions it already found stay in your account until you clear them, and you
-                    can remove the permission itself at{" "}
+                    Disconnecting deletes the tokens Verloq holds and asks Google to revoke the
+                    permission, so it stops reading your mailbox and drops off your account
+                    permissions. Subscriptions it already found stay until you clear them. You can
+                    also remove the permission yourself at{" "}
                     <a
                       href="https://myaccount.google.com/permissions"
                       target="_blank"

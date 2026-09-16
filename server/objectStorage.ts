@@ -167,6 +167,41 @@ export class ObjectStorageService {
   }
 
   /**
+   * Deletes an object addressed the way invoices.fileUrl stores it.
+   *
+   * Uploads return a normalized "/objects/<id>/<name>" path and that is what
+   * gets written to the database, but deleteObject takes a full bucket path.
+   * Passing the normalized form straight to deleteObject parses to the wrong
+   * bucket and logs "Object not found", so the file would quietly survive a
+   * deletion that reported success. This reverses the normalization the same
+   * way getObjectEntityFile does.
+   *
+   * Returns false when there was nothing to delete, which is not an error:
+   * a retried deletion should be able to run cleanly.
+   */
+  async deleteObjectEntity(objectPath: string): Promise<boolean> {
+    if (!objectPath.startsWith("/objects/")) {
+      // Older rows may hold a full path already; delete it as given.
+      await this.deleteObject(objectPath);
+      return true;
+    }
+
+    const entityId = objectPath.slice("/objects/".length);
+    let entityDir = this.getPrivateObjectDir();
+    if (!entityDir.endsWith("/")) {
+      entityDir = `${entityDir}/`;
+    }
+
+    const { bucketName, objectName } = parseObjectPath(`${entityDir}${entityId}`);
+    const file = objectStorageClient.bucket(bucketName).file(objectName);
+    const [exists] = await file.exists();
+    if (!exists) return false;
+
+    await file.delete();
+    return true;
+  }
+
+  /**
    * Delete an object from object storage
    * @param fullPath - Full path like "PRIVATE_OBJECT_DIR/uploads/filename"
    */

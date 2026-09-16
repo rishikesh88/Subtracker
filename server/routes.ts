@@ -22,35 +22,8 @@ import { setupGoogleAuthStrategy } from "./auth/googleAuthStrategy";
 import { MicrosoftAuthService } from "./auth/microsoftAuthService";
 import { sendVerificationEmail, generateVerificationCode } from "./services/emailVerificationService";
 import rateLimit from "express-rate-limit";
+import { revokeGoogleToken } from "./lib/oauthRevoke";
 
-/**
- * Revokes a Google OAuth token so the grant no longer shows up under the
- * user's Google Account permissions, not just in Verloq's own storage.
- *
- * Google returns 400 for a token that is already expired or already revoked
- * -- a normal outcome, not a failure worth surfacing -- so this always
- * resolves to a boolean rather than throwing, and callers should proceed
- * with local cleanup regardless of the result.
- */
-async function revokeGoogleToken(token: string): Promise<boolean> {
-  try {
-    const response = await fetch("https://oauth2.googleapis.com/revoke", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `token=${encodeURIComponent(token)}`,
-    });
-
-    if (!response.ok) {
-      console.warn(`Google token revoke returned ${response.status} (likely already expired/revoked)`);
-      return false;
-    }
-
-    return true;
-  } catch (error) {
-    console.error("Google token revoke request failed:", error);
-    return false;
-  }
-}
 
 // Helper function to get userId from normalized session structure
 function getUserId(req: any): string {
