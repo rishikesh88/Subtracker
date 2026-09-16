@@ -75,11 +75,20 @@ async function main() {
 
   const hash = await bcrypt.hash(password, ROUNDS);
 
-  console.log("\nDone. In Railway, set these two variables:\n");
+  console.log("\n" + "=".repeat(72));
+  console.log("COPY THE LINE BELOW into Railway as ADMIN_PASSWORD_HASH.");
+  console.log("Do NOT put your password there. The password stays in your head.");
+  console.log("=".repeat(72) + "\n");
+  console.log(hash + "\n");
+  console.log("=".repeat(72) + "\n");
+  console.log("Two variables in total:\n");
   console.log(`  ADMIN_EMAIL          ${process.env.ADMIN_EMAIL ?? "your@email.address"}`);
-  console.log(`  ADMIN_PASSWORD_HASH  ${hash}\n`);
-  console.log("The hash is safe to paste into Railway. It cannot be turned back");
-  console.log("into your password. Redeploy, then sign in at /admin.\n");
+  console.log("  ADMIN_PASSWORD_HASH  the line above, all 60 characters, starting $2b$\n");
+  console.log("The hash is safe to paste and safe in a screenshot -- it cannot be");
+  console.log("turned back into your password. Redeploy, then sign in at /admin.\n");
+  console.log("If the hash is wrong the console will not start, and the server log");
+  console.log("will say so in a line beginning [Admin]. It will not show you a");
+  console.log("sign-in form that quietly refuses every password.\n");
   console.log("Changing the hash later signs the console out everywhere at once.\n");
 }
 

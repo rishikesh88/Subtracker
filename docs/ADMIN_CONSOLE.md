@@ -28,6 +28,13 @@ It asks twice, with your typing hidden, and prints a hash. **The password
 itself is never shown, saved or sent anywhere** — only you ever know it. If you
 would rather not invent one, the script offers a random suggestion.
 
+**The hash is what goes into Railway, not the password.** They look nothing
+alike: a hash is exactly 60 characters and starts with `$2b$`. Putting the
+password in `ADMIN_PASSWORD_HASH` is the one mistake worth naming, because it
+used to produce a sign-in page that refused the correct password forever. The
+console now refuses to start on a value that is not a bcrypt hash, and says so
+in the server log on a line beginning `[Admin]`.
+
 At least 12 characters. A passphrase of a few unrelated words is easier to
 remember and harder to guess than a short mangled word.
 
@@ -42,6 +49,10 @@ The hash is safe to paste and safe in a screenshot. It cannot be turned back
 into your password.
 
 Redeploy, then open `https://app.verloq.co/admin`.
+
+**If `/admin` shows the app instead of a sign-in page**, the console did not
+start. Open Railway's logs and search for `[Admin]` — one line says exactly
+which of the three things is wrong.
 
 ### Changing the password later
 

@@ -32,17 +32,62 @@ function adminEmail(): string | undefined {
   return process.env.ADMIN_EMAIL?.trim().toLowerCase() || undefined;
 }
 
+/**
+ * Every bcrypt hash: a version tag, a two-digit cost, then exactly 53
+ * characters of salt and digest. Nothing else is comparable, and in
+ * particular a plain password is not -- bcrypt.compare against one returns
+ * false for every input, so the console would show a sign-in form that
+ * silently refuses the right password forever.
+ */
+const BCRYPT_HASH = /^\$2[aby]?\$\d{2}\$[./A-Za-z0-9]{53}$/;
+
 function adminPasswordHash(): string | undefined {
-  return process.env.ADMIN_PASSWORD_HASH?.trim() || undefined;
+  const raw = process.env.ADMIN_PASSWORD_HASH?.trim();
+  if (!raw) return undefined;
+  // Some dashboards keep the quotes when a value is pasted with them.
+  const unquoted = raw.replace(/^(["'])([\s\S]*)\1$/, "$2").trim();
+  return unquoted || undefined;
 }
 
 /**
- * True only when both credentials are present. When false the console is not
- * mounted at all and /admin 404s exactly like any unknown path, so a deploy
- * that has not been configured does not advertise that a console exists.
+ * Why the console is not available, or null when it is.
+ *
+ * Separated from adminConfigured so registerAdminRoutes can say which of the
+ * three things is wrong. A misconfigured value used to fail the same way as an
+ * unset one -- an unexplained sign-in that never works -- and that has now
+ * cost real time twice on this project, once here and once on
+ * TOKEN_ENCRYPTION_KEY.
+ */
+export function adminConfigProblem(): string | null {
+  const email = adminEmail();
+  const hash = adminPasswordHash();
+
+  if (!email && !hash) {
+    return "ADMIN_EMAIL and ADMIN_PASSWORD_HASH are not set.";
+  }
+  if (!email) return "ADMIN_PASSWORD_HASH is set but ADMIN_EMAIL is not.";
+  if (!hash) return "ADMIN_EMAIL is set but ADMIN_PASSWORD_HASH is not.";
+
+  if (!BCRYPT_HASH.test(hash)) {
+    return (
+      "ADMIN_PASSWORD_HASH is not a bcrypt hash, so no password could ever be " +
+      "accepted. It must be the OUTPUT of `npm run admin:password` -- a " +
+      "60-character string starting with $2b$ -- not the password itself. " +
+      `Got ${hash.length} character(s) starting "${hash.slice(0, 4)}".`
+    );
+  }
+
+  return null;
+}
+
+/**
+ * True only when both credentials are present and the hash is usable. When
+ * false the console is not mounted at all and /admin falls through like any
+ * unknown path, so a deploy that has not been configured does not advertise
+ * that a console exists.
  */
 export function adminConfigured(): boolean {
-  return Boolean(adminEmail() && adminPasswordHash());
+  return adminConfigProblem() === null;
 }
 
 /**
