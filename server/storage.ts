@@ -1649,14 +1649,18 @@ export class DatabaseStorage implements IStorage {
    * database says gone but the invoices are still in the bucket, is worse than
    * one that failed cleanly and can be retried.
    */
-  async deleteUserAccount(userId: string): Promise<{
+  /**
+   * Removes everything a user owns, but not the user row or their sessions.
+   *
+   * Shared by deleteUserData (which keeps the account) and deleteUserAccount
+   * (which does not), so the two can never drift apart on which tables count
+   * as "this person's data".
+   */
+  private async purgeUserOwnedRows(userId: string): Promise<{
     filesDeleted: number;
     grantsRevoked: number;
     rowsDeleted: Record<string, number>;
   }> {
-    const user = await this.getUser(userId);
-    if (!user) throw new Error(`No user with id ${userId}`);
-
     // --- 1. Object storage, before anything in the database changes --------
     const userInvoices = await this.db
       .select({ fileUrl: invoices.fileUrl })
@@ -1692,7 +1696,7 @@ export class DatabaseStorage implements IStorage {
       if (token && (await revokeGoogleToken(token))) grantsRevoked++;
     }
 
-    // --- 3. Rows, child tables before the user itself ----------------------
+    // --- 3. Rows, child tables first ---------------------------------------
     const rowsDeleted: Record<string, number> = {};
     const tables: Array<[string, any, any]> = [
       ["invoices", invoices, invoices.userId],
@@ -1709,6 +1713,61 @@ export class DatabaseStorage implements IStorage {
       const result = await this.db.delete(table).where(eq(column, userId)).returning();
       rowsDeleted[name] = result.length;
     }
+
+    return { filesDeleted, grantsRevoked, rowsDeleted };
+  }
+
+  /**
+   * Clears a user's data but leaves the account able to sign in.
+   *
+   * Everything they own goes: invoices and their stored files, detected
+   * subscriptions, cached emails, sync history, and the mailbox connections
+   * themselves -- with the Google grant revoked, not merely forgotten. What
+   * survives is the user row, their password and their sessions, so they stay
+   * signed in and can reconnect a mailbox and start again from empty.
+   *
+   * Their onboarding status is deliberately left alone. Someone who had
+   * finished onboarding lands on an empty dashboard rather than being pushed
+   * back through the flow, which is the right place to reconnect from.
+   */
+  async deleteUserData(userId: string): Promise<{
+    filesDeleted: number;
+    grantsRevoked: number;
+    rowsDeleted: Record<string, number>;
+  }> {
+    const user = await this.getUser(userId);
+    if (!user) throw new Error(`No user with id ${userId}`);
+    return this.purgeUserOwnedRows(userId);
+  }
+
+  /**
+   * Deletes a user and everything belonging to them.
+   *
+   * There are no foreign keys in this schema, so nothing cascades: every table
+   * has to be named explicitly. Miss one and rows holding that person's data
+   * outlive the deletion, which would make privacy.html section 7 false. The
+   * tables here were taken from every pgTable in shared/schema.ts carrying a
+   * userId column, plus sessions, which stores the id inside its JSON payload.
+   *
+   * Order matters in two places. Invoice file paths are read before the
+   * invoice rows go, or the pointers to the stored PDFs would be lost while
+   * the files themselves remained. And the provider grants are revoked before
+   * the tokens are deleted, for the same reason.
+   *
+   * Object storage is deleted first and the whole operation aborts if any file
+   * fails, before a single row is touched. A half-deleted account, where the
+   * database says gone but the invoices are still in the bucket, is worse than
+   * one that failed cleanly and can be retried.
+   */
+  async deleteUserAccount(userId: string): Promise<{
+    filesDeleted: number;
+    grantsRevoked: number;
+    rowsDeleted: Record<string, number>;
+  }> {
+    const user = await this.getUser(userId);
+    if (!user) throw new Error(`No user with id ${userId}`);
+
+    const { filesDeleted, grantsRevoked, rowsDeleted } = await this.purgeUserOwnedRows(userId);
 
     // verification_codes is declared inside its own methods rather than at the
     // top of this file, so it is imported the same way here.
@@ -1738,6 +1797,98 @@ export class DatabaseStorage implements IStorage {
     rowsDeleted["users"] = deletedUser.length;
 
     return { filesDeleted, grantsRevoked, rowsDeleted };
+  }
+
+  // ---------------------------------------------------------------------
+  // Admin console reads
+  //
+  // These exist to answer "who has signed up and is the app working for
+  // them", so they return counts and timestamps only. No mailbox token is
+  // selected by any of them, deliberately: the console never needs one, and a
+  // read path that cannot fetch a token cannot leak one. That is why the
+  // mailbox list below picks its columns by hand instead of calling
+  // getGmailAccounts, which decrypts.
+  // ---------------------------------------------------------------------
+
+  async listUsersForAdmin(): Promise<any[]> {
+    const result = await this.db.execute(sql`
+      SELECT
+        u.id,
+        u.email,
+        u.first_name,
+        u.last_name,
+        u.created_at,
+        u.email_verified,
+        u.onboarding_status,
+        u.organization_name,
+        u.preferred_currency,
+        (SELECT count(*) FROM gmail_accounts g WHERE g.user_id = u.id)          AS gmail_accounts,
+        (SELECT count(*) FROM outlook_accounts o WHERE o.user_id = u.id)        AS outlook_accounts,
+        (SELECT count(*) FROM gmail_accounts g
+           WHERE g.user_id = u.id AND g.sync_status = 'error')                  AS mailboxes_in_error,
+        (SELECT max(g.last_sync) FROM gmail_accounts g WHERE g.user_id = u.id)  AS last_mailbox_sync,
+        (SELECT count(*) FROM subscriptions s
+           WHERE s.user_id = u.id AND s.status = 'active')                      AS subscriptions,
+        (SELECT count(*) FROM subscription_suggestions sg
+           WHERE sg.user_id = u.id AND sg.status = 'pending')                   AS pending_suggestions,
+        (SELECT count(*) FROM invoices i WHERE i.user_id = u.id)                AS invoices,
+        (SELECT count(*) FROM invoices i
+           WHERE i.user_id = u.id AND i.file_url <> '')                         AS invoices_with_file,
+        (SELECT count(*) FROM emails e WHERE e.user_id = u.id)                  AS emails,
+        j.status      AS last_sync_status,
+        j.started_at  AS last_sync_started,
+        j.finished_at AS last_sync_finished,
+        j.error       AS last_sync_error
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT status, started_at, finished_at, error
+        FROM sync_jobs
+        WHERE user_id = u.id
+        ORDER BY started_at DESC
+        LIMIT 1
+      ) j ON true
+      ORDER BY u.created_at DESC NULLS LAST
+    `);
+    return ((result as any)?.rows ?? []) as any[];
+  }
+
+  async getUserDetailForAdmin(userId: string): Promise<any | undefined> {
+    const rows = await this.listUsersForAdmin();
+    const summary = rows.find((row: any) => row.id === userId);
+    if (!summary) return undefined;
+
+    const mailboxes = await this.db.execute(sql`
+      SELECT 'gmail' AS provider, id, gmail_email AS address, last_sync, sync_status, sync_error, created_at
+      FROM gmail_accounts WHERE user_id = ${userId}
+      UNION ALL
+      SELECT 'outlook' AS provider, id, outlook_email AS address, last_sync, sync_status, sync_error, created_at
+      FROM outlook_accounts WHERE user_id = ${userId}
+      ORDER BY created_at
+    `);
+
+    const subs = await this.db.execute(sql`
+      SELECT s.id, s.service_name, s.amount, s.currency, s.frequency, s.status,
+             s.next_billing_date, s.last_email_date,
+             (SELECT count(*) FROM invoices i WHERE i.subscription_id = s.id)                    AS invoices,
+             (SELECT count(*) FROM invoices i WHERE i.subscription_id = s.id AND i.file_url = '') AS invoices_without_file
+      FROM subscriptions s
+      WHERE s.user_id = ${userId}
+      ORDER BY s.service_name
+    `);
+
+    const recentSyncs = await this.db.execute(sql`
+      SELECT status, trigger_source, started_at, finished_at, error,
+             emails_processed, suggestions_generated
+      FROM sync_jobs WHERE user_id = ${userId}
+      ORDER BY started_at DESC LIMIT 10
+    `);
+
+    return {
+      ...summary,
+      mailboxes: (mailboxes as any)?.rows ?? [],
+      subscriptions_detail: (subs as any)?.rows ?? [],
+      recent_syncs: (recentSyncs as any)?.rows ?? [],
+    };
   }
 
   async deleteGmailAccount(id: string): Promise<boolean> {
