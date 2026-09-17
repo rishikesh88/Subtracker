@@ -33,6 +33,42 @@ import {
 import { loginPage, consolePage } from "./adminConsoleHtml";
 
 /**
+ * Sends an admin page, uncacheable.
+ *
+ * Two reasons it must never be stored. It is a signed-in page carrying a CSRF
+ * token and whoever is logged in, so it has no business in a shared cache or
+ * restored from the back-forward cache after signing out. And without any
+ * cache header at all a browser is free to reuse it, which is how a deploy can
+ * ship and the operator still be looking at the previous page.
+ */
+/**
+ * The commit the running container was built from.
+ *
+ * Shown in the console's top bar because "has my change actually deployed?"
+ * cost an afternoon: the code was merged, the page looked unchanged, and there
+ * was no way to tell a stale browser from a deploy that had not happened.
+ * Railway injects this; anywhere else it reads "unknown", which is itself the
+ * honest answer.
+ */
+function deployedVersion(): string {
+  const sha =
+    process.env.RAILWAY_GIT_COMMIT_SHA ||
+    process.env.SOURCE_COMMIT ||
+    process.env.GIT_COMMIT ||
+    "";
+  return sha ? sha.slice(0, 7) : "unknown";
+}
+
+function sendAdminPage(res: any, html: string, status = 200) {
+  res
+    .status(status)
+    .set("Cache-Control", "no-store, must-revalidate")
+    .set("Pragma", "no-cache")
+    .type("html")
+    .send(html);
+}
+
+/**
  * Deliberately tighter than the app's own login limiter. There is exactly one
  * person who should ever reach this form, so five tries in fifteen minutes is
  * generous for them and useless to anyone else.
@@ -43,10 +79,7 @@ const adminLoginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, res) => {
-    res
-      .status(429)
-      .type("html")
-      .send(loginPage({ error: "Too many attempts. Try again in fifteen minutes." }));
+    sendAdminPage(res, loginPage({ error: "Too many attempts. Try again in fifteen minutes." }), 429);
   },
 });
 
@@ -181,12 +214,14 @@ export function registerAdminRoutes(app: Express): void {
 
   app.get("/admin", (req, res) => {
     if (!isAdminSignedIn(req)) {
-      return res.type("html").send(loginPage({}));
+      return sendAdminPage(res, loginPage({}));
     }
-    res.type("html").send(
+    sendAdminPage(
+      res,
       consolePage({
         csrfToken: csrfTokenFor(req),
         adminEmail: process.env.ADMIN_EMAIL!,
+        version: deployedVersion(),
       })
     );
   });
@@ -197,10 +232,7 @@ export function registerAdminRoutes(app: Express): void {
       // One message for both a wrong address and a wrong password: saying
       // which was wrong confirms the address to whoever is guessing.
       console.warn(`[Admin] Failed sign-in attempt from ${req.ip}`);
-      return res
-        .status(401)
-        .type("html")
-        .send(loginPage({ error: "That email and password did not match." }));
+      return sendAdminPage(res, loginPage({ error: "That email and password did not match." }), 401);
     }
     issueAdminCookie(res);
     res.redirect("/admin");

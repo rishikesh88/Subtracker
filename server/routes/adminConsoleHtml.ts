@@ -211,6 +211,12 @@ const baseStyles = `
     font-size: 0.8125rem; color: hsl(var(--muted-foreground));
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
+  /* Small and out of the way, but always there: it answers "is what I am
+     looking at the version I just deployed?" without opening devtools. */
+  .topbar-build {
+    font-size: 0.75rem; color: hsl(var(--muted-foreground));
+    font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
   main { max-width: 72rem; margin: 0 auto; padding: 1.5rem; }
   .stack { display: flex; flex-direction: column; gap: 1.5rem; }
   .section { display: flex; flex-direction: column; gap: 0.75rem; }
@@ -287,6 +293,7 @@ const baseStyles = `
   @media (max-width: 640px) {
     .topbar { padding: 0 1rem; }
     .topbar-email { display: none; }
+    /* The build marker stays on a phone; the email is the one that goes. */
     main { padding: 1rem; }
     /*
       Tables scroll sideways at phone width rather than being rebuilt as cards.
@@ -352,9 +359,14 @@ ${head("Verloq Admin")}
 </html>`;
 }
 
-export function consolePage(opts: { csrfToken: string; adminEmail: string }): string {
+export function consolePage(opts: {
+  csrfToken: string;
+  adminEmail: string;
+  version?: string;
+}): string {
   const csrfToken = escapeHtml(opts.csrfToken);
   const adminEmail = escapeHtml(opts.adminEmail);
+  const version = escapeHtml(opts.version || "unknown");
 
   return `<!doctype html>
 <html lang="en">
@@ -365,6 +377,7 @@ ${head("Verloq Admin")}
   <header class="topbar">
     <h1>Verloq Admin</h1>
     <div class="topbar-right">
+      <span class="topbar-build" title="The commit this server was built from">build ${version}</span>
       <span class="topbar-email">${adminEmail}</span>
       <form method="post" action="/admin/logout">
         <button class="btn btn-outline btn-sm" type="submit">Sign out</button>
