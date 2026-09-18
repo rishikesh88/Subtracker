@@ -1,8 +1,27 @@
+/**
+ * The app shell's navigation rail.
+ *
+ * 212px expanded, 56px collapsed, per the design system. The collapse state is
+ * remembered per browser -- it is a per-viewer convenience, not account data,
+ * so localStorage is the right place for it and a failure to read it just
+ * means the rail opens expanded.
+ *
+ * Violet appears here exactly twice: the brand tile, and the icon on the
+ * active row. That is the whole of its job in navigation.
+ */
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { BarChart3, List, Mail, Settings, RefreshCw, User, LogOut, ClipboardList } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import {
+  LayoutGrid,
+  CreditCard,
+  Inbox,
+  Settings,
+  ChevronLeft,
+  ChevronRight,
+  LogOut,
+  AlertTriangle,
+} from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,170 +40,211 @@ interface SidebarProps {
   isGmailConnected?: boolean;
 }
 
+const COLLAPSE_KEY = "verloq.nav.collapsed";
+
+/** Lucide, 15px inside rows, 2px stroke -- the design's icon rule. */
+const NAVIGATION = [
+  { name: "Dashboard", href: "/", icon: LayoutGrid },
+  { name: "Subscriptions", href: "/subscriptions", icon: CreditCard },
+  { name: "Review inbox", href: "/review", icon: Inbox },
+  { name: "Settings", href: "/settings", icon: Settings },
+] as const;
+
 export function Sidebar({ user, isGmailConnected }: SidebarProps) {
   const [location] = useLocation();
   const { toast } = useToast();
-  
-  // Fetch suggestion count for the Review Inbox badge
+
+  const [collapsed, setCollapsed] = useState(false);
+
+  // Read after mount rather than during render: storage can throw in a private
+  // window, and the rail must still draw.
+  useEffect(() => {
+    try {
+      setCollapsed(window.localStorage.getItem(COLLAPSE_KEY) === "1");
+    } catch {
+      /* no stored preference is the same as not collapsed */
+    }
+  }, []);
+
+  function toggle() {
+    setCollapsed((was) => {
+      const next = !was;
+      try {
+        window.localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
+      } catch {
+        /* the rail still collapses; it just will not be remembered */
+      }
+      return next;
+    });
+  }
+
   const { data: suggestionsData } = useQuery<{ suggestions: any[]; total: number }>({
     queryKey: [`/api/suggestions?userId=${user?.id}`],
     enabled: !!user?.id,
   });
   const pendingSuggestionsCount = suggestionsData?.total ?? 0;
-  
+
   const handleLogout = () => {
-    // Clear all cached data before logout for seamless account switching
     queryClient.clear();
-    
-    // Show signing out feedback
     toast({
-      title: "Signing out...",
+      title: "Signing out…",
       description: "You'll be redirected to sign in with a different account.",
     });
-    
-    // Redirect to logout endpoint
     setTimeout(() => {
-      window.location.href = '/api/logout';
+      window.location.href = "/api/logout";
     }, 500);
   };
 
-  const navigation = [
-    { name: "Dashboard", href: "/", icon: BarChart3 },
-    { name: "Subscriptions", href: "/subscriptions", icon: List },
-    { name: "Review Inbox", href: "/review", icon: ClipboardList },
-    { name: "Settings", href: "/settings", icon: Settings },
-  ];
+  const displayName =
+    user?.firstName && user?.lastName
+      ? `${user.firstName} ${user.lastName}`
+      : user?.email || "Your account";
+
+  const initials = (user?.firstName?.[0] ?? user?.email?.[0] ?? "?").toUpperCase();
 
   return (
-    <div className="w-64 flex flex-col h-screen bg-card border-r border-border overflow-hidden" data-testid="sidebar">
-      {/* Logo and Brand */}
-      <div className="flex-shrink-0 p-6 border-b border-border">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <RefreshCw className="text-primary-foreground w-4 h-4" />
-          </div>
-          <h1 className="text-xl text-foreground font-black">Merloq</h1>
-        </div>
-      </div>
-      {/* Navigation */}
-      <nav className="flex-1 p-4 overflow-y-auto min-h-0">
-        <ul className="space-y-2">
-          {navigation.map((item) => {
-            const isActive = location === item.href;
-            const showBadge = item.name === "Review Inbox";
-            return (
-              <li key={item.name}>
-                <Link 
-                  href={item.href}
-                  className={cn(
-                    "flex items-center justify-between px-3 py-2 text-sm font-medium rounded-md transition-colors",
-                    isActive
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                  )}
-                  data-testid={`nav-${item.name.toLowerCase()}`}
-                >
-                  <div className="flex items-center space-x-3">
-                    <item.icon className="w-4 h-4" />
-                    <span>{item.name}</span>
-                  </div>
-                  {showBadge && (
-                    <Badge 
-                      variant={pendingSuggestionsCount > 0 ? "default" : "secondary"} 
-                      className="ml-auto text-xs px-2 py-0.5"
-                    >
-                      {pendingSuggestionsCount}
-                    </Badge>
-                  )}
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-      {/* User Profile & Gmail Status (Fixed Footer) */}
-      <div className="flex-shrink-0 p-4 border-t border-border bg-card">
-        <div className="flex items-center space-x-3 mb-4">
-          <Avatar className="h-10 w-10">
-            <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
-            <AvatarFallback className="bg-primary/10">
-              <User className="h-4 w-4" />
-            </AvatarFallback>
-          </Avatar>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground truncate" data-testid="user-name">
-              {user?.firstName && user?.lastName 
-                ? `${user.firstName} ${user.lastName}` 
-                : user?.email || 'User'
-              }
-            </p>
-            <p className="text-xs text-muted-foreground truncate" data-testid="user-email">
-              {user?.email}
-            </p>
-          </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-8 w-8 p-0" data-testid="user-menu">
-                <Settings className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem asChild>
-                <Link href="/settings" className="flex items-center cursor-pointer">
-                  <Settings className="mr-2 h-4 w-4" />
-                  Settings
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem 
-                onClick={handleLogout}
-                className="flex items-center cursor-pointer text-red-600 focus:text-red-600" 
-                data-testid="logout-button"
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign Out
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-        {/* Gmail Connection Status */}
-        <div
+    <div
+      className={cn(
+        "flex flex-col h-screen flex-none overflow-hidden border-r",
+        collapsed ? "w-14 px-2" : "w-[212px] px-3",
+        "bg-rail border-line py-3.5 gap-0.5 transition-[width] duration-150"
+      )}
+      data-testid="sidebar"
+    >
+      {/* --- Brand ------------------------------------------------------- */}
+      <div className={cn("flex items-center gap-2.5 pb-4", collapsed ? "flex-col px-0" : "px-1")}>
+        <span
+          className="w-[22px] h-[22px] flex-none rounded-logo bg-accent"
+          aria-hidden="true"
+        />
+        {!collapsed && (
+          <span className="font-serif text-[21px] leading-none tracking-[-0.02em] text-ink">
+            Verloq
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={toggle}
+          aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
           className={cn(
-            "flex items-center space-x-3 p-3 rounded-lg border",
-            isGmailConnected
-              ? "bg-green-50 border-green-200 dark:bg-green-950 dark:border-green-800"
-              : "bg-red-50 border-red-200 dark:bg-red-950 dark:border-red-800"
+            "w-[22px] h-[22px] flex-none inline-flex items-center justify-center",
+            "rounded-md border border-line bg-surface text-muted-foreground",
+            "hover:bg-line-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            collapsed ? "mt-2.5" : "ml-auto"
           )}
-          data-testid="gmail-status"
+          data-testid="nav-toggle"
         >
-          <div
-            className={cn(
-              "w-2 h-2 rounded-full",
-              isGmailConnected ? "bg-green-500" : "bg-red-500"
-            )}
-          />
-          <div className="flex-1">
-            <p
+          {collapsed ? <ChevronRight size={14} strokeWidth={2} /> : <ChevronLeft size={14} strokeWidth={2} />}
+        </button>
+      </div>
+
+      {/* --- Navigation -------------------------------------------------- */}
+      <nav className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-0.5">
+        {NAVIGATION.map((item) => {
+          const isActive = location === item.href;
+          const showBadge = item.name === "Review inbox" && pendingSuggestionsCount > 0;
+          return (
+            <Link
+              key={item.name}
+              href={item.href}
+              title={collapsed ? item.name : undefined}
               className={cn(
-                "text-sm font-medium",
-                isGmailConnected ? "text-green-800 dark:text-green-200" : "text-red-800 dark:text-red-200"
+                "flex items-center h-8 rounded-lg text-[13.5px] transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                collapsed ? "justify-center px-0" : "gap-2.5 px-2.5",
+                isActive
+                  ? "bg-rail-active font-semibold text-ink"
+                  : "text-ink-body hover:bg-rail-hover hover:text-ink"
               )}
+              data-testid={`nav-${item.name.toLowerCase().replace(/\s+/g, "-")}`}
             >
-              {isGmailConnected ? "Gmail Connected" : "Gmail Disconnected"}
-            </p>
-            {user?.gmailEmail && (
-              <p
-                className={cn(
-                  "text-xs",
-                  isGmailConnected ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-                )}
-                data-testid="gmail-email"
-              >
-                {user.gmailEmail}
-              </p>
-            )}
-          </div>
-        </div>
+              <item.icon
+                size={15}
+                strokeWidth={2}
+                className={cn("flex-none", isActive ? "text-accent" : "text-muted-foreground")}
+              />
+              {!collapsed && <span className="flex-1 truncate">{item.name}</span>}
+              {showBadge && !collapsed && (
+                <span className="badge-status status-review flex-none" data-testid="review-count">
+                  {pendingSuggestionsCount}
+                </span>
+              )}
+              {showBadge && collapsed && (
+                <span className="absolute w-1.5 h-1.5 rounded-full bg-warning translate-x-3 -translate-y-2.5" />
+              )}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/*
+        Shown only when a mailbox is disconnected. The design's rail carries no
+        status block, and it is right that a healthy state adds no clutter --
+        but a mailbox that has stopped syncing is the one thing a user needs to
+        find, and silence is how it goes unnoticed for a week.
+      */}
+      {isGmailConnected === false && !collapsed && (
+        <Link
+          href="/settings"
+          className="mt-2 flex items-start gap-2 rounded-lg border border-warning-line bg-warning-bg px-2.5 py-2 text-[11.5px] text-warning hover:bg-warning-soft"
+          data-testid="mailbox-warning"
+        >
+          <AlertTriangle size={14} strokeWidth={2} className="flex-none mt-px" />
+          <span>
+            <span className="font-semibold">No mailbox connected.</span> Nothing new will be found.
+          </span>
+        </Link>
+      )}
+
+      {/* --- Account ----------------------------------------------------- */}
+      <div className={cn("mt-2 pt-2 border-t border-line", collapsed && "flex justify-center")}>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                "flex items-center rounded-lg text-left transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                collapsed ? "justify-center p-1" : "w-full gap-2.5 p-1.5 hover:bg-rail-hover"
+              )}
+              data-testid="user-menu"
+            >
+              <Avatar className="h-7 w-7 flex-none">
+                <AvatarImage src={user?.profileImageUrl || undefined} alt="" />
+                <AvatarFallback className="bg-line-soft text-[11px] font-semibold text-ink-body">
+                  {initials}
+                </AvatarFallback>
+              </Avatar>
+              {!collapsed && (
+                <span className="flex-1 min-w-0">
+                  <span className="block truncate text-[12.5px] font-semibold text-ink" data-testid="user-name">
+                    {displayName}
+                  </span>
+                  <span className="block truncate text-[11px] text-muted-foreground" data-testid="user-email">
+                    {user?.email}
+                  </span>
+                </span>
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" side="top" className="w-52">
+            <DropdownMenuItem asChild>
+              <Link href="/settings" className="flex items-center cursor-pointer">
+                <Settings className="mr-2 h-4 w-4" />
+                Settings
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={handleLogout}
+              className="flex items-center cursor-pointer text-destructive focus:text-destructive"
+              data-testid="logout-button"
+            >
+              <LogOut className="mr-2 h-4 w-4" />
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ export function Layout({ children }: LayoutProps) {
   const { user } = useAuth();
 
   return (
-    <div className="h-screen flex bg-background overflow-hidden">
+    <div className="h-screen flex bg-canvas overflow-hidden">
       <Sidebar user={user || undefined} isGmailConnected={user?.gmailConnected || false} />
       <div className="flex-1 flex flex-col overflow-hidden">
         {children}
