@@ -56,6 +56,17 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
 
   const [collapsed, setCollapsed] = useState(false);
 
+  /*
+   * Below 768px the rail is always the icon strip, whatever the stored
+   * preference says. The design's artboards are desktop only, and at 390px an
+   * expanded 212px rail takes more than half the screen and pushes the content
+   * off the edge -- which is what it was doing.
+   *
+   * An icon rail is not a finished phone navigation; a drawer behind a
+   * hamburger would be. This is the honest minimum until that is designed.
+   */
+  const [isNarrow, setIsNarrow] = useState(false);
+
   // Read after mount rather than during render: storage can throw in a private
   // window, and the rail must still draw.
   useEffect(() => {
@@ -65,6 +76,16 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
       /* no stored preference is the same as not collapsed */
     }
   }, []);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 767px)");
+    const sync = () => setIsNarrow(query.matches);
+    sync();
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
+  }, []);
+
+  const showCollapsed = collapsed || isNarrow;
 
   function toggle() {
     setCollapsed((was) => {
@@ -106,22 +127,23 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
     <div
       className={cn(
         "flex flex-col h-screen flex-none overflow-hidden border-r",
-        collapsed ? "w-14 px-2" : "w-[212px] px-3",
+        showCollapsed ? "w-14 px-2" : "w-[212px] px-3",
         "bg-rail border-line py-3.5 gap-0.5 transition-[width] duration-150"
       )}
       data-testid="sidebar"
     >
       {/* --- Brand ------------------------------------------------------- */}
-      <div className={cn("flex items-center gap-2.5 pb-4", collapsed ? "flex-col px-0" : "px-1")}>
+      <div className={cn("flex items-center gap-2.5 pb-4", showCollapsed ? "flex-col px-0" : "px-1")}>
         <span
           className="w-[22px] h-[22px] flex-none rounded-logo bg-accent"
           aria-hidden="true"
         />
-        {!collapsed && (
+        {!showCollapsed && (
           <span className="font-serif text-[21px] leading-none tracking-[-0.02em] text-ink">
             Verloq
           </span>
         )}
+        {/* Hidden on a phone: the rail has no expanded state to toggle to there. */}
         <button
           type="button"
           onClick={toggle}
@@ -130,11 +152,12 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
             "w-[22px] h-[22px] flex-none inline-flex items-center justify-center",
             "rounded-md border border-line bg-surface text-muted-foreground",
             "hover:bg-line-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            collapsed ? "mt-2.5" : "ml-auto"
+            collapsed ? "mt-2.5" : "ml-auto",
+            isNarrow && "hidden"
           )}
           data-testid="nav-toggle"
         >
-          {collapsed ? <ChevronRight size={14} strokeWidth={2} /> : <ChevronLeft size={14} strokeWidth={2} />}
+          {showCollapsed ? <ChevronRight size={14} strokeWidth={2} /> : <ChevronLeft size={14} strokeWidth={2} />}
         </button>
       </div>
 
@@ -147,11 +170,11 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
             <Link
               key={item.name}
               href={item.href}
-              title={collapsed ? item.name : undefined}
+              title={showCollapsed ? item.name : undefined}
               className={cn(
                 "flex items-center h-8 rounded-lg text-[13.5px] transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                collapsed ? "justify-center px-0" : "gap-2.5 px-2.5",
+                showCollapsed ? "justify-center px-0" : "gap-2.5 px-2.5",
                 isActive
                   ? "bg-rail-active font-semibold text-ink"
                   : "text-ink-body hover:bg-rail-hover hover:text-ink"
@@ -163,13 +186,13 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
                 strokeWidth={2}
                 className={cn("flex-none", isActive ? "text-accent" : "text-muted-foreground")}
               />
-              {!collapsed && <span className="flex-1 truncate">{item.name}</span>}
-              {showBadge && !collapsed && (
+              {!showCollapsed && <span className="flex-1 truncate">{item.name}</span>}
+              {showBadge && !showCollapsed && (
                 <span className="badge-status status-review flex-none" data-testid="review-count">
                   {pendingSuggestionsCount}
                 </span>
               )}
-              {showBadge && collapsed && (
+              {showBadge && showCollapsed && (
                 <span className="absolute w-1.5 h-1.5 rounded-full bg-warning translate-x-3 -translate-y-2.5" />
               )}
             </Link>
@@ -183,7 +206,7 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
         but a mailbox that has stopped syncing is the one thing a user needs to
         find, and silence is how it goes unnoticed for a week.
       */}
-      {isGmailConnected === false && !collapsed && (
+      {isGmailConnected === false && !showCollapsed && (
         <Link
           href="/settings"
           className="mt-2 flex items-start gap-2 rounded-lg border border-warning-line bg-warning-bg px-2.5 py-2 text-[11.5px] text-warning hover:bg-warning-soft"
@@ -197,7 +220,7 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
       )}
 
       {/* --- Account ----------------------------------------------------- */}
-      <div className={cn("mt-2 pt-2 border-t border-line", collapsed && "flex justify-center")}>
+      <div className={cn("mt-2 pt-2 border-t border-line", showCollapsed && "flex justify-center")}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
@@ -205,7 +228,7 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
               className={cn(
                 "flex items-center rounded-lg text-left transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                collapsed ? "justify-center p-1" : "w-full gap-2.5 p-1.5 hover:bg-rail-hover"
+                showCollapsed ? "justify-center p-1" : "w-full gap-2.5 p-1.5 hover:bg-rail-hover"
               )}
               data-testid="user-menu"
             >
@@ -215,7 +238,7 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
                   {initials}
                 </AvatarFallback>
               </Avatar>
-              {!collapsed && (
+              {!showCollapsed && (
                 <span className="flex-1 min-w-0">
                   <span className="block truncate text-[12.5px] font-semibold text-ink" data-testid="user-name">
                     {displayName}
