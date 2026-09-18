@@ -26,7 +26,22 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { format } from "date-fns";
 
-export default function SubscriptionDetail() {
+/**
+ * The subscription detail, rendered inside the drawer on the subscriptions
+ * page rather than as a page of its own.
+ *
+ * The id comes in as a prop instead of being read from the route, because the
+ * drawer and the list share one URL: /subscriptions/:id renders the list with
+ * this panel open over it. Keeping the URL means a shared link, a refresh and
+ * the back button all still land where they should.
+ */
+export default function SubscriptionDetail({
+  subscriptionId: idFromProps,
+  onClose,
+}: {
+  subscriptionId?: string;
+  onClose?: () => void;
+} = {}) {
   const [, params] = useRoute("/subscriptions/:id");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -34,7 +49,11 @@ export default function SubscriptionDetail() {
   const [formData, setFormData] = useState<Partial<Subscription>>({});
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
-  const subscriptionId = params?.id;
+  const subscriptionId = idFromProps ?? params?.id;
+
+  // Closing falls back to navigation when no handler is supplied, so the
+  // component still works if it is ever rendered on its own again.
+  const close = onClose ?? (() => setLocation("/subscriptions"));
 
   // Fetch subscription details
   const { data: subscription, isLoading: loadingSubscription } = useQuery<Subscription>({
@@ -258,7 +277,7 @@ export default function SubscriptionDetail() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setLocation('/subscriptions')}
+            onClick={close}
             data-testid="back-to-list-btn"
           >
             <ArrowLeft className="h-5 w-5" />

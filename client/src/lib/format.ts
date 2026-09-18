@@ -3,6 +3,85 @@
  */
 
 /**
+ * Which filter segment a subscription's raw status belongs to.
+ *
+ * Two buckets behind three segments: All, Active, Expired. The design draws
+ * four, but the extra two were both dead here. "Review" counts a status no
+ * subscription in this app can hold -- unmatched charges are suggestions and
+ * live in the review inbox, which the banner and the sidebar both link to --
+ * and "Ending soon" read 0 for every real account. A filter nobody can ever
+ * use is worse than one segment fewer.
+ *
+ * expiring_soon counts as active: it is still running, which is what someone
+ * filtering for "Active" means.
+ */
+export function filterBucket(status: string): "active" | "expired" {
+  if (status === "cancelled" || status === "ended") return "expired";
+  return "active";
+}
+
+/** Status badge class + label for a subscription card, per the design system's
+ *  status mapping (active / needs review / trial / cancelled). */
+export function statusBadge(status: string): { label: string; cls: string } {
+  switch (status) {
+    case "active":
+      return { label: "Active", cls: "status-active" };
+    case "trial":
+      return { label: "Trial", cls: "status-trial" };
+    case "expiring_soon":
+    case "needs_review":
+    case "pending":
+      return { label: "Needs review", cls: "status-review" };
+    case "cancelled":
+    case "ended":
+      return { label: "Cancelled", cls: "status-cancelled" };
+    default:
+      return { label: status, cls: "status-active" };
+  }
+}
+
+export const FREQUENCY_LABEL: Record<string, string> = {
+  monthly: "Monthly",
+  yearly: "Yearly",
+  weekly: "Weekly",
+  quarterly: "Quarterly",
+};
+
+export const FREQUENCY_SUFFIX: Record<string, string> = {
+  monthly: "/mo",
+  yearly: "/yr",
+  weekly: "/wk",
+  quarterly: "/qtr",
+};
+
+export function formatDate(date: string | Date | null | undefined): string {
+  if (!date) return "—";
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** Currency formatting shared by the metric strip and subscription cards. */
+export function formatCurrency(amount: number, currency: string = "INR"): string {
+  const validCurrency = currency && currency.length === 3 && currency !== "unknown"
+    ? currency.toUpperCase()
+    : "INR";
+
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: validCurrency,
+    }).format(amount);
+  } catch (error) {
+    // If currency is still invalid, fallback to INR
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "INR",
+    }).format(amount);
+  }
+}
+
+/**
  * One category, not two.
  *
  * The categories are written by the model that reads the receipts, and it

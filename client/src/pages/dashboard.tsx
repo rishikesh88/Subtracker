@@ -27,7 +27,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { displayCategory } from "@/lib/format";
+import { filterBucket, formatCurrency } from "@/lib/format";
+import { SubscriptionCard } from "@/components/SubscriptionCard";
 import { type Subscription } from "@shared/schema";
 
 // Supported currencies
@@ -37,28 +38,6 @@ const supportedCurrencies = [
   { code: 'EUR', name: 'Euro', symbol: '€' },
   { code: 'GBP', name: 'British Pound', symbol: '£' }
 ];
-
-// Currency formatting -- same helper used by StatsCards, kept here so the
-// metric strip and subscription cards can format without a component that no
-// longer sits on this page.
-const formatCurrency = (amount: number, currency: string = "INR") => {
-  const validCurrency = currency && currency.length === 3 && currency !== "unknown"
-    ? currency.toUpperCase()
-    : "INR";
-
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: validCurrency,
-    }).format(amount);
-  } catch (error) {
-    // If currency is still invalid, fallback to INR
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "INR",
-    }).format(amount);
-  }
-};
 
 // "synced 2 hours ago" -- purely a display formatter for the sync
 // timestamp the page already has (user.lastSync).
@@ -70,65 +49,6 @@ function timeAgo(date: Date): string {
   if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
   const days = Math.floor(hours / 24);
   return `${days} day${days === 1 ? "" : "s"} ago`;
-}
-
-const FREQUENCY_LABEL: Record<string, string> = {
-  monthly: "Monthly",
-  yearly: "Yearly",
-  weekly: "Weekly",
-  quarterly: "Quarterly",
-};
-
-const FREQUENCY_SUFFIX: Record<string, string> = {
-  monthly: "/mo",
-  yearly: "/yr",
-  weekly: "/wk",
-  quarterly: "/qtr",
-};
-
-/**
- * Which filter segment a subscription's raw status belongs to.
- *
- * Two buckets behind three segments: All, Active, Expired. The design draws
- * four, but the extra two were both dead here. "Review" counts a status no
- * subscription in this app can hold -- unmatched charges are suggestions and
- * live in the review inbox, which the banner and the sidebar both link to --
- * and "Ending soon" read 0 for every real account. A filter nobody can ever
- * use is worse than one segment fewer.
- *
- * expiring_soon counts as active: it is still running, which is what someone
- * filtering for "Active" means.
- */
-function filterBucket(status: string): "active" | "expired" {
-  if (status === "cancelled" || status === "ended") return "expired";
-  return "active";
-}
-
-/** Status badge class + label for a subscription card, per the design system's
- *  status mapping (active / needs review / trial / cancelled). */
-function statusBadge(status: string): { label: string; cls: string } {
-  switch (status) {
-    case "active":
-      return { label: "Active", cls: "status-active" };
-    case "trial":
-      return { label: "Trial", cls: "status-trial" };
-    case "expiring_soon":
-    case "needs_review":
-    case "pending":
-      return { label: "Needs review", cls: "status-review" };
-    case "cancelled":
-    case "ended":
-      return { label: "Cancelled", cls: "status-cancelled" };
-    default:
-      return { label: status, cls: "status-active" };
-  }
-}
-
-function formatDate(date: string | Date | null | undefined): string {
-  if (!date) return "—";
-  const d = new Date(date);
-  if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
 }
 
 export default function Dashboard() {
@@ -867,54 +787,9 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(max(250px, calc((100% - 4 * 0.75rem) / 5)), 1fr))" }}>
-            {filteredSubscriptions.map((sub) => {
-              const badge = statusBadge(sub.status);
-              const bucket = filterBucket(sub.status);
-              const initial = (sub.serviceName?.[0] ?? "?").toUpperCase();
-              const frequencyLabel = FREQUENCY_LABEL[sub.frequency] ?? sub.frequency;
-              const frequencySuffix = FREQUENCY_SUFFIX[sub.frequency] ?? "";
-
-              return (
-                <Link
-                  key={sub.id}
-                  href={`/subscriptions/${sub.id}`}
-                  className={cn(
-                    "surface-card p-[15px] flex flex-col gap-[13px] cursor-pointer",
-                    "hover:border-line-firm transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  )}
-                  data-testid={`subscription-card-${sub.id}`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-[34px] h-[34px] flex-none rounded-logo bg-line-soft flex items-center justify-center text-[14px] font-bold text-ink-body">
-                      {initial}
-                    </span>
-                    <span className="t-card-title flex-1 min-w-0 line-clamp-2 [text-wrap:pretty]">{sub.serviceName}</span>
-                    <span className={cn("badge-status flex-none", badge.cls)}>{badge.label}</span>
-                  </div>
-
-                  <div className="flex flex-wrap gap-[5px]">
-                    <span className="badge-cadence">{frequencyLabel}</span>
-                    {displayCategory(sub.category) && (
-                      <span className="badge-category">{displayCategory(sub.category)}</span>
-                    )}
-                  </div>
-
-                  <div className="border-t border-line-soft pt-[13px] flex items-end justify-between">
-                    <div>
-                      <div className="text-[10.5px] font-semibold text-muted-foreground">
-                        {bucket === "expired" ? "Ended" : "Renews"}
-                      </div>
-                      <div className="text-[12px] text-ink-strong mt-0.5">{formatDate(sub.nextBillingDate)}</div>
-                    </div>
-                    <div className="t-price">
-                      {formatCurrency(parseFloat(sub.amount) || 0, sub.currency)}
-                      <span className="text-[11.5px] font-medium text-muted-foreground">{frequencySuffix}</span>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
+            {filteredSubscriptions.map((sub) => (
+              <SubscriptionCard key={sub.id} subscription={sub} />
+            ))}
 
             {addSubscriptionTile}
           </div>
