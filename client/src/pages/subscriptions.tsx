@@ -173,7 +173,7 @@ export default function Subscriptions() {
         />
       </main>
 
-      {/* Add Subscription Modal */}
+      {/* The detail drawer, opened by /subscriptions/:id */}
       <Sheet
         open={Boolean(openSubscriptionId)}
         onOpenChange={(open) => {
@@ -182,6 +182,9 @@ export default function Subscriptions() {
       >
         <SheetContent
           side="right"
+          // The detail draws its own close button in the same corner, on the
+          // design system's ghost button rather than shadcn's default.
+          hideClose
           className="w-full sm:max-w-[560px] p-0 overflow-y-auto bg-canvas"
           data-testid="subscription-drawer"
         >
