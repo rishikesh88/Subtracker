@@ -119,7 +119,10 @@
   .t-page       { font-family: var(--font-serif); font-size: 34px;   font-weight: 400; letter-spacing: -0.025em; line-height: 1.05; }
   .t-section    { font-family: var(--font-serif); font-size: 21px;   font-weight: 400; letter-spacing: -0.02em; }
   .t-metric     { font-size: 22px;   font-weight: 700; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
-  .t-price      { font-size: 18px;   font-weight: 700; letter-spacing: -0.02em;  font-variant-numeric: tabular-nums; }
+  /* 600, not the design's 700. At 700 against an otherwise quiet card the
+     price shouted -- it is the largest thing on a subscription card either
+     way, and the size already carries the emphasis. */
+  .t-price      { font-size: 18px;   font-weight: 600; letter-spacing: -0.02em;  font-variant-numeric: tabular-nums; }
   .t-card-title { font-size: 14.5px; font-weight: 600; line-height: 1.3; }
   .t-body       { font-size: 13px;   font-weight: 400; }
   .t-caption    { font-size: 11.5px; font-weight: 400; color: var(--muted-foreground); }

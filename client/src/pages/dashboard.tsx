@@ -27,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { displayCategory } from "@/lib/format";
 import { type Subscription } from "@shared/schema";
 
 // Supported currencies
@@ -88,19 +89,18 @@ const FREQUENCY_SUFFIX: Record<string, string> = {
 /**
  * Which filter segment a subscription's raw status belongs to.
  *
- * Three, not the design's four. The design's fourth segment is "Review", but a
- * subscription in this app is only ever active, expiring_soon or cancelled --
- * there is no status it could match, so the segment would read "Review 0"
- * forever, directly under a banner saying two charges need review. Those two
- * numbers count different things: unmatched charges are suggestions, and they
- * live in the review inbox, which the banner and the sidebar both link to.
+ * Two buckets behind three segments: All, Active, Expired. The design draws
+ * four, but the extra two were both dead here. "Review" counts a status no
+ * subscription in this app can hold -- unmatched charges are suggestions and
+ * live in the review inbox, which the banner and the sidebar both link to --
+ * and "Ending soon" read 0 for every real account. A filter nobody can ever
+ * use is worse than one segment fewer.
  *
- * "Ending soon" takes its place because expiring_soon is a status a
- * subscription can actually hold.
+ * expiring_soon counts as active: it is still running, which is what someone
+ * filtering for "Active" means.
  */
-function filterBucket(status: string): "active" | "ending" | "ended" {
-  if (status === "cancelled" || status === "ended") return "ended";
-  if (status === "expiring_soon") return "ending";
+function filterBucket(status: string): "active" | "expired" {
+  if (status === "cancelled" || status === "ended") return "expired";
   return "active";
 }
 
@@ -140,7 +140,7 @@ export default function Dashboard() {
   const [addSubscriptionModalOpen, setAddSubscriptionModalOpen] = useState(false);
   const [isSyncInProgress, setIsSyncInProgress] = useState(false);
   // Presentation-only: which filter segment is selected on the subscription grid.
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "ending" | "ended">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "expired">("all");
 
   // Track sync progress from localStorage
   useEffect(() => {
@@ -539,8 +539,7 @@ export default function Dashboard() {
   const filterCounts = {
     all: subscriptions.length,
     active: subscriptions.filter((s) => filterBucket(s.status) === "active").length,
-    ending: subscriptions.filter((s) => filterBucket(s.status) === "ending").length,
-    ended: subscriptions.filter((s) => filterBucket(s.status) === "ended").length,
+    expired: subscriptions.filter((s) => filterBucket(s.status) === "expired").length,
   };
   const filteredSubscriptions = subscriptions.filter(
     (s) => statusFilter === "all" || filterBucket(s.status) === statusFilter
@@ -549,8 +548,7 @@ export default function Dashboard() {
   const segments: { key: typeof statusFilter; label: string; count: number; testId: string }[] = [
     { key: "all", label: "All", count: filterCounts.all, testId: "filter-all" },
     { key: "active", label: "Active", count: filterCounts.active, testId: "filter-active" },
-    { key: "ending", label: "Ending soon", count: filterCounts.ending, testId: "filter-ending" },
-    { key: "ended", label: "Ended", count: filterCounts.ended, testId: "filter-ended" },
+    { key: "expired", label: "Expired", count: filterCounts.expired, testId: "filter-expired" },
   ];
 
   const addSubscriptionTile = (
@@ -847,7 +845,7 @@ export default function Dashboard() {
                   )}
                 >
                   {segment.label}{" "}
-                  <span className={segment.key === "ending" ? "text-warning" : "text-muted-foreground"}>
+                  <span className="text-muted-foreground">
                     {segment.count}
                   </span>
                 </button>
@@ -858,7 +856,7 @@ export default function Dashboard() {
 
         {/* 4 & 5. Subscription grid / empty state */}
         {subscriptionsLoading ? (
-          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(250px,1fr))" }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(max(250px, calc((100% - 4 * 0.75rem) / 5)), 1fr))" }}>
             {[...Array(3)].map((_, i) => (
               <div key={i} className="bg-line-soft rounded-card min-h-[148px] animate-pulse" />
             ))}
@@ -868,7 +866,7 @@ export default function Dashboard() {
             <div className="w-full max-w-xs">{addSubscriptionTile}</div>
           </div>
         ) : (
-          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(250px,1fr))" }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(max(250px, calc((100% - 4 * 0.75rem) / 5)), 1fr))" }}>
             {filteredSubscriptions.map((sub) => {
               const badge = statusBadge(sub.status);
               const bucket = filterBucket(sub.status);
@@ -897,13 +895,15 @@ export default function Dashboard() {
 
                   <div className="flex flex-wrap gap-[5px]">
                     <span className="badge-cadence">{frequencyLabel}</span>
-                    {sub.category && <span className="badge-category">{sub.category}</span>}
+                    {displayCategory(sub.category) && (
+                      <span className="badge-category">{displayCategory(sub.category)}</span>
+                    )}
                   </div>
 
                   <div className="border-t border-line-soft pt-[13px] flex items-end justify-between">
                     <div>
                       <div className="text-[10.5px] font-semibold text-muted-foreground">
-                        {bucket === "ended" ? "Ended" : "Renews"}
+                        {bucket === "expired" ? "Ended" : "Renews"}
                       </div>
                       <div className="text-[12px] text-ink-strong mt-0.5">{formatDate(sub.nextBillingDate)}</div>
                     </div>
