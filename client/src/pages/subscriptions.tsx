@@ -35,7 +35,7 @@ export default function Subscriptions() {
 
   // Presentation-only: search text and which filter segment is selected.
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "expired">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "expired">("active");
   const [addSubscriptionModalOpen, setAddSubscriptionModalOpen] = useState(false);
   /*
    * Filtering by category existed on this page before the redesign and the
@@ -68,8 +68,10 @@ export default function Subscriptions() {
   });
 
   const segments: { key: typeof statusFilter; label: string; count: number; testId: string }[] = [
-    { key: "all", label: "All", count: filterCounts.all, testId: "filter-all" },
+    // Active first: it is the segment people are actually here for, and it is
+    // also what the page opens on.
     { key: "active", label: "Active", count: filterCounts.active, testId: "filter-active" },
+    { key: "all", label: "All", count: filterCounts.all, testId: "filter-all" },
     { key: "expired", label: "Expired", count: filterCounts.expired, testId: "filter-expired" },
   ];
 

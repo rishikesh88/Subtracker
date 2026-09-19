@@ -1,9 +1,6 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Mail, CheckCircle2, Loader2 } from "lucide-react";
@@ -21,7 +18,7 @@ export default function VerifyEmail() {
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (code.length !== 6) {
       toast({
         title: "Invalid Code",
@@ -95,88 +92,99 @@ export default function VerifyEmail() {
   // No need to manually redirect here
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4 relative">
+    <div className="min-h-screen bg-canvas flex items-center justify-center px-4 relative">
       {/* Loading overlay during verification */}
       {isVerifying && (
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="absolute inset-0 bg-canvas/80 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="flex flex-col items-center gap-4">
-            <Loader2 className="h-12 w-12 animate-spin text-primary" />
-            <p className="text-lg font-medium">Verifying your email...</p>
+            <Loader2 className="h-10 w-10 animate-spin text-ink" />
+            <p className="t-body font-medium text-ink">Verifying your email...</p>
           </div>
         </div>
       )}
-      
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1 text-center">
-          <div className="mx-auto w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center mb-4">
-            <Mail className="h-6 w-6 text-blue-600 dark:text-blue-400" />
-          </div>
-          <CardTitle className="text-2xl">Verify Your Email</CardTitle>
-          <CardDescription>
-            We sent a 6-digit code to <strong>{user?.email}</strong>
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleVerify} className="space-y-4">
-            <div>
-              <Input
-                type="text"
-                placeholder="Enter 6-digit code"
-                value={code}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, '').slice(0, 6);
-                  setCode(value);
-                }}
-                maxLength={6}
-                className="text-center text-2xl tracking-widest"
-                data-testid="input-verification-code"
-                autoFocus
-              />
-            </div>
 
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={code.length !== 6 || isVerifying}
-              data-testid="button-verify"
+      <div className="max-w-[400px] w-full">
+
+        <div className="flex items-center justify-center gap-2.5 mb-5">
+
+          <span className="w-[22px] h-[22px] flex-none rounded-logo bg-accent" aria-hidden="true" />
+
+          <span className="font-serif text-[21px] leading-none tracking-[-0.02em] text-ink">Verloq</span>
+
+        </div>
+
+        <div className="max-w-[400px] w-full surface-card" style={{ padding: "24px" }}>
+
+        <div className="flex flex-col items-center gap-1 mb-5 text-center">
+          <div className="w-11 h-11 rounded-full bg-accent-soft flex items-center justify-center mb-3">
+            <Mail size={20} strokeWidth={2} className="text-accent-deep" />
+          </div>
+          <h1 className="t-section text-ink" data-testid="verify-email-title">Verify your email</h1>
+          <p className="t-body text-muted-foreground">
+            We sent a 6-digit code to <span className="font-semibold text-ink">{user?.email}</span>
+          </p>
+        </div>
+
+        <form onSubmit={handleVerify} className="flex flex-col gap-3">
+          <div className="field h-12 justify-center">
+            <input
+              type="text"
+              placeholder="Enter 6-digit code"
+              value={code}
+              onChange={(e) => {
+                const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+                setCode(value);
+              }}
+              maxLength={6}
+              className="text-center text-xl tracking-[0.4em]"
+              data-testid="input-verification-code"
+              autoFocus
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={code.length !== 6 || isVerifying}
+            className="btn-base btn-accent w-full"
+            data-testid="button-verify"
+          >
+            {isVerifying ? (
+              <>
+                <Loader2 size={15} strokeWidth={2} className="animate-spin" />
+                Verifying…
+              </>
+            ) : (
+              <>
+                <CheckCircle2 size={15} strokeWidth={2} />
+                Verify
+              </>
+            )}
+          </button>
+
+          <div className="text-center mt-1">
+            <p className="t-caption mb-2">
+              Didn't receive the code?
+            </p>
+            <button
+              type="button"
+              onClick={handleResend}
+              disabled={isResending}
+              className="btn-base btn-secondary"
+              data-testid="button-resend"
             >
-              {isVerifying ? (
+              {isResending ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Verifying...
+                  <Loader2 size={15} strokeWidth={2} className="animate-spin" />
+                  Sending…
                 </>
               ) : (
-                <>
-                  <CheckCircle2 className="mr-2 h-4 w-4" />
-                  Verify Email
-                </>
+                "Resend code"
               )}
-            </Button>
-
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground mb-2">
-                Didn't receive the code?
-              </p>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleResend}
-                disabled={isResending}
-                data-testid="button-resend"
-              >
-                {isResending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Sending...
-                  </>
-                ) : (
-                  "Resend Code"
-                )}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+            </button>
+          </div>
+        </form>
+        </div>
+      </div>
     </div>
   );
 }
