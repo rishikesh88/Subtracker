@@ -31,6 +31,9 @@ import {
   csrfTokenFor,
 } from "../lib/adminAuth";
 import { loginPage, consolePage } from "./adminConsoleHtml";
+// One definition of "what is running", shared with /healthz rather than a
+// second copy here that can drift from it.
+import { buildInfo } from "../lib/buildInfo";
 
 /**
  * Sends an admin page, uncacheable.
@@ -41,23 +44,6 @@ import { loginPage, consolePage } from "./adminConsoleHtml";
  * cache header at all a browser is free to reuse it, which is how a deploy can
  * ship and the operator still be looking at the previous page.
  */
-/**
- * The commit the running container was built from.
- *
- * Shown in the console's top bar because "has my change actually deployed?"
- * cost an afternoon: the code was merged, the page looked unchanged, and there
- * was no way to tell a stale browser from a deploy that had not happened.
- * Railway injects this; anywhere else it reads "unknown", which is itself the
- * honest answer.
- */
-function deployedVersion(): string {
-  const sha =
-    process.env.RAILWAY_GIT_COMMIT_SHA ||
-    process.env.SOURCE_COMMIT ||
-    process.env.GIT_COMMIT ||
-    "";
-  return sha ? sha.slice(0, 7) : "unknown";
-}
 
 function sendAdminPage(res: any, html: string, status = 200) {
   res
@@ -221,7 +207,7 @@ export function registerAdminRoutes(app: Express): void {
       consolePage({
         csrfToken: csrfTokenFor(req),
         adminEmail: process.env.ADMIN_EMAIL!,
-        version: deployedVersion(),
+        version: buildInfo.commit,
       })
     );
   });

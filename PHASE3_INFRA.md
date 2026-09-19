@@ -212,6 +212,36 @@ Signup is gated on this working: a user who never receives the OTP cannot get in
   of a sync, a truncated one looks identical to a successful one.
 - Build and start commands come from `package.json`; no overrides needed. **Do
   not** add `db:push` to the build command.
+- **Set `RAILPACK_NO_CACHE=1`.** Railpack reuses cached build layers, and a
+  cached build produces no compiler output and finishes in about ten seconds —
+  so a merge can be deployed, reported as successful, and never actually run.
+  This has happened repeatedly. The cost of rebuilding every time is a few
+  minutes; the cost of not doing it is shipping nothing and not knowing.
+
+### Checking what is actually deployed
+
+`GET /healthz` is unauthenticated and answers it in one request:
+
+```
+curl -s https://app.verloq.co/healthz
+{"status":"ok","commit":"ddfe8d6",
+ "client":{"js":"assets/index-bCr6Gohp.js","css":"assets/index-B9lKmKgp.css"},
+ "builtAt":"2026-09-19T09:25:54.208Z","startedAt":"..."}
+```
+
+Read the two halves against each other:
+
+- `commit` is what the platform says it deployed. Railway sets it on the
+  container at deploy time, so it moves **whether or not anything was built**.
+- `client` and `builtAt` come from the build output on disk. Vite derives the
+  asset names from the client source, and a reused layer keeps its old file
+  timestamp.
+
+So `commit` moving while `client` and `builtAt` stand still is a stale deploy:
+new label, old code. If they move together, the deploy is real.
+
+To know what the names *should* be, build the same commit locally and compare:
+`npm run build` prints them.
 
 **Environment variables** — the full set:
 

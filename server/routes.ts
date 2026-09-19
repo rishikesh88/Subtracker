@@ -15,6 +15,7 @@ import { randomBytes } from "crypto";
 import { z } from "zod";
 import { registerGeminiRoutes } from "./routes/geminiSync";
 import { registerAdminRoutes } from "./routes/admin";
+import { buildInfo } from "./lib/buildInfo";
 import { setupAuth, isAuthenticated } from "./auth";
 import { generateServiceKey } from "./utils/serviceKey";
 import bcrypt from "bcrypt";
@@ -177,11 +178,21 @@ export function sendProgressUpdate(userId: string, data: {
 // Expose sendProgressUpdate globally for use by sync trigger and other services
 (globalThis as any).sendProgressUpdate = sendProgressUpdate;
 
+const startedAt = new Date();
+
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Platform health check. Deliberately does not touch the database: a health
-  // check that queries Postgres turns a transient DB blip into a restart loop.
+  // Platform health check, and the answer to "is what I just merged actually
+  // running?". Deliberately does not touch the database: a health check that
+  // queries Postgres turns a transient DB blip into a restart loop.
+  //
+  // Unauthenticated on purpose. It carries a short commit hash and two build
+  // filenames -- nothing that is not already served to every visitor in the
+  // page's own script tags.
   app.get("/healthz", (_req, res) => {
-    res.status(200).json({ status: "ok" });
+    res
+      .status(200)
+      .set("Cache-Control", "no-store")
+      .json({ status: "ok", ...buildInfo, startedAt: startedAt.toISOString() });
   });
 
   // Setup Replit Auth
