@@ -8,7 +8,6 @@ import { Layout } from "@/components/Layout";
 import { SyncProgressPanel } from "@/components/SyncProgressPanel";
 import Dashboard from "@/pages/dashboard";
 import Subscriptions from "@/pages/subscriptions";
-import SubscriptionDetail from "@/pages/subscription-detail";
 import Settings from "@/pages/settings";
 import ReviewInbox from "@/pages/review";
 import { Landing } from "@/pages/Landing";
@@ -74,7 +73,10 @@ function Router() {
           <Route path="/" component={() => <Layout><Dashboard /></Layout>} />
           <Route path="/dashboard" component={() => <Layout><Dashboard /></Layout>} />
           <Route path="/subscriptions" component={() => <Layout><Subscriptions /></Layout>} />
-          <Route path="/subscriptions/:id" component={() => <Layout><SubscriptionDetail /></Layout>} />
+          {/* The detail is a drawer over the list, so this route renders the
+              list page and lets it open the drawer from the id. The URL is
+              kept so links, refreshes and the back button still work. */}
+          <Route path="/subscriptions/:id" component={() => <Layout><Subscriptions /></Layout>} />
           <Route path="/review" component={() => <Layout><ReviewInbox /></Layout>} />
           <Route path="/settings" component={() => <Layout><Settings /></Layout>} />
           {/* Redirect onboarding routes to dashboard for completed users */}

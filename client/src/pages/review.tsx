@@ -27,33 +27,34 @@ interface SuggestionWithEvidence extends SubscriptionSuggestion {
     confidence: 'exact' | 'likely';
   } | null;
 }
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { 
-  CheckCircle, 
-  XCircle, 
-  AlertCircle, 
-  ChevronLeft, 
-  ChevronRight, 
-  Mail, 
-  FileText, 
-  Calendar,
-  Sparkles,
-  ArrowLeft,
-  Check,
-  X
-} from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { useLocation } from "wouter";
+import { cn } from "@/lib/utils";
+import { displayCategory, formatDate, formatCurrency, FREQUENCY_LABEL, FREQUENCY_SUFFIX } from "@/lib/format";
+import { ChevronLeft, ChevronRight, Check, X, Inbox, FileText, Calendar } from "lucide-react";
+
+/**
+ * The attachment evidence is stored as a JSON string and can be malformed or
+ * absent, so a parse failure has to mean "no documents" rather than a blank
+ * page. Restored along with the block that displays it.
+ */
+function parseAttachmentEvidence(evidence: string | null | undefined): { name: string }[] {
+  if (!evidence) return [];
+  try {
+    const parsed = JSON.parse(evidence);
+    const list = Array.isArray(parsed) ? parsed : parsed?.attachments ?? [];
+    return list
+      .map((item: any) => ({ name: item?.filename || item?.name || "Attachment" }))
+      .slice(0, 4);
+  } catch {
+    return [];
+  }
+}
 
 export default function ReviewInbox() {
   const { user } = useAuth();
   const userId = user?.id;
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
   const [selectedSuggestions, setSelectedSuggestions] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 10;
@@ -74,13 +75,13 @@ export default function ReviewInbox() {
   // Listen for SSE events for progressive loading of suggestions
   useEffect(() => {
     if (!userId) return;
-    
+
     const eventSource = new EventSource(`/api/sync-progress/${userId}`);
-    
+
     eventSource.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        
+
         // Handle suggestion_found events - refresh suggestions list
         if (data.stage === 'suggestion_found') {
           setIsSyncInProgress(true);
@@ -123,11 +124,11 @@ export default function ReviewInbox() {
         // Ignore parse errors
       }
     };
-    
+
     eventSource.onerror = () => {
       // Connection lost - will auto-reconnect
     };
-    
+
     return () => {
       eventSource.close();
     };
@@ -163,13 +164,13 @@ export default function ReviewInbox() {
         title: "Subscription Approved",
         description: `Successfully approved ${data.approved} subscription${data.approved > 1 ? 's' : ''}`,
       });
-      queryClient.invalidateQueries({ 
+      queryClient.invalidateQueries({
         predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/suggestions') ?? false
       });
-      queryClient.invalidateQueries({ 
+      queryClient.invalidateQueries({
         predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/subscriptions') ?? false
       });
-      queryClient.invalidateQueries({ 
+      queryClient.invalidateQueries({
         predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/stats') ?? false
       });
     },
@@ -200,7 +201,7 @@ export default function ReviewInbox() {
         title: "Suggestion Rejected",
         description: `Skipped ${data.rejected} suggestion${data.rejected > 1 ? 's' : ''}`,
       });
-      queryClient.invalidateQueries({ 
+      queryClient.invalidateQueries({
         predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/suggestions') ?? false
       });
     },
@@ -247,66 +248,20 @@ export default function ReviewInbox() {
     }
   };
 
-  const getConfidenceColor = (confidence: string) => {
+  // Confidence -> the design's status pair (ink on a soft ground), plus a
+  // plain label. High reads as "on track" (active), medium as "worth a
+  // second look" (review), low as inert (cancelled's neutral grey).
+  const confidenceMeta = (confidence: string): { label: string; cls: string } => {
     switch (confidence) {
-      case 'high': return 'bg-green-100 text-green-800 border-green-300';
-      case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
-      case 'low': return 'bg-gray-100 text-gray-600 border-gray-300';
-      default: return 'bg-gray-100 text-gray-600 border-gray-300';
+      case 'high': return { label: 'High confidence', cls: 'status-active' };
+      case 'medium': return { label: 'Medium confidence', cls: 'status-review' };
+      case 'low': return { label: 'Low confidence', cls: 'status-cancelled' };
+      default: return { label: confidence, cls: 'status-cancelled' };
     }
-  };
-
-  const formatCurrency = (amount: string, currency: string = "INR") => {
-    const num = parseFloat(amount);
-    const validCurrency = currency && currency.length === 3 && currency !== "unknown" 
-      ? currency.toUpperCase() 
-      : "INR";
-    try {
-      return new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: validCurrency,
-      }).format(num);
-    } catch (error) {
-      return `${validCurrency} ${num.toFixed(2)}`;
-    }
-  };
-
-  const formatDetectedTime = (detectedAt: Date | string | null) => {
-    if (!detectedAt) return "Unknown";
-    const date = new Date(detectedAt);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 0) return "Detected today";
-    if (diffDays === 1) return "Detected yesterday";
-    if (diffDays < 7) return `Detected ${diffDays} days ago`;
-    if (diffDays < 30) return `Detected ${Math.floor(diffDays / 7)} weeks ago`;
-    return `Detected ${Math.floor(diffDays / 30)} months ago`;
   };
 
   const getServiceInitial = (serviceName: string) => {
-    return serviceName.charAt(0).toUpperCase();
-  };
-
-  const getServiceColor = (serviceName: string) => {
-    return "bg-gray-100 text-gray-800 border border-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:border-gray-700";
-  };
-
-  const parseAttachmentEvidence = (evidence: string | null): { name: string; date: string }[] => {
-    if (!evidence) return [];
-    try {
-      const parsed = JSON.parse(evidence);
-      if (Array.isArray(parsed)) {
-        return parsed.map(item => ({
-          name: item.filename || item.name || 'Attachment',
-          date: item.date || ''
-        }));
-      }
-      return [];
-    } catch {
-      return [];
-    }
+    return (serviceName?.charAt(0) || '?').toUpperCase();
   };
 
   if (!userId) {
@@ -317,373 +272,247 @@ export default function ReviewInbox() {
     );
   }
 
+  const subline = isLoading
+    ? "Checking for unmatched charges…"
+    : total === 0
+      ? "Nothing waiting for review right now."
+      : `${total} charge${total === 1 ? "" : "s"} the last sync couldn't match`;
+
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden bg-canvas">
       {/* Progressive Loading Banner */}
       {isSyncInProgress && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800 px-4 md:px-6 py-3">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                {syncProgress.message || 'Analyzing your emails...'}
+        <div
+          className="flex-shrink-0 flex items-center gap-3 border-b border-line bg-line-soft"
+          style={{ padding: "10px 24px" }}
+        >
+          <div className="w-4 h-4 border-2 border-ink-body border-t-transparent rounded-full animate-spin flex-none" />
+          <div className="flex-1 min-w-0">
+            <p className="text-[12.5px] font-medium text-ink-strong truncate">
+              {syncProgress.message || 'Analyzing your emails...'}
+            </p>
+            {syncProgress.suggestionsFound > 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                {syncProgress.suggestionsFound} subscription{syncProgress.suggestionsFound !== 1 ? 's' : ''} found so far
               </p>
-              {syncProgress.suggestionsFound > 0 && (
-                <p className="text-xs text-blue-600 dark:text-blue-300 mt-0.5">
-                  {syncProgress.suggestionsFound} subscription{syncProgress.suggestionsFound !== 1 ? 's' : ''} found so far
-                </p>
-              )}
-            </div>
-            <div className="hidden sm:block">
-              <div className="w-32 h-2 bg-blue-200 dark:bg-blue-800 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-blue-500 rounded-full transition-all duration-500"
-                  style={{ width: `${syncProgress.progress}%` }}
-                />
-              </div>
-            </div>
+            )}
+          </div>
+          <div className="hidden sm:block w-32 h-1.5 bg-line rounded-full overflow-hidden flex-none">
+            <div
+              className="h-full bg-ink rounded-full transition-all duration-500"
+              style={{ width: `${syncProgress.progress}%` }}
+            />
           </div>
         </div>
       )}
 
-      {/* Header */}
-      <header className="bg-card border-b border-border px-4 md:px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={() => setLocation('/dashboard')}
-              className="md:hidden"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Button>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl md:text-2xl font-bold">Review Inbox</h1>
-                {total > 0 && (
-                  <Badge variant="secondary" className="text-xs">
-                    {total} New
-                  </Badge>
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Review and approve subscriptions detected from your connected accounts.
-              </p>
-            </div>
-          </div>
-          
-          {/* AI Confidence Indicator */}
-          <div className="hidden md:flex items-center gap-2 text-sm text-muted-foreground">
-            <Sparkles className="w-4 h-4 text-yellow-500" />
-            <span>AI Confidence: High</span>
-          </div>
+      {/* --- Page header ---------------------------------------------------- */}
+      <header
+        className="flex-shrink-0 bg-surface border-b border-line flex items-end justify-between gap-4 flex-wrap"
+        style={{ padding: "20px 24px 16px" }}
+      >
+        <div className="min-w-0">
+          <h1 className="t-page">Review inbox</h1>
+          <p className="text-[12.5px] text-muted-foreground mt-1">{subline}</p>
         </div>
 
-        {/* Batch Actions */}
         {suggestions.length > 0 && (
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-2 mr-4">
-              <span className="text-sm text-muted-foreground">
-                {selectedSuggestions.length} of {suggestions.length} selected
-              </span>
-            </div>
-            <Button variant="outline" size="sm" onClick={selectHighConfidence}>
-              Select High Confidence
-            </Button>
-            <Button variant="outline" size="sm" onClick={selectAll}>
-              Select All
-            </Button>
-            <Button variant="outline" size="sm" onClick={clearSelection}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[12.5px] text-muted-foreground mr-1">
+              {selectedSuggestions.length} of {suggestions.length} selected
+            </span>
+            <button type="button" className="btn-base btn-ghost" onClick={selectHighConfidence}>
+              Select high confidence
+            </button>
+            <button type="button" className="btn-base btn-ghost" onClick={selectAll}>
+              Select all
+            </button>
+            <button type="button" className="btn-base btn-ghost" onClick={clearSelection}>
               Clear
-            </Button>
+            </button>
             {selectedSuggestions.length > 0 && (
               <>
-                <div className="w-px h-6 bg-border mx-2" />
-                <Button 
-                  size="sm" 
-                  onClick={handleBatchApprove}
-                  disabled={approveMutation.isPending}
-                  className="bg-green-600 hover:bg-green-700"
-                >
-                  <Check className="w-4 h-4 mr-1" />
-                  Approve ({selectedSuggestions.length})
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <div className="w-px h-5 bg-line mx-1" />
+                <button
+                  type="button"
+                  className="btn-base btn-secondary"
                   onClick={handleBatchReject}
                   disabled={rejectMutation.isPending}
                 >
-                  <X className="w-4 h-4 mr-1" />
+                  <X size={15} strokeWidth={2} />
                   Reject ({selectedSuggestions.length})
-                </Button>
+                </button>
+                <button
+                  type="button"
+                  className="btn-base btn-primary"
+                  onClick={handleBatchApprove}
+                  disabled={approveMutation.isPending}
+                >
+                  <Check size={15} strokeWidth={2} />
+                  Approve ({selectedSuggestions.length})
+                </button>
               </>
             )}
           </div>
         )}
       </header>
 
-      {/* Content */}
-      <main className="flex-1 overflow-auto p-4 md:p-6">
+      {/* --- Body ------------------------------------------------------------ */}
+      <main
+        className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-[18px]"
+        style={{ padding: "20px 24px 40px" }}
+      >
         {isLoading ? (
-          <div className="space-y-4">
+          <div className="flex flex-col gap-3">
             {Array.from({ length: 3 }).map((_, i) => (
-              <Card key={i} className="p-6">
-                <div className="flex items-start gap-4">
-                  <Skeleton className="w-12 h-12 rounded-full" />
-                  <div className="flex-1 space-y-2">
-                    <Skeleton className="h-5 w-32" />
-                    <Skeleton className="h-4 w-48" />
-                    <Skeleton className="h-4 w-24" />
-                  </div>
-                  <Skeleton className="h-8 w-20" />
-                </div>
-              </Card>
+              <div key={i} className="bg-line-soft rounded-card h-[132px] animate-pulse" />
             ))}
           </div>
         ) : suggestions.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16">
-            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
-              <Mail className="w-8 h-8 text-muted-foreground" />
-            </div>
-            <h3 className="text-lg font-medium mb-2">No Suggestions</h3>
-            <p className="text-muted-foreground text-center max-w-md">
-              No subscription suggestions found. Sync your emails to detect new subscriptions.
+          <div className="surface-card flex flex-col items-center justify-center text-center py-10">
+            <Inbox size={20} strokeWidth={2} className="text-muted-foreground" />
+            <h3 className="text-[13px] font-semibold text-ink mt-3">Nothing to review</h3>
+            <p className="text-[11.5px] text-muted-foreground mt-1">
+              The last sync matched every charge it found.
             </p>
-            <Button 
-              className="mt-4" 
-              onClick={() => setLocation('/dashboard')}
-            >
-              Go to Dashboard
-            </Button>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="flex flex-col gap-3">
             {suggestions.map((suggestion) => {
               const isProcessing = processingSuggestions.includes(suggestion.id);
-              const isSelected = selectedSuggestions.includes(suggestion.id);
               const attachments = parseAttachmentEvidence(suggestion.attachmentEvidence);
-              const confidencePercent = suggestion.confidenceScore 
-                ? Math.round(parseFloat(suggestion.confidenceScore) * 100) 
-                : null;
+              const isSelected = selectedSuggestions.includes(suggestion.id);
+              const category = displayCategory(suggestion.category);
+              const confidence = confidenceMeta(suggestion.confidence);
+              const frequencyLabel = FREQUENCY_LABEL[suggestion.frequency] ?? suggestion.frequency;
+              const frequencySuffix = FREQUENCY_SUFFIX[suggestion.frequency] ?? "";
+              const reasoningText = suggestion.reasoning
+                || `This appears to be a ${suggestion.frequency} subscription to ${suggestion.serviceName} based on the email patterns detected.`;
+              const evidenceLine = suggestion.emailEvidence && suggestion.emailEvidence.length > 0
+                ? `"${suggestion.emailEvidence[0].subject}" · ${formatDate(suggestion.emailEvidence[0].receivedAt)}${
+                    suggestion.emailEvidence.length > 1 ? ` · +${suggestion.emailEvidence.length - 1} more email${suggestion.emailEvidence.length - 1 > 1 ? 's' : ''}` : ''
+                  }`
+                : (suggestion.occurrences && suggestion.occurrences > 1
+                    ? `${suggestion.occurrences} supporting emails`
+                    : null);
 
               return (
-                <Card 
+                <div
                   key={suggestion.id}
-                  className={`transition-all duration-200 ${
-                    isProcessing ? 'opacity-50 scale-[0.99]' : ''
-                  } ${isSelected ? 'ring-2 ring-primary' : ''}`}
+                  className={cn(
+                    "surface-card p-[15px] flex flex-col gap-3 transition-opacity duration-200",
+                    isProcessing && "opacity-50"
+                  )}
                   data-testid={`suggestion-card-${suggestion.id}`}
                 >
-                  <CardContent className="p-4 md:p-6">
-                    {/* Top Row: Service Info + Actions */}
-                    <div className="flex items-start gap-4">
-                      {/* Checkbox */}
-                      <div className="pt-1">
-                        <Checkbox
-                          checked={isSelected}
-                          onCheckedChange={(checked) => handleSuggestionSelect(suggestion.id, checked as boolean)}
-                          disabled={isProcessing}
-                          className="rounded-sm"
-                        />
-                      </div>
+                  {/* Top line */}
+                  <div className="flex items-center gap-2.5">
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={(checked) => handleSuggestionSelect(suggestion.id, checked as boolean)}
+                      disabled={isProcessing}
+                    />
+                    <span className="w-[34px] h-[34px] flex-none rounded-logo bg-line-soft flex items-center justify-center text-[14px] font-bold text-ink-body">
+                      {getServiceInitial(suggestion.serviceName)}
+                    </span>
+                    <span className="t-card-title flex-1 min-w-0 truncate">{suggestion.serviceName}</span>
+                    <span className="t-price flex-none">
+                      {formatCurrency(parseFloat(suggestion.amount) || 0, suggestion.currency)}
+                      <span className="text-[11.5px] font-medium text-muted-foreground">{frequencySuffix}</span>
+                    </span>
+                  </div>
 
-                      {/* Service Avatar */}
-                      <div className={`w-12 h-12 rounded-lg ${getServiceColor(suggestion.serviceName)} flex items-center justify-center text-foreground font-bold text-xl flex-shrink-0 font-sans`}>
-                        {getServiceInitial(suggestion.serviceName)}
-                      </div>
+                  {/* Badge row */}
+                  <div className="flex flex-wrap gap-[5px]">
+                    <span className="badge-cadence">{frequencyLabel}</span>
+                    {category && <span className="badge-category">{category}</span>}
+                    <span className={cn("badge-status", confidence.cls)}>{confidence.label}</span>
+                    {suggestion.possibleDuplicateOf && (
+                      <span
+                        className="badge-status status-review"
+                        title={suggestion.possibleDuplicateOf.reason}
+                        data-testid="badge-possible-duplicate"
+                      >
+                        Possible duplicate
+                      </span>
+                    )}
+                  </div>
 
-                      {/* Service Details */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-semibold text-lg">{suggestion.serviceName}</h3>
-                          <Badge 
-                            variant="outline" 
-                            className={`text-xs capitalize ${getConfidenceColor(suggestion.confidence)}`}
-                          >
-                            {confidencePercent && `${confidencePercent}% `}{suggestion.confidence}
-                          </Badge>
-                          {suggestion.possibleDuplicateOf && (
-                            <Badge
-                              variant="outline"
-                              className="text-xs bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800"
-                              title={suggestion.possibleDuplicateOf.reason}
-                              data-testid="badge-possible-duplicate"
-                            >
-                              Possible duplicate
-                            </Badge>
-                          )}
+                  {/* Evidence */}
+                  <div className="bg-line-soft rounded-lg p-3 flex flex-col gap-1.5">
+                    <p className="text-[12.5px] text-ink-body">{reasoningText}</p>
+                    {suggestion.possibleDuplicateOf && (
+                      <p className="text-[11.5px] text-warning" data-testid="text-duplicate-reason">
+                        {suggestion.possibleDuplicateOf.reason}
+                      </p>
+                    )}
+                  </div>
+                  {evidenceLine && (
+                    <p className="text-[11.5px] text-muted-foreground -mt-1.5">{evidenceLine}</p>
+                  )}
+
+                  {/*
+                    The rest of the evidence. These were dropped in the first
+                    styling pass as decoration, but they are the page's whole
+                    purpose: every one is real, stored data, and together they
+                    are the answer to "why does Verloq think this is a
+                    subscription". Folded into compact lines rather than the
+                    three separate bordered boxes they used to occupy.
+                  */}
+                  {(attachments.length > 0 ||
+                    (suggestion.recurringKeywords && suggestion.recurringKeywords.length > 0) ||
+                    suggestion.nextBillingDate) && (
+                    <div className="flex flex-col gap-2 -mt-1">
+                      {attachments.length > 0 && (
+                        <div className="flex items-start gap-2 text-[11.5px] text-muted-foreground">
+                          <FileText size={13} strokeWidth={2} className="flex-none mt-px" />
+                          <span className="min-w-0">
+                            {attachments.map((att) => att.name).join(", ")}
+                          </span>
                         </div>
-                        {suggestion.possibleDuplicateOf && (
-                          <p
-                            className="text-xs text-amber-700 dark:text-amber-300 mt-1"
-                            data-testid="text-duplicate-reason"
-                          >
-                            {suggestion.possibleDuplicateOf.reason}
-                          </p>
-                        )}
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground mt-1">
-                          <span className="capitalize">{suggestion.frequency}</span>
-                          <span>•</span>
-                          <span>{formatDetectedTime(suggestion.detectedAt)}</span>
-                          {(suggestion.occurrences || 1) > 1 && (
-                            <>
-                              <span>•</span>
-                              <span>{suggestion.occurrences} emails</span>
-                            </>
-                          )}
-                        </div>
-                      </div>
+                      )}
 
-                      {/* Individual Actions */}
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => rejectMutation.mutate([suggestion.id])}
-                          disabled={isProcessing}
-                          className="text-muted-foreground hover:text-destructive"
-                        >
-                          <X className="w-4 h-4 mr-1" />
-                          Reject
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => approveMutation.mutate([suggestion.id])}
-                          disabled={isProcessing}
-                          className="bg-[#16a349] hover:bg-gray-800 text-white"
-                        >
-                          <Check className="w-4 h-4 mr-1" />
-                          Approve
-                        </Button>
-                      </div>
+                      {suggestion.recurringKeywords && suggestion.recurringKeywords.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-[5px]">
+                          {suggestion.recurringKeywords.slice(0, 5).map((keyword, index) => (
+                            <span key={index} className="badge-category">
+                              {keyword}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {suggestion.nextBillingDate && (
+                        <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
+                          <Calendar size={13} strokeWidth={2} className="flex-none" />
+                          <span>Next charge expected {formatDate(suggestion.nextBillingDate)}</span>
+                        </div>
+                      )}
                     </div>
+                  )}
 
-                    {/* Pricing Section */}
-                    <div className="mt-4 border border-border rounded-lg bg-muted/30 p-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground font-medium">Subscription Price</span>
-                        <span className="text-xl font-bold text-foreground">
-                          {formatCurrency(suggestion.amount, suggestion.currency)}
-                          <span className="text-sm font-normal text-muted-foreground ml-1">/ {suggestion.frequency}</span>
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Evidence Sections */}
-                    <div className="mt-4 grid md:grid-cols-2 gap-4">
-                      {/* Left Column */}
-                      <div className="space-y-3">
-                        {/* Email Detected Container */}
-                        <div className="border border-border rounded-lg bg-muted/20 p-3">
-                          <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
-                            <Mail className="w-3.5 h-3.5" />
-                            Email Detected
-                          </p>
-                          <div className="space-y-2">
-                            {suggestion.emailEvidence && suggestion.emailEvidence.length > 0 ? (
-                              <>
-                                {/* Show only the latest email */}
-                                <div className="text-sm">
-                                  <p className="truncate text-foreground font-medium italic">"{suggestion.emailEvidence[0].subject}"</p>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <p className="text-xs text-muted-foreground">
-                                      Received on {(() => {
-                                        const d = new Date(suggestion.emailEvidence[0].receivedAt);
-                                        const day = d.getDate();
-                                        const suffix = ["th", "st", "nd", "rd"][(day % 10 > 3 || Math.floor(day / 10) === 1) ? 0 : day % 10];
-                                        return `${day}${suffix} ${d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
-                                      })()}
-                                    </p>
-                                    {suggestion.emailEvidence.length > 1 && (
-                                      <Badge variant="secondary" className="text-xs">
-                                        +{suggestion.emailEvidence.length - 1} email{suggestion.emailEvidence.length - 1 > 1 ? 's' : ''}
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </div>
-                              </>
-                            ) : (
-                              <div className="text-sm">
-                                <p className="text-muted-foreground italic text-xs">
-                                  Email evidence not available
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        
-                        {/* Attachment Evidence */}
-                        {attachments.length > 0 && (
-                          <div className="border border-border rounded-lg bg-muted/20 p-3">
-                            <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
-                              <FileText className="w-3.5 h-3.5" />
-                              Documents
-                            </p>
-                            <div className="space-y-1">
-                              {attachments.map((att, idx) => (
-                                <p key={idx} className="text-sm truncate">{att.name}</p>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Keywords Container */}
-                        {suggestion.recurringKeywords && suggestion.recurringKeywords.length > 0 && (
-                          <div className="border border-border rounded-lg bg-muted/20 p-3">
-                            <p className="text-xs font-medium text-muted-foreground mb-2">Keywords Detected</p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {suggestion.recurringKeywords.slice(0, 5).map((keyword, idx) => (
-                                <Badge key={idx} variant="secondary" className="text-xs">
-                                  {keyword}
-                                </Badge>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Next Expected Date Container */}
-                        {suggestion.nextBillingDate && (
-                          <div className="border border-border rounded-lg bg-muted/30 p-3">
-                            <p className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1.5">
-                              <Calendar className="w-3.5 h-3.5" />
-                              Next Expected Payment
-                            </p>
-                            <p className="text-lg font-semibold text-foreground">
-                              {new Date(suggestion.nextBillingDate).toLocaleDateString('en-US', { 
-                                weekday: 'short',
-                                month: 'long', 
-                                day: 'numeric',
-                                year: 'numeric'
-                              })}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Right Column - AI Reasoning */}
-                      <div>
-                        <div className="border border-border rounded-lg bg-muted/20 p-4 h-full">
-                          <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
-                            <Sparkles className="w-3.5 h-3.5" />
-                            AI Reasoning
-                          </p>
-                          <p className="text-sm text-foreground leading-relaxed">
-                            {suggestion.reasoning || `This appears to be a ${suggestion.frequency} subscription to ${suggestion.serviceName} based on the email patterns detected.`}
-                          </p>
-                          {suggestion.category && (
-                            <p className="text-xs text-muted-foreground mt-3 pt-3 border-t border-border">
-                              Category: <span className="capitalize font-medium">{suggestion.category}</span>
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                  {/* Per-row actions */}
+                  <div className="flex items-center justify-end gap-2 border-t border-line-soft pt-3">
+                    <button
+                      type="button"
+                      className="btn-base btn-secondary"
+                      onClick={() => rejectMutation.mutate([suggestion.id])}
+                      disabled={isProcessing}
+                    >
+                      <X size={15} strokeWidth={2} />
+                      Reject
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-base btn-primary"
+                      onClick={() => approveMutation.mutate([suggestion.id])}
+                      disabled={isProcessing}
+                    >
+                      <Check size={15} strokeWidth={2} />
+                      Approve
+                    </button>
+                  </div>
+                </div>
               );
             })}
           </div>
@@ -691,28 +520,28 @@ export default function ReviewInbox() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2 mt-6">
-            <Button
-              variant="outline"
-              size="sm"
+          <div className="flex items-center justify-center gap-2">
+            <button
+              type="button"
+              className="btn-base btn-secondary"
               onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
               disabled={currentPage === 1}
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft size={15} strokeWidth={2} />
               Previous
-            </Button>
-            <span className="text-sm text-muted-foreground px-4">
+            </button>
+            <span className="text-[12.5px] text-muted-foreground px-4">
               Page {currentPage} of {totalPages}
             </span>
-            <Button
-              variant="outline"
-              size="sm"
+            <button
+              type="button"
+              className="btn-base btn-secondary"
               onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
               disabled={currentPage === totalPages}
             >
               Next
-              <ChevronRight className="w-4 h-4" />
-            </Button>
+              <ChevronRight size={15} strokeWidth={2} />
+            </button>
           </div>
         )}
       </main>

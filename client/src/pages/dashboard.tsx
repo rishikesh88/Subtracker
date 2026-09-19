@@ -27,6 +27,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { filterBucket, formatCurrency } from "@/lib/format";
+import { SubscriptionCard } from "@/components/SubscriptionCard";
 import { type Subscription } from "@shared/schema";
 
 // Supported currencies
@@ -36,28 +38,6 @@ const supportedCurrencies = [
   { code: 'EUR', name: 'Euro', symbol: '€' },
   { code: 'GBP', name: 'British Pound', symbol: '£' }
 ];
-
-// Currency formatting -- same helper used by StatsCards, kept here so the
-// metric strip and subscription cards can format without a component that no
-// longer sits on this page.
-const formatCurrency = (amount: number, currency: string = "INR") => {
-  const validCurrency = currency && currency.length === 3 && currency !== "unknown"
-    ? currency.toUpperCase()
-    : "INR";
-
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: validCurrency,
-    }).format(amount);
-  } catch (error) {
-    // If currency is still invalid, fallback to INR
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "INR",
-    }).format(amount);
-  }
-};
 
 // "synced 2 hours ago" -- purely a display formatter for the sync
 // timestamp the page already has (user.lastSync).
@@ -71,66 +51,6 @@ function timeAgo(date: Date): string {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
-const FREQUENCY_LABEL: Record<string, string> = {
-  monthly: "Monthly",
-  yearly: "Yearly",
-  weekly: "Weekly",
-  quarterly: "Quarterly",
-};
-
-const FREQUENCY_SUFFIX: Record<string, string> = {
-  monthly: "/mo",
-  yearly: "/yr",
-  weekly: "/wk",
-  quarterly: "/qtr",
-};
-
-/**
- * Which filter segment a subscription's raw status belongs to.
- *
- * Three, not the design's four. The design's fourth segment is "Review", but a
- * subscription in this app is only ever active, expiring_soon or cancelled --
- * there is no status it could match, so the segment would read "Review 0"
- * forever, directly under a banner saying two charges need review. Those two
- * numbers count different things: unmatched charges are suggestions, and they
- * live in the review inbox, which the banner and the sidebar both link to.
- *
- * "Ending soon" takes its place because expiring_soon is a status a
- * subscription can actually hold.
- */
-function filterBucket(status: string): "active" | "ending" | "ended" {
-  if (status === "cancelled" || status === "ended") return "ended";
-  if (status === "expiring_soon") return "ending";
-  return "active";
-}
-
-/** Status badge class + label for a subscription card, per the design system's
- *  status mapping (active / needs review / trial / cancelled). */
-function statusBadge(status: string): { label: string; cls: string } {
-  switch (status) {
-    case "active":
-      return { label: "Active", cls: "status-active" };
-    case "trial":
-      return { label: "Trial", cls: "status-trial" };
-    case "expiring_soon":
-    case "needs_review":
-    case "pending":
-      return { label: "Needs review", cls: "status-review" };
-    case "cancelled":
-    case "ended":
-      return { label: "Cancelled", cls: "status-cancelled" };
-    default:
-      return { label: status, cls: "status-active" };
-  }
-}
-
-function formatDate(date: string | Date | null | undefined): string {
-  if (!date) return "—";
-  const d = new Date(date);
-  if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
-}
-
 export default function Dashboard() {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -140,7 +60,7 @@ export default function Dashboard() {
   const [addSubscriptionModalOpen, setAddSubscriptionModalOpen] = useState(false);
   const [isSyncInProgress, setIsSyncInProgress] = useState(false);
   // Presentation-only: which filter segment is selected on the subscription grid.
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "ending" | "ended">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "expired">("all");
 
   // Track sync progress from localStorage
   useEffect(() => {
@@ -539,8 +459,7 @@ export default function Dashboard() {
   const filterCounts = {
     all: subscriptions.length,
     active: subscriptions.filter((s) => filterBucket(s.status) === "active").length,
-    ending: subscriptions.filter((s) => filterBucket(s.status) === "ending").length,
-    ended: subscriptions.filter((s) => filterBucket(s.status) === "ended").length,
+    expired: subscriptions.filter((s) => filterBucket(s.status) === "expired").length,
   };
   const filteredSubscriptions = subscriptions.filter(
     (s) => statusFilter === "all" || filterBucket(s.status) === statusFilter
@@ -549,8 +468,7 @@ export default function Dashboard() {
   const segments: { key: typeof statusFilter; label: string; count: number; testId: string }[] = [
     { key: "all", label: "All", count: filterCounts.all, testId: "filter-all" },
     { key: "active", label: "Active", count: filterCounts.active, testId: "filter-active" },
-    { key: "ending", label: "Ending soon", count: filterCounts.ending, testId: "filter-ending" },
-    { key: "ended", label: "Ended", count: filterCounts.ended, testId: "filter-ended" },
+    { key: "expired", label: "Expired", count: filterCounts.expired, testId: "filter-expired" },
   ];
 
   const addSubscriptionTile = (
@@ -847,7 +765,7 @@ export default function Dashboard() {
                   )}
                 >
                   {segment.label}{" "}
-                  <span className={segment.key === "ending" ? "text-warning" : "text-muted-foreground"}>
+                  <span className="text-muted-foreground">
                     {segment.count}
                   </span>
                 </button>
@@ -858,7 +776,7 @@ export default function Dashboard() {
 
         {/* 4 & 5. Subscription grid / empty state */}
         {subscriptionsLoading ? (
-          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(250px,1fr))" }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(max(250px, calc((100% - 4 * 0.75rem) / 5)), 1fr))" }}>
             {[...Array(3)].map((_, i) => (
               <div key={i} className="bg-line-soft rounded-card min-h-[148px] animate-pulse" />
             ))}
@@ -868,53 +786,10 @@ export default function Dashboard() {
             <div className="w-full max-w-xs">{addSubscriptionTile}</div>
           </div>
         ) : (
-          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(250px,1fr))" }}>
-            {filteredSubscriptions.map((sub) => {
-              const badge = statusBadge(sub.status);
-              const bucket = filterBucket(sub.status);
-              const initial = (sub.serviceName?.[0] ?? "?").toUpperCase();
-              const frequencyLabel = FREQUENCY_LABEL[sub.frequency] ?? sub.frequency;
-              const frequencySuffix = FREQUENCY_SUFFIX[sub.frequency] ?? "";
-
-              return (
-                <Link
-                  key={sub.id}
-                  href={`/subscriptions/${sub.id}`}
-                  className={cn(
-                    "surface-card p-[15px] flex flex-col gap-[13px] cursor-pointer",
-                    "hover:border-line-firm transition-colors",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  )}
-                  data-testid={`subscription-card-${sub.id}`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-[34px] h-[34px] flex-none rounded-logo bg-line-soft flex items-center justify-center text-[14px] font-bold text-ink-body">
-                      {initial}
-                    </span>
-                    <span className="t-card-title flex-1 min-w-0 line-clamp-2 [text-wrap:pretty]">{sub.serviceName}</span>
-                    <span className={cn("badge-status flex-none", badge.cls)}>{badge.label}</span>
-                  </div>
-
-                  <div className="flex flex-wrap gap-[5px]">
-                    <span className="badge-cadence">{frequencyLabel}</span>
-                    {sub.category && <span className="badge-category">{sub.category}</span>}
-                  </div>
-
-                  <div className="border-t border-line-soft pt-[13px] flex items-end justify-between">
-                    <div>
-                      <div className="text-[10.5px] font-semibold text-muted-foreground">
-                        {bucket === "ended" ? "Ended" : "Renews"}
-                      </div>
-                      <div className="text-[12px] text-ink-strong mt-0.5">{formatDate(sub.nextBillingDate)}</div>
-                    </div>
-                    <div className="t-price">
-                      {formatCurrency(parseFloat(sub.amount) || 0, sub.currency)}
-                      <span className="text-[11.5px] font-medium text-muted-foreground">{frequencySuffix}</span>
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(max(250px, calc((100% - 4 * 0.75rem) / 5)), 1fr))" }}>
+            {filteredSubscriptions.map((sub) => (
+              <SubscriptionCard key={sub.id} subscription={sub} />
+            ))}
 
             {addSubscriptionTile}
           </div>

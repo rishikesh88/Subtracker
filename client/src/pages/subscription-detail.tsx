@@ -2,12 +2,6 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import type { Subscription, Invoice, GmailAccount, OutlookAccount } from "@shared/schema";
 import type { UploadResult } from "@uppy/core";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,15 +12,31 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { ArrowLeft, Edit, Save, X, Upload, Download, Trash2, FileText, Image, FileIcon, Mail } from "lucide-react";
+import { Edit, Save, X, Upload, Download, Trash2, FileText, Mail } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { ObjectUploader } from "@/components/ObjectUploader";
-import { format } from "date-fns";
+import { cn } from "@/lib/utils";
+import { displayCategory, statusBadge, formatDate, formatCurrency, FREQUENCY_LABEL } from "@/lib/format";
 
-export default function SubscriptionDetail() {
+/**
+ * The subscription detail, rendered inside the drawer on the subscriptions
+ * page rather than as a page of its own.
+ *
+ * The id comes in as a prop instead of being read from the route, because the
+ * drawer and the list share one URL: /subscriptions/:id renders the list with
+ * this panel open over it. Keeping the URL means a shared link, a refresh and
+ * the back button all still land where they should.
+ */
+export default function SubscriptionDetail({
+  subscriptionId: idFromProps,
+  onClose,
+}: {
+  subscriptionId?: string;
+  onClose?: () => void;
+} = {}) {
   const [, params] = useRoute("/subscriptions/:id");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -34,7 +44,11 @@ export default function SubscriptionDetail() {
   const [formData, setFormData] = useState<Partial<Subscription>>({});
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
-  const subscriptionId = params?.id;
+  const subscriptionId = idFromProps ?? params?.id;
+
+  // Closing falls back to navigation when no handler is supplied, so the
+  // component still works if it is ever rendered on its own again.
+  const close = onClose ?? (() => setLocation("/subscriptions"));
 
   // Fetch subscription details
   const { data: subscription, isLoading: loadingSubscription } = useQuery<Subscription>({
@@ -47,15 +61,15 @@ export default function SubscriptionDetail() {
     queryKey: ['/api/subscriptions', subscriptionId, 'invoices'],
     enabled: !!subscriptionId,
   });
-  
+
   // Determine provider and account ID to fetch
   const isOutlookSubscription = subscription?.emailProvider === 'outlook';
   const isGmailSubscription = subscription?.emailProvider === 'gmail' || subscription?.gmailAccountId; // Legacy fallback
-  
-  const gmailAccountIdToFetch = isGmailSubscription 
+
+  const gmailAccountIdToFetch = isGmailSubscription
     ? (subscription?.providerAccountId || subscription?.gmailAccountId)
     : null;
-  
+
   const outlookAccountIdToFetch = isOutlookSubscription
     ? subscription?.providerAccountId
     : null;
@@ -215,24 +229,12 @@ export default function SubscriptionDetail() {
     setIsEditMode(false);
   };
 
-  const getFileIcon = (fileType: string) => {
-    if (fileType.includes('pdf')) return <FileText className="h-8 w-8 text-red-500" />;
-    if (fileType.includes('image')) return <Image className="h-8 w-8 text-blue-500" />;
-    return <FileIcon className="h-8 w-8 text-gray-500" />;
-  };
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  };
-
   if (loadingSubscription) {
     return (
-      <div className="container mx-auto px-6 py-8">
+      <div className="flex flex-col gap-3" style={{ padding: "20px 24px 32px" }}>
         <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-muted rounded w-1/3"></div>
-          <div className="h-64 bg-muted rounded"></div>
+          <div className="h-8 bg-line-soft rounded-card w-1/3" />
+          <div className="h-40 bg-line-soft rounded-card" />
         </div>
       </div>
     );
@@ -240,305 +242,311 @@ export default function SubscriptionDetail() {
 
   if (!subscription) {
     return (
-      <div className="container mx-auto px-6 py-8">
-        <Card>
-          <CardContent className="py-8">
-            <p className="text-center text-muted-foreground">Subscription not found</p>
-          </CardContent>
-        </Card>
+      <div className="flex flex-col" style={{ padding: "20px 24px 32px" }}>
+        <div className="surface-card py-8">
+          <p className="text-center text-[13px] text-muted-foreground">Subscription not found</p>
+        </div>
       </div>
     );
   }
 
+  const initial = (subscription.serviceName?.[0] ?? "?").toUpperCase();
+  const badge = statusBadge(subscription.status);
+  const frequencyLabel = FREQUENCY_LABEL[subscription.frequency] ?? subscription.frequency;
+  const category = displayCategory(subscription.category);
+
+  const amount = parseFloat(subscription.amount) || 0;
+  const monthlyEquivalent = monthlyEquivalentAmount(amount, subscription.frequency);
+  const nextBillingDate = parseValidDate(subscription.nextBillingDate);
+  const billingCycle = billingCycleLabel(subscription.frequency, frequencyLabel, nextBillingDate);
+  const startedDate = earliestKnownDate(subscription, invoices);
+
+  const hasSourceAccount = !!(gmailAccount || outlookAccount);
+
   return (
-    <div className="container mx-auto px-6 py-8" data-testid="subscription-detail-page">
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setLocation('/subscriptions')}
+    <div className="flex flex-col gap-5" style={{ padding: "20px 24px 32px" }} data-testid="subscription-detail-page">
+      {/* 1. Header */}
+      <div className="flex flex-col gap-2.5">
+        <div className="flex items-start gap-3">
+          <span className="w-[34px] h-[34px] flex-none rounded-logo bg-line-soft flex items-center justify-center text-[14px] font-bold text-ink-body">
+            {initial}
+          </span>
+          <h2 className="t-section flex-1 min-w-0 [text-wrap:pretty]" data-testid="subscription-name">
+            {subscription.serviceName}
+          </h2>
+          <button
+            type="button"
+            onClick={close}
+            aria-label="Close"
+            className="btn-base btn-ghost w-8 h-8 px-0 flex-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             data-testid="back-to-list-btn"
           >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold text-foreground" data-testid="subscription-name">
-              {subscription.serviceName}
-            </h1>
-            <p className="text-muted-foreground">Subscription Details</p>
-          </div>
+            <X size={17} strokeWidth={2} />
+          </button>
         </div>
-        <div className="flex space-x-2">
-          {!isEditMode ? (
-            <>
-              <Button
-                variant="destructive"
-                onClick={() => setShowDeleteDialog(true)}
-                data-testid="delete-btn"
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </Button>
-              <Button onClick={() => setIsEditMode(true)} data-testid="edit-btn">
-                <Edit className="h-4 w-4 mr-2" />
-                Edit
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                variant="outline"
-                onClick={handleCancel}
-                data-testid="cancel-edit-btn"
-              >
-                <X className="h-4 w-4 mr-2" />
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSave}
-                disabled={updateMutation.isPending}
-                data-testid="save-btn"
-              >
-                <Save className="h-4 w-4 mr-2" />
-                {updateMutation.isPending ? 'Saving...' : 'Save'}
-              </Button>
-            </>
+
+        <div className="flex flex-wrap gap-[5px] pl-[43px]">
+          <span className="badge-cadence">{frequencyLabel}</span>
+          {category && <span className="badge-category">{category}</span>}
+          <span className={cn("badge-status", badge.cls)}>{badge.label}</span>
+        </div>
+      </div>
+
+      {/* 2. Summary strip */}
+      <div className="surface-card flex flex-wrap">
+        <div className="flex-1 min-w-[140px]" style={{ padding: "13px 16px" }}>
+          <div className="t-eyebrow">Next renewal</div>
+          <div className="text-[14.5px] font-semibold text-ink mt-1">
+            {nextBillingDate ? formatDate(nextBillingDate) : "—"}
+          </div>
+          {nextBillingDate && (
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              {relativeFromNow(nextBillingDate)}
+            </div>
+          )}
+        </div>
+        <div className="flex-1 min-w-[140px] border-l border-line-soft" style={{ padding: "13px 16px" }}>
+          <div className="t-eyebrow">Amount</div>
+          <div className="t-price mt-1">{formatCurrency(amount, subscription.currency)}</div>
+          {monthlyEquivalent !== null && (
+            <div className="text-[11px] text-muted-foreground mt-0.5">
+              {formatCurrency(monthlyEquivalent, subscription.currency)} / month equivalent
+            </div>
           )}
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* About Subscription */}
-        <Card data-testid="about-section">
-          <CardHeader>
-            <CardTitle>About Subscription</CardTitle>
-            <CardDescription>Basic information about this subscription</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label>Subscription Name</Label>
-              {isEditMode ? (
-                <Input
+      {/* 3. Details */}
+      <div className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
+        <h3 className="t-eyebrow mb-2">Details</h3>
+
+        {/* Timeline: billing cycle + started */}
+        <div className="contents" data-testid="timeline-section">
+          <DetailRow label="Billing cycle">
+            <span className="text-[13px] text-ink">{billingCycle}</span>
+          </DetailRow>
+          <DetailRow label="Started">
+            <span className="text-[13px] text-ink">{startedDate ? formatDate(startedDate) : "—"}</span>
+          </DetailRow>
+        </div>
+
+        {/* About: name (edit only), category, description, source account */}
+        <div className="contents" data-testid="about-section">
+          {isEditMode && (
+            <DetailRow label="Name">
+              <div className="field">
+                <input
                   value={formData.serviceName || ''}
                   onChange={(e) => setFormData({ ...formData, serviceName: e.target.value })}
                   data-testid="input-service-name"
                 />
-              ) : (
-                <p className="text-sm text-muted-foreground">{subscription.serviceName}</p>
-              )}
-            </div>
-            <div>
-              <Label>Category</Label>
-              {isEditMode ? (
-                <Input
+              </div>
+            </DetailRow>
+          )}
+          <DetailRow label="Category">
+            {isEditMode ? (
+              <div className="field">
+                <input
                   value={formData.category || ''}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                   placeholder="e.g., Entertainment, Software, Utilities"
                   data-testid="input-category"
                 />
-              ) : (
-                <p className="text-sm text-muted-foreground">{subscription.category || 'Not specified'}</p>
-              )}
-            </div>
-            <div>
-              <Label>Description</Label>
-              {isEditMode ? (
-                <Textarea
-                  value={formData.description || ''}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Add notes about this subscription..."
-                  rows={3}
-                  data-testid="input-description"
-                />
-              ) : (
-                <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                  {subscription.description || 'No description'}
-                </p>
-              )}
-            </div>
-            {(gmailAccount || outlookAccount) && (
-              <div>
-                <Label>Source Email Account</Label>
-                <div className="flex items-center gap-2 mt-1" data-testid="source-email-account">
-                  {gmailAccount && (
-                    <>
-                      <div className="flex items-center justify-center h-5 w-5 rounded bg-primary/10">
-                        <SiGoogle className="h-3 w-3 text-primary" />
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {gmailAccount.gmailEmail}
-                      </p>
-                    </>
-                  )}
-                  {outlookAccount && (
-                    <>
-                      <div className="flex items-center justify-center h-5 w-5 rounded bg-blue-100 dark:bg-blue-900">
-                        <Mail className="h-3 w-3 text-blue-600 dark:text-blue-400" />
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        {outlookAccount.outlookEmail}
-                      </p>
-                    </>
-                  )}
-                </div>
               </div>
+            ) : (
+              <span className="text-[13px] text-ink">{category || 'Not specified'}</span>
             )}
-          </CardContent>
-        </Card>
+          </DetailRow>
+          <DetailRow label="Description">
+            {isEditMode ? (
+              <textarea
+                value={formData.description || ''}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Add notes about this subscription..."
+                rows={3}
+                data-testid="input-description"
+                className="w-full px-[11px] py-[7px] border border-line-firm rounded-lg bg-surface text-[13px] text-ink placeholder:text-muted-foreground focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft resize-none"
+              />
+            ) : (
+              <span className="text-[13px] text-ink whitespace-pre-wrap">
+                {subscription.description || 'No description'}
+              </span>
+            )}
+          </DetailRow>
+          {hasSourceAccount && (
+            <DetailRow label="Source email">
+              <div className="flex items-center gap-1.5" data-testid="source-email-account">
+                {gmailAccount && (
+                  <>
+                    <SiGoogle size={12} className="text-muted-foreground flex-none" />
+                    <span className="text-[13px] text-ink truncate">{gmailAccount.gmailEmail}</span>
+                  </>
+                )}
+                {outlookAccount && (
+                  <>
+                    <Mail size={13} strokeWidth={2} className="text-muted-foreground flex-none" />
+                    <span className="text-[13px] text-ink truncate">{outlookAccount.outlookEmail}</span>
+                  </>
+                )}
+              </div>
+            </DetailRow>
+          )}
+        </div>
 
-        {/* Timeline */}
-        <Card data-testid="timeline-section">
-          <CardHeader>
-            <CardTitle>Subscription Timeline</CardTitle>
-            <CardDescription>Payment history and upcoming charges</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label>Last Invoice/Email</Label>
-              <p className="text-sm text-muted-foreground">
-                {subscription.lastEmailDate
-                  ? format(new Date(subscription.lastEmailDate!), 'PPP')
-                  : 'No emails found'}
-              </p>
-            </div>
-            <div>
-              <Label>Next Payment Due</Label>
-              <p className="text-sm text-muted-foreground">
-                {subscription.nextBillingDate
-                  ? format(new Date(subscription.nextBillingDate!), 'PPP')
-                  : 'Not scheduled'}
-              </p>
-            </div>
-            <div>
-              <Label>Amount</Label>
-              <p className="text-lg font-semibold">
-                {subscription.currency} {subscription.amount}
-              </p>
-            </div>
-            <div>
-              <Label>Frequency</Label>
-              <p className="text-sm text-muted-foreground capitalize">{subscription.frequency}</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Ownership */}
-        <Card data-testid="ownership-section">
-          <CardHeader>
-            <CardTitle>Subscription Ownership</CardTitle>
-            <CardDescription>Who owns or manages this subscription</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label>Owner Name</Label>
-              {isEditMode ? (
-                <Input
+        {/* Ownership: owner name + email */}
+        <div className="contents" data-testid="ownership-section">
+          <DetailRow label="Owner">
+            {isEditMode ? (
+              <div className="field">
+                <input
                   value={formData.ownerName || ''}
                   onChange={(e) => setFormData({ ...formData, ownerName: e.target.value })}
                   placeholder="Enter owner name"
                   data-testid="input-owner-name"
                 />
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {subscription.ownerName || 'Not specified'}
-                </p>
-              )}
-            </div>
-            <div>
-              <Label>Owner Email</Label>
-              {isEditMode ? (
-                <Input
+              </div>
+            ) : (
+              <span className="text-[13px] text-ink">{subscription.ownerName || 'Not specified'}</span>
+            )}
+          </DetailRow>
+          <DetailRow label="Owner email" noBorder>
+            {isEditMode ? (
+              <div className="field">
+                <input
                   type="email"
                   value={formData.ownerEmail || ''}
                   onChange={(e) => setFormData({ ...formData, ownerEmail: e.target.value })}
                   placeholder="owner@example.com"
                   data-testid="input-owner-email"
                 />
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {subscription.ownerEmail || 'Not specified'}
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Invoices */}
-        <Card data-testid="invoices-section">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Invoices</CardTitle>
-                <CardDescription>Receipts found in your email, plus anything you upload</CardDescription>
-              </div>
-              <ObjectUploader
-                maxNumberOfFiles={10}
-                maxFileSize={10485760}
-                allowedFileTypes={['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.doc']}
-                onGetUploadParameters={handleGetUploadParameters}
-                onComplete={handleUploadComplete}
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                Upload
-              </ObjectUploader>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {invoices.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <FileText className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>No invoices yet</p>
-                <p className="text-sm">Receipts found in your email appear here after a sync. You can also upload PDFs, images or documents yourself.</p>
               </div>
             ) : (
-              <div className="space-y-2">
-                {invoices.map((invoice) => (
-                  <div
-                    key={invoice.id}
-                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent transition-colors"
-                    data-testid={`invoice-${invoice.id}`}
-                  >
-                    <div className="flex items-center space-x-3">
-                      {getFileIcon(invoice.fileType)}
-                      <div>
-                        <p className="text-sm font-medium">{invoice.fileName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {invoice.fileUrl ? formatFileSize(invoice.fileSize) : 'From the email — no file attached'} • {invoice.uploadedAt ? format(new Date(invoice.uploadedAt), 'PP') : 'Unknown date'}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex space-x-1">
-                      {/* Only shown when there is actually a file. Some
-                          merchants put the receipt in the email body and attach
-                          nothing, and those rows have no URL to open. */}
-                      {invoice.fileUrl && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => window.open(invoice.fileUrl, '_blank')}
-                          data-testid={`download-invoice-${invoice.id}`}
-                        >
-                          <Download className="h-4 w-4" />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => deleteInvoiceMutation.mutate(invoice.id)}
-                        disabled={deleteInvoiceMutation.isPending}
-                        data-testid={`delete-invoice-${invoice.id}`}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <span className="text-[13px] text-ink">{subscription.ownerEmail || 'Not specified'}</span>
             )}
-          </CardContent>
-        </Card>
+          </DetailRow>
+        </div>
+      </div>
+
+      {/* 4. Where this came from */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="t-eyebrow">Where this came from</h3>
+          <ObjectUploader
+            maxNumberOfFiles={10}
+            maxFileSize={10485760}
+            allowedFileTypes={['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.doc']}
+            onGetUploadParameters={handleGetUploadParameters}
+            onComplete={handleUploadComplete}
+            buttonClassName="btn-base btn-secondary"
+          >
+            <Upload size={15} strokeWidth={2} />
+            Upload
+          </ObjectUploader>
+        </div>
+
+        <div className="surface-card overflow-hidden" data-testid="invoices-section">
+          {invoices.length === 0 ? (
+            <p className="py-8 text-center text-[13px] text-muted-foreground">
+              Nothing found for this subscription yet.
+            </p>
+          ) : (
+            invoices.map((invoice, idx) => (
+              <div
+                key={invoice.id}
+                className={cn(
+                  "flex items-center gap-3 p-3",
+                  idx !== invoices.length - 1 && "border-b border-line-soft"
+                )}
+                data-testid={`invoice-${invoice.id}`}
+              >
+                {invoice.fileUrl ? (
+                  <FileText size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
+                ) : (
+                  <Mail size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] text-ink truncate">{invoice.fileName}</p>
+                  <p className="text-[11.5px] text-muted-foreground mt-0.5">
+                    {formatDate(invoice.uploadedAt)}
+                    {!invoice.fileUrl && " · From the email — no file attached"}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1 flex-none">
+                  {/* Only shown when there is actually a file. Some merchants
+                      put the receipt in the email body and attach nothing,
+                      and those rows have no URL to open. */}
+                  {invoice.fileUrl && (
+                    <button
+                      type="button"
+                      onClick={() => window.open(invoice.fileUrl, '_blank')}
+                      className="btn-base btn-ghost w-7 h-7 px-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      data-testid={`download-invoice-${invoice.id}`}
+                    >
+                      <Download size={15} strokeWidth={2} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => deleteInvoiceMutation.mutate(invoice.id)}
+                    disabled={deleteInvoiceMutation.isPending}
+                    className="btn-base btn-ghost w-7 h-7 px-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    data-testid={`delete-invoice-${invoice.id}`}
+                  >
+                    <Trash2 size={15} strokeWidth={2} className="text-destructive" />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* 5. Actions */}
+      <div className="border-t border-line pt-4 flex flex-wrap gap-2">
+        {!isEditMode ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setIsEditMode(true)}
+              className="btn-base btn-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="edit-btn"
+            >
+              <Edit size={15} strokeWidth={2} />
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowDeleteDialog(true)}
+              className="btn-base bg-destructive text-destructive-foreground hover:bg-destructive/90 border-none font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="delete-btn"
+            >
+              <Trash2 size={15} strokeWidth={2} />
+              Delete
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="btn-base btn-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="cancel-edit-btn"
+            >
+              <X size={15} strokeWidth={2} />
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={updateMutation.isPending}
+              className="btn-base btn-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="save-btn"
+            >
+              <Save size={15} strokeWidth={2} />
+              {updateMutation.isPending ? 'Saving...' : 'Save'}
+            </button>
+          </>
+        )}
       </div>
 
       {/* Delete Confirmation Dialog */}
@@ -560,14 +568,19 @@ export default function SubscriptionDetail() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="cancel-delete-btn">Cancel</AlertDialogCancel>
+            <AlertDialogCancel
+              className="btn-base btn-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="cancel-delete-btn"
+            >
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 deleteSubscriptionMutation.mutate();
                 setShowDeleteDialog(false);
               }}
               disabled={deleteSubscriptionMutation.isPending}
-              className="bg-destructive hover:bg-destructive/90"
+              className="btn-base bg-destructive text-destructive-foreground hover:bg-destructive/90 border-none font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               data-testid="confirm-delete-btn"
             >
               {deleteSubscriptionMutation.isPending ? 'Deleting...' : 'Delete Permanently'}
@@ -577,4 +590,107 @@ export default function SubscriptionDetail() {
       </AlertDialog>
     </div>
   );
+}
+
+/** A label/value row in the Details card -- label muted 12px on the left,
+ *  value 13px ink on the right, separated by a soft border except the last. */
+function DetailRow({
+  label,
+  noBorder,
+  children,
+}: {
+  label: string;
+  noBorder?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={cn("flex items-center gap-4 py-2", !noBorder && "border-b border-line-soft")}>
+      <span className="text-[12px] text-muted-foreground w-[100px] flex-none">{label}</span>
+      <div className="flex-1 min-w-0">{children}</div>
+    </div>
+  );
+}
+
+/** Parses a date field into a valid Date, or null if missing/unparseable. */
+function parseValidDate(date: string | Date | null | undefined): Date | null {
+  if (!date) return null;
+  const d = new Date(date);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * The earliest date this record knows about -- used for "Started". There is
+ * no explicit start-date column, so this takes the earliest of the dates the
+ * subscription and its invoices actually carry (when it was first detected,
+ * the last email seen, and every invoice's upload time).
+ */
+function earliestKnownDate(subscription: Subscription, invoices: Invoice[]): Date | null {
+  const candidates = [
+    subscription.detectedAt,
+    subscription.lastEmailDate,
+    ...invoices.map((i) => i.uploadedAt),
+  ]
+    .map((d) => parseValidDate(d))
+    .filter((d): d is Date => d !== null);
+
+  if (candidates.length === 0) return null;
+  return new Date(Math.min(...candidates.map((d) => d.getTime())));
+}
+
+/** "in 5 months" / "in 12 days" / "3 days ago", relative to now. */
+function relativeFromNow(date: Date): string {
+  const diffDays = Math.round((date.getTime() - Date.now()) / 86400000);
+  if (diffDays === 0) return "today";
+
+  const past = diffDays < 0;
+  const days = Math.abs(diffDays);
+  if (days < 30) {
+    return past ? `${days} day${days === 1 ? "" : "s"} ago` : `in ${days} day${days === 1 ? "" : "s"}`;
+  }
+  const months = Math.round(days / 30);
+  return past ? `${months} month${months === 1 ? "" : "s"} ago` : `in ${months} month${months === 1 ? "" : "s"}`;
+}
+
+/** 1st, 2nd, 3rd, 4th, ... */
+function ordinal(n: number): string {
+  const suffixes = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return `${n}${suffixes[(v - 20) % 10] || suffixes[v] || suffixes[0]}`;
+}
+
+/** "Monthly, every 19th" / "Yearly, every 3 March" / "Weekly, every Tuesday" --
+ *  the cadence plus, when a next billing date is known, the day it lands on. */
+function billingCycleLabel(
+  frequency: string,
+  frequencyLabel: string,
+  nextBillingDate: Date | null
+): string {
+  if (!nextBillingDate) return frequencyLabel;
+
+  switch (frequency) {
+    case 'monthly':
+    case 'quarterly':
+      return `${frequencyLabel}, every ${ordinal(nextBillingDate.getDate())}`;
+    case 'yearly':
+      return `${frequencyLabel}, every ${nextBillingDate.getDate()} ${nextBillingDate.toLocaleDateString('en-US', { month: 'long' })}`;
+    case 'weekly':
+      return `${frequencyLabel}, every ${nextBillingDate.toLocaleDateString('en-US', { weekday: 'long' })}`;
+    default:
+      return frequencyLabel;
+  }
+}
+
+/** The monthly-equivalent figure for a non-monthly cadence, or null for a
+ *  monthly subscription where it would just repeat the amount already shown. */
+function monthlyEquivalentAmount(amount: number, frequency: string): number | null {
+  switch (frequency) {
+    case 'yearly':
+      return amount / 12;
+    case 'quarterly':
+      return amount / 3;
+    case 'weekly':
+      return amount * (52 / 12);
+    default:
+      return null;
+  }
 }
