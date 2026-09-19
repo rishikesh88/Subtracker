@@ -60,7 +60,7 @@ export default function Dashboard() {
   const [addSubscriptionModalOpen, setAddSubscriptionModalOpen] = useState(false);
   const [isSyncInProgress, setIsSyncInProgress] = useState(false);
   // Presentation-only: which filter segment is selected on the subscription grid.
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "expired">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "expired">("active");
 
   // Track sync progress from localStorage
   useEffect(() => {
@@ -466,8 +466,10 @@ export default function Dashboard() {
   );
 
   const segments: { key: typeof statusFilter; label: string; count: number; testId: string }[] = [
-    { key: "all", label: "All", count: filterCounts.all, testId: "filter-all" },
+    // Active first: it is the segment people are actually here for, and it is
+    // also what the page opens on.
     { key: "active", label: "Active", count: filterCounts.active, testId: "filter-active" },
+    { key: "all", label: "All", count: filterCounts.all, testId: "filter-all" },
     { key: "expired", label: "Expired", count: filterCounts.expired, testId: "filter-expired" },
   ];
 

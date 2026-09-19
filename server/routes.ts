@@ -1676,7 +1676,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!canAccess) {
         return res.sendStatus(401);
       }
-      objectStorageService.downloadObject(objectFile, res);
+      // ?download=1 saves the file; without it the browser renders it, which
+      // is what the detail panel's preview needs.
+      const forceDownload = req.query.download === "1";
+      objectStorageService.downloadObject(objectFile, res, 3600, forceDownload);
     } catch (error) {
       console.error("Error checking object access:", error);
       if (error instanceof ObjectNotFoundError) {

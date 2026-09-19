@@ -12,12 +12,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Edit, Save, X, Upload, Download, Trash2, FileText, Mail } from "lucide-react";
+import { Edit, Save, X, Upload, Download, Trash2, FileText, Mail, Eye } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { ObjectUploader } from "@/components/ObjectUploader";
+import { InvoicePreview, previewKind, downloadUrl } from "@/components/InvoicePreview";
 import { cn } from "@/lib/utils";
 import { displayCategory, statusBadge, formatDate, formatCurrency, FREQUENCY_LABEL } from "@/lib/format";
 
@@ -43,6 +44,8 @@ export default function SubscriptionDetail({
   const [isEditMode, setIsEditMode] = useState(false);
   const [formData, setFormData] = useState<Partial<Subscription>>({});
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  // The invoice currently being looked at, or null when nothing is open.
+  const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
 
   const subscriptionId = idFromProps ?? params?.id;
 
@@ -271,7 +274,7 @@ export default function SubscriptionDetail({
           <span className="w-[34px] h-[34px] flex-none rounded-logo bg-line-soft flex items-center justify-center text-[14px] font-bold text-ink-body">
             {initial}
           </span>
-          <h2 className="t-section flex-1 min-w-0 [text-wrap:pretty]" data-testid="subscription-name">
+          <h2 className="t-object flex-1 min-w-0 [text-wrap:pretty]" data-testid="subscription-name">
             {subscription.serviceName}
           </h2>
           <button
@@ -295,7 +298,7 @@ export default function SubscriptionDetail({
       {/* 2. Summary strip */}
       <div className="surface-card flex flex-wrap">
         <div className="flex-1 min-w-[140px]" style={{ padding: "13px 16px" }}>
-          <div className="t-eyebrow">Next renewal</div>
+          <div className="t-label">Next renewal</div>
           <div className="text-[14.5px] font-semibold text-ink mt-1">
             {nextBillingDate ? formatDate(nextBillingDate) : "—"}
           </div>
@@ -306,7 +309,7 @@ export default function SubscriptionDetail({
           )}
         </div>
         <div className="flex-1 min-w-[140px] border-l border-line-soft" style={{ padding: "13px 16px" }}>
-          <div className="t-eyebrow">Amount</div>
+          <div className="t-label">Amount</div>
           <div className="t-price mt-1">{formatCurrency(amount, subscription.currency)}</div>
           {monthlyEquivalent !== null && (
             <div className="text-[11px] text-muted-foreground mt-0.5">
@@ -318,7 +321,46 @@ export default function SubscriptionDetail({
 
       {/* 3. Details */}
       <div className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
-        <h3 className="t-eyebrow mb-2">Details</h3>
+        {/*
+          Edit sits in this card's own header rather than in the actions row
+          at the foot of the panel: it edits these fields and nothing else,
+          and a control reads as belonging to whatever it is next to.
+        */}
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <h3 className="t-label">Details</h3>
+          {!isEditMode ? (
+            <button
+              type="button"
+              onClick={() => setIsEditMode(true)}
+              className="btn-base btn-ghost h-7 px-2 text-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="edit-btn"
+            >
+              <Edit size={14} strokeWidth={2} />
+              Edit
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="btn-base btn-ghost h-7 px-2 text-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                data-testid="cancel-edit-btn"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={updateMutation.isPending}
+                className="btn-base btn-primary h-7 px-2.5 text-[12px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                data-testid="save-btn"
+              >
+                <Save size={14} strokeWidth={2} />
+                {updateMutation.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Timeline: billing cycle + started */}
         <div className="contents" data-testid="timeline-section">
@@ -427,16 +469,24 @@ export default function SubscriptionDetail({
         </div>
       </div>
 
-      {/* 4. Where this came from */}
+      {/* 4. Invoices */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="t-eyebrow">Where this came from</h3>
+          <h3 className="t-label">
+            Invoices
+            {invoices.length > 0 && (
+              <span className="text-muted-foreground font-normal"> · {invoices.length}</span>
+            )}
+          </h3>
           <ObjectUploader
             maxNumberOfFiles={10}
             maxFileSize={10485760}
             allowedFileTypes={['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.doc']}
             onGetUploadParameters={handleGetUploadParameters}
             onComplete={handleUploadComplete}
+            onError={(message) =>
+              toast({ title: "That file wasn't uploaded", description: message, variant: "destructive" })
+            }
             buttonClassName="btn-base btn-secondary"
           >
             <Upload size={15} strokeWidth={2} />
@@ -455,9 +505,12 @@ export default function SubscriptionDetail({
                 key={invoice.id}
                 className={cn(
                   "flex items-center gap-3 p-3",
-                  idx !== invoices.length - 1 && "border-b border-line-soft"
+                  idx !== invoices.length - 1 && "border-b border-line-soft",
+                  previewKind(invoice) !== "none" && "cursor-pointer hover:bg-line-soft"
                 )}
                 data-testid={`invoice-${invoice.id}`}
+                onClick={() => previewKind(invoice) !== "none" && setPreviewInvoice(invoice)}
+                role={previewKind(invoice) !== "none" ? "button" : undefined}
               >
                 {invoice.fileUrl ? (
                   <FileText size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
@@ -475,19 +528,35 @@ export default function SubscriptionDetail({
                   {/* Only shown when there is actually a file. Some merchants
                       put the receipt in the email body and attach nothing,
                       and those rows have no URL to open. */}
-                  {invoice.fileUrl && (
+                  {invoice.fileUrl && previewKind(invoice) !== "none" && (
                     <button
                       type="button"
-                      onClick={() => window.open(invoice.fileUrl, '_blank')}
+                      onClick={() => setPreviewInvoice(invoice)}
+                      aria-label={`Preview ${invoice.fileName}`}
+                      className="btn-base btn-ghost w-7 h-7 px-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      data-testid={`preview-invoice-${invoice.id}`}
+                    >
+                      <Eye size={15} strokeWidth={2} />
+                    </button>
+                  )}
+                  {invoice.fileUrl && (
+                    <a
+                      href={downloadUrl(invoice.fileUrl)}
+                      download={invoice.fileName}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label={`Download ${invoice.fileName}`}
                       className="btn-base btn-ghost w-7 h-7 px-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       data-testid={`download-invoice-${invoice.id}`}
                     >
                       <Download size={15} strokeWidth={2} />
-                    </button>
+                    </a>
                   )}
                   <button
                     type="button"
-                    onClick={() => deleteInvoiceMutation.mutate(invoice.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteInvoiceMutation.mutate(invoice.id);
+                    }}
                     disabled={deleteInvoiceMutation.isPending}
                     className="btn-base btn-ghost w-7 h-7 px-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     data-testid={`delete-invoice-${invoice.id}`}
@@ -501,53 +570,25 @@ export default function SubscriptionDetail({
         </div>
       </div>
 
-      {/* 5. Actions */}
-      <div className="border-t border-line pt-4 flex flex-wrap gap-2">
-        {!isEditMode ? (
-          <>
-            <button
-              type="button"
-              onClick={() => setIsEditMode(true)}
-              className="btn-base btn-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              data-testid="edit-btn"
-            >
-              <Edit size={15} strokeWidth={2} />
-              Edit
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowDeleteDialog(true)}
-              className="btn-base bg-destructive text-destructive-foreground hover:bg-destructive/90 border-none font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              data-testid="delete-btn"
-            >
-              <Trash2 size={15} strokeWidth={2} />
-              Delete
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              onClick={handleCancel}
-              className="btn-base btn-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              data-testid="cancel-edit-btn"
-            >
-              <X size={15} strokeWidth={2} />
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={updateMutation.isPending}
-              className="btn-base btn-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              data-testid="save-btn"
-            >
-              <Save size={15} strokeWidth={2} />
-              {updateMutation.isPending ? 'Saving...' : 'Save'}
-            </button>
-          </>
-        )}
+      {/* 5. Actions -- Delete alone, right aligned like every other CTA.
+           Edit moved into the Details card it acts on. */}
+      <div className="border-t border-line pt-4 flex justify-end">
+        <button
+          type="button"
+          onClick={() => setShowDeleteDialog(true)}
+          className="btn-base bg-destructive text-destructive-foreground hover:bg-destructive/90 border-none font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-testid="delete-btn"
+        >
+          <Trash2 size={15} strokeWidth={2} />
+          Delete
+        </button>
       </div>
+
+      <InvoicePreview
+        invoice={previewInvoice}
+        open={Boolean(previewInvoice)}
+        onOpenChange={(open) => { if (!open) setPreviewInvoice(null); }}
+      />
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
@@ -592,8 +633,15 @@ export default function SubscriptionDetail({
   );
 }
 
-/** A label/value row in the Details card -- label muted 12px on the left,
- *  value 13px ink on the right, separated by a soft border except the last. */
+/**
+ * A label/value row in the Details card.
+ *
+ * Both columns are left aligned and the label column is only as wide as the
+ * longest label needs, so the value starts close to the word it answers
+ * rather than across a gutter -- which is what a wide panel turned it into.
+ * Below 420px the pair stacks, because a fixed label column plus a long
+ * value has nowhere left to go.
+ */
 function DetailRow({
   label,
   noBorder,
@@ -604,9 +652,16 @@ function DetailRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className={cn("flex items-center gap-4 py-2", !noBorder && "border-b border-line-soft")}>
-      <span className="text-[12px] text-muted-foreground w-[100px] flex-none">{label}</span>
-      <div className="flex-1 min-w-0">{children}</div>
+    <div
+      className={cn(
+        "flex flex-col gap-0.5 py-2 min-[420px]:flex-row min-[420px]:items-baseline min-[420px]:gap-3",
+        !noBorder && "border-b border-line-soft"
+      )}
+    >
+      <span className="text-[12px] text-muted-foreground min-[420px]:w-[92px] min-[420px]:flex-none">
+        {label}
+      </span>
+      <div className="min-w-0 text-left min-[420px]:flex-1">{children}</div>
     </div>
   );
 }

@@ -65,7 +65,17 @@ export class ObjectStorageService {
   }
 
   // Downloads an object to the response.
-  async downloadObject(file: File, res: Response, cacheTtlSec: number = 3600) {
+  //
+  // `forceDownload` is what separates the two things the UI does with a file:
+  // previewing it in place needs the browser to render it, so the disposition
+  // stays inline; the download button needs it saved, so it is set to
+  // attachment. Without that distinction one of the two always misbehaves.
+  async downloadObject(
+    file: File,
+    res: Response,
+    cacheTtlSec: number = 3600,
+    forceDownload: boolean = false
+  ) {
     try {
       // Get file metadata
       const [metadata] = await file.getMetadata();
@@ -79,6 +89,7 @@ export class ObjectStorageService {
         "Cache-Control": `${
           isPublic ? "public" : "private"
         }, max-age=${cacheTtlSec}`,
+        "Content-Disposition": forceDownload ? "attachment" : "inline",
       });
 
       // Stream the file to the response
