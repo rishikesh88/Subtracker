@@ -2,10 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
+import { FormField } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -64,10 +61,10 @@ export default function OrgSetup() {
     try {
       setIsSubmitting(true);
       console.log('[Event: org_setup_submitted]', { organizationName: data.organizationName, countryCode: data.countryCode });
-      
+
       // Map country to currency
       const preferredCurrency = COUNTRY_CURRENCY_MAP[data.countryCode] || "USD";
-      
+
       // Save organization data
       await apiRequest("POST", "/api/onboarding/org-setup", {
         organizationName: data.organizationName,
@@ -101,108 +98,109 @@ export default function OrgSetup() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 flex items-center justify-center p-4">
-      <Card className="w-full max-w-lg">
-        <CardHeader className="space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
-              <Building2 className="h-5 w-5 text-primary" />
-            </div>
-            <CardTitle className="text-2xl">Welcome to Verloq</CardTitle>
-          </div>
-          <CardDescription>
-            Let's set up your organization to track subscriptions effectively
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <FormField
-                control={form.control}
-                name="organizationName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center gap-2">
-                      <Building2 className="h-4 w-4 text-muted-foreground" />
-                      Organization Name
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="Acme Inc."
-                        data-testid="input-organization-name"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+    <div className="min-h-screen bg-canvas flex items-center justify-center px-4">
+      <div className="surface-card w-full max-w-[520px]" style={{ padding: "24px" }} data-testid="org-setup-page">
+        <div className="flex items-center gap-3">
+          <span className="w-9 h-9 flex-none rounded-logo bg-accent-soft flex items-center justify-center">
+            <Building2 size={17} strokeWidth={2} className="text-accent" />
+          </span>
+          <h1 className="t-section">Welcome to Verloq</h1>
+        </div>
+        <p className="t-body text-ink-body mt-2 mb-6">
+          Let's set up your organization to track subscriptions effectively
+        </p>
 
-              <FormField
-                control={form.control}
-                name="countryCode"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center gap-2">
-                      <MapPin className="h-4 w-4 text-muted-foreground" />
-                      Country
-                    </FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-country">
-                          <SelectValue placeholder="Select your country" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {COUNTRIES.map((country) => (
-                          <SelectItem 
-                            key={country.code} 
-                            value={country.code}
-                            data-testid={`option-country-${country.code}`}
-                          >
-                            {country.name} ({COUNTRY_CURRENCY_MAP[country.code]})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
+          <FormField
+            control={form.control}
+            name="organizationName"
+            render={({ field, fieldState }) => (
+              <div className="flex flex-col gap-1.5">
+                <label className="t-label flex items-center gap-1.5">
+                  <Building2 size={15} strokeWidth={2} className="text-muted-foreground" />
+                  Organization name
+                </label>
+                <input
+                  placeholder="Acme Inc."
+                  data-testid="input-organization-name"
+                  className="field w-full"
+                  {...field}
+                />
+                {fieldState.error && (
+                  <p className="t-caption text-destructive">{fieldState.error.message}</p>
                 )}
-              />
+              </div>
+            )}
+          />
 
-              <FormField
-                control={form.control}
-                name="accountHolderName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center gap-2">
-                      <User className="h-4 w-4 text-muted-foreground" />
-                      Account Holder Name
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="John Doe"
-                        data-testid="input-account-holder-name"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+          <FormField
+            control={form.control}
+            name="countryCode"
+            render={({ field, fieldState }) => (
+              <div className="flex flex-col gap-1.5">
+                <label className="t-label flex items-center gap-1.5">
+                  <MapPin size={15} strokeWidth={2} className="text-muted-foreground" />
+                  Country
+                </label>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <SelectTrigger
+                    data-testid="select-country"
+                    className="field h-8 w-full justify-between rounded-[8px] border-line-firm bg-surface px-[11px] py-0 text-[13px] text-foreground focus:ring-2 focus:ring-accent-soft focus:ring-offset-0 data-[placeholder]:text-muted-foreground"
+                  >
+                    <SelectValue placeholder="Select your country" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-[8px] border-line bg-surface text-foreground">
+                    {COUNTRIES.map((country) => (
+                      <SelectItem
+                        key={country.code}
+                        value={country.code}
+                        data-testid={`option-country-${country.code}`}
+                        className="rounded-[6px] text-[13px] focus:bg-line-soft focus:text-ink"
+                      >
+                        {country.name} ({COUNTRY_CURRENCY_MAP[country.code]})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {fieldState.error && (
+                  <p className="t-caption text-destructive">{fieldState.error.message}</p>
                 )}
-              />
+              </div>
+            )}
+          />
 
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={isSubmitting}
-                data-testid="button-continue"
-              >
-                {isSubmitting ? "Saving..." : "Continue"}
-              </Button>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
+          <FormField
+            control={form.control}
+            name="accountHolderName"
+            render={({ field, fieldState }) => (
+              <div className="flex flex-col gap-1.5">
+                <label className="t-label flex items-center gap-1.5">
+                  <User size={15} strokeWidth={2} className="text-muted-foreground" />
+                  Account holder name
+                </label>
+                <input
+                  placeholder="John Doe"
+                  data-testid="input-account-holder-name"
+                  className="field w-full"
+                  {...field}
+                />
+                {fieldState.error && (
+                  <p className="t-caption text-destructive">{fieldState.error.message}</p>
+                )}
+              </div>
+            )}
+          />
+
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            data-testid="button-continue"
+            className="btn-base btn-accent w-full justify-center mt-1"
+          >
+            {isSubmitting ? "Saving..." : "Continue"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

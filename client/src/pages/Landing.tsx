@@ -1,69 +1,69 @@
-import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Mail, Bot, Wallet } from "lucide-react";
 
 export function Landing() {
   // Check for signed-out feedback
   const urlParams = new URLSearchParams(window.location.search);
   const isSignedOut = urlParams.get('signed_out') === 'true';
-  
+
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center p-8">
-      <div className="max-w-2xl mx-auto text-center space-y-8">
+    <div className="min-h-screen bg-canvas flex flex-col items-center justify-center px-4 py-8">
+      <div className="max-w-2xl mx-auto text-center flex flex-col gap-8">
         {isSignedOut && (
-          <Alert className="border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200" data-testid="signed-out-alert">
-            <CheckCircle2 className="h-4 w-4" />
-            <AlertDescription>
+          <div
+            className="flex items-center gap-2 rounded-card border border-success/20 bg-success-soft px-4 py-3"
+            data-testid="signed-out-alert"
+          >
+            <CheckCircle2 size={17} strokeWidth={2} className="text-success flex-none" />
+            <p className="t-body text-success text-left">
               You've been successfully signed out. You can now sign in with a different account.
-            </AlertDescription>
-          </Alert>
+            </p>
+          </div>
         )}
-        <div className="space-y-4">
-          <h1 className="text-4xl font-bold text-foreground" data-testid="landing-title">
+        <div className="flex flex-col gap-4">
+          <h1 className="t-display text-ink" data-testid="landing-title">
             Verloq
           </h1>
-          <p className="text-xl text-muted-foreground" data-testid="landing-description">
+          <p className="t-body text-muted-foreground text-lg" data-testid="landing-description">
             Automatically detect and track your subscriptions from Gmail emails using AI-powered analysis.
           </p>
         </div>
-        
-        <div className="space-y-6">
+
+        <div className="flex flex-col gap-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
-            <div className="space-y-2">
-              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                <span className="text-2xl">📧</span>
+            <div className="flex flex-col gap-2">
+              <div className="w-11 h-11 rounded-lg bg-line-soft flex items-center justify-center">
+                <Mail size={17} strokeWidth={2} className="text-muted-foreground" />
               </div>
-              <h3 className="font-semibold text-foreground">Gmail Integration</h3>
-              <p className="text-sm text-muted-foreground">Connect securely to analyze your transaction emails</p>
+              <h3 className="t-card-title text-ink">Gmail integration</h3>
+              <p className="t-body text-muted-foreground">Connect securely to analyze your transaction emails</p>
             </div>
-            
-            <div className="space-y-2">
-              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                <span className="text-2xl">🤖</span>
+
+            <div className="flex flex-col gap-2">
+              <div className="w-11 h-11 rounded-lg bg-line-soft flex items-center justify-center">
+                <Bot size={17} strokeWidth={2} className="text-muted-foreground" />
               </div>
-              <h3 className="font-semibold text-foreground">AI Detection</h3>
-              <p className="text-sm text-muted-foreground">Smart AI identifies recurring subscription patterns</p>
+              <h3 className="t-card-title text-ink">AI detection</h3>
+              <p className="t-body text-muted-foreground">Smart AI identifies recurring subscription patterns</p>
             </div>
-            
-            <div className="space-y-2">
-              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                <span className="text-2xl">💰</span>
+
+            <div className="flex flex-col gap-2">
+              <div className="w-11 h-11 rounded-lg bg-line-soft flex items-center justify-center">
+                <Wallet size={17} strokeWidth={2} className="text-muted-foreground" />
               </div>
-              <h3 className="font-semibold text-foreground">Cost Tracking</h3>
-              <p className="text-sm text-muted-foreground">Monitor your monthly subscription expenses in ₹</p>
+              <h3 className="t-card-title text-ink">Cost tracking</h3>
+              <p className="t-body text-muted-foreground">Monitor your monthly subscription expenses in ₹</p>
             </div>
           </div>
-          
-          <Button 
-            size="lg"
+
+          <button
             onClick={() => window.location.href = '/login'}
             data-testid="login-button"
-            className="px-8 py-3"
+            className="btn-base btn-accent self-center px-8 h-10 text-[13.5px]"
           >
-            {isSignedOut ? 'Sign In with Different Account' : 'Get Started'}
-          </Button>
-          
-          <p className="text-sm text-muted-foreground">
+            {isSignedOut ? 'Sign in with a different account' : 'Get started'}
+          </button>
+
+          <p className="t-caption">
             Sign in with Google, Microsoft, Replit, or create an account to start tracking your subscriptions
           </p>
         </div>

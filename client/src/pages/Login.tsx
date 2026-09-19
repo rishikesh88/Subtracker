@@ -1,10 +1,5 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { AlertCircle } from "lucide-react";
@@ -40,7 +35,7 @@ export default function Login() {
       }
 
       const user = await response.json();
-      
+
       // Invalidate auth query to refresh user data
       queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
 
@@ -83,7 +78,7 @@ export default function Login() {
 
   const getErrorMessage = (errorCode: string | null) => {
     if (!errorCode) return null;
-    
+
     const errorMessages: Record<string, string> = {
       'google_auth_failed': 'Google authentication failed. Please try again.',
       'microsoft_auth_init_failed': 'Microsoft authentication failed to initialize.',
@@ -100,78 +95,82 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center" data-testid="login-title">
-            Sign in to Verloq
-          </CardTitle>
-          <CardDescription className="text-center">
-            Choose your preferred sign-in method
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {(error || urlError) && (
-            <Alert variant="destructive" data-testid="login-error">
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription>
-                {getErrorMessage(urlError) || error}
-              </AlertDescription>
-            </Alert>
-          )}
+    <div className="min-h-screen bg-canvas flex items-center justify-center px-4">
+      <div className="max-w-[400px] w-full">
+        <div className="flex items-center justify-center gap-2.5 mb-5">
+          <span className="w-[22px] h-[22px] flex-none rounded-logo bg-accent" aria-hidden="true" />
+          <span className="font-serif text-[21px] leading-none tracking-[-0.02em] text-ink">Verloq</span>
+        </div>
+        <div className="max-w-[400px] w-full surface-card" style={{ padding: "24px" }}>
 
-          {/* OAuth Buttons */}
-          <div className="space-y-2">
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={handleGoogleLogin}
-              type="button"
-              data-testid="button-google-login"
-            >
-              <FcGoogle className="mr-2 h-5 w-5" />
-              Sign in with Google
-            </Button>
+        <div className="flex flex-col gap-1 mb-5 text-center">
+          <h1 className="t-section text-ink" data-testid="login-title">
+            Welcome back
+          </h1>
+          <p className="t-body text-muted-foreground">
+            Sign in to your Verloq account
+          </p>
+        </div>
 
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={handleMicrosoftLogin}
-              type="button"
-              data-testid="button-microsoft-login"
-            >
-              <FaMicrosoft className="mr-2 h-4 w-4 text-blue-600" />
-              Sign in with Microsoft
-            </Button>
-
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={handleReplitLogin}
-              type="button"
-              data-testid="button-replit-login"
-            >
-              <svg className="mr-2 h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M21.3 17.5c0 1-.8 1.8-1.8 1.8h-6.2c-.5 0-.9-.4-.9-.9v-6.2c0-.5.4-.9.9-.9h6.2c1 0 1.8.8 1.8 1.8v4.4zm-9 1.8H5.7c-1 0-1.8-.8-1.8-1.8V13c0-1 .8-1.8 1.8-1.8h6.2c.5 0 .9.4.9.9v6.3c0 .5-.4.9-.9.9zm9-12.8c0 1-.8 1.8-1.8 1.8h-6.2c-.5 0-.9-.4-.9-.9V1.2c0-.5.4-.9.9-.9h6.2c1 0 1.8.8 1.8 1.8v4.4z"/>
-              </svg>
-              Sign in with Replit
-            </Button>
+        {(error || urlError) && (
+          <div
+            className="flex items-start gap-2 rounded-card border border-destructive/30 bg-destructive/[0.06] px-3 py-2.5 mb-4"
+            data-testid="login-error"
+          >
+            <AlertCircle size={15} strokeWidth={2} className="text-destructive flex-none mt-0.5" />
+            <p className="t-body text-destructive">
+              {getErrorMessage(urlError) || error}
+            </p>
           </div>
+        )}
 
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-background px-2 text-muted-foreground">Or continue with email</span>
-            </div>
-          </div>
+        {/* OAuth Buttons */}
+        <div className="flex flex-col gap-2 mb-4">
+          <button
+            type="button"
+            onClick={handleGoogleLogin}
+            className="btn-base btn-secondary w-full"
+            data-testid="button-google-login"
+          >
+            <FcGoogle className="h-4 w-4" />
+            Sign in with Google
+          </button>
 
-          {/* Email/Password Form */}
-          <form onSubmit={handleEmailLogin} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
+          <button
+            type="button"
+            onClick={handleMicrosoftLogin}
+            className="btn-base btn-secondary w-full"
+            data-testid="button-microsoft-login"
+          >
+            <FaMicrosoft className="h-4 w-4 text-blue-600" />
+            Sign in with Microsoft
+          </button>
+
+          <button
+            type="button"
+            onClick={handleReplitLogin}
+            className="btn-base btn-secondary w-full"
+            data-testid="button-replit-login"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M21.3 17.5c0 1-.8 1.8-1.8 1.8h-6.2c-.5 0-.9-.4-.9-.9v-6.2c0-.5.4-.9.9-.9h6.2c1 0 1.8.8 1.8 1.8v4.4zm-9 1.8H5.7c-1 0-1.8-.8-1.8-1.8V13c0-1 .8-1.8 1.8-1.8h6.2c.5 0 .9.4.9.9v6.3c0 .5-.4.9-.9.9zm9-12.8c0 1-.8 1.8-1.8 1.8h-6.2c-.5 0-.9-.4-.9-.9V1.2c0-.5.4-.9.9-.9h6.2c1 0 1.8.8 1.8 1.8v4.4z"/>
+            </svg>
+            Sign in with Replit
+          </button>
+        </div>
+
+        <div className="flex items-center gap-3 mb-4">
+          <span className="flex-1 border-t border-line" />
+          <span className="t-caption">Or continue with email</span>
+          <span className="flex-1 border-t border-line" />
+        </div>
+
+        {/* Email/Password Form */}
+        <form onSubmit={handleEmailLogin} className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="email" className="t-label">Email</label>
+            <div className="field">
+              <input
                 id="email"
                 type="email"
                 placeholder="you@example.com"
@@ -181,10 +180,12 @@ export default function Login() {
                 data-testid="input-email"
               />
             </div>
+          </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="password" className="t-label">Password</label>
+            <div className="field">
+              <input
                 id="password"
                 type="password"
                 placeholder="••••••••"
@@ -194,29 +195,30 @@ export default function Login() {
                 data-testid="input-password"
               />
             </div>
-
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isLoading}
-              data-testid="button-email-login"
-            >
-              {isLoading ? "Signing in..." : "Sign in with Email"}
-            </Button>
-          </form>
-
-          <div className="text-center text-sm">
-            <span className="text-muted-foreground">Don't have an account? </span>
-            <button
-              onClick={() => setLocation('/signup')}
-              className="text-primary hover:underline font-medium"
-              data-testid="link-signup"
-            >
-              Sign up
-            </button>
           </div>
-        </CardContent>
-      </Card>
+
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="btn-base btn-accent w-full mt-1"
+            data-testid="button-email-login"
+          >
+            {isLoading ? "Signing in…" : "Sign in"}
+          </button>
+        </form>
+
+        <p className="t-caption text-center mt-4">
+          Don't have an account?{" "}
+          <button
+            onClick={() => setLocation('/signup')}
+            className="text-accent hover:underline font-medium"
+            data-testid="link-signup"
+          >
+            Sign up
+          </button>
+        </p>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,11 +1,6 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { User, LogOut, Mail, Unlink, Calendar, Save, Plus, Trash2 } from "lucide-react";
+import { User, LogOut, Mail, Calendar, Save, Trash2 } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -13,27 +8,27 @@ import type { SafeUser, GmailAccount, OutlookAccount } from "@shared/schema";
 import { useState, useEffect } from "react";
 
 export default function Settings() {
-  const { data: user } = useQuery<SafeUser>({ 
+  const { data: user } = useQuery<SafeUser>({
     queryKey: ['/api/auth/user']
   });
-  
+
   // Fetch Gmail accounts
-  const { data: gmailAccounts = [], isLoading: gmailAccountsLoading } = useQuery<GmailAccount[]>({ 
+  const { data: gmailAccounts = [], isLoading: gmailAccountsLoading } = useQuery<GmailAccount[]>({
     queryKey: ['/api/gmail/accounts']
   });
-  
+
   // Fetch Outlook accounts
-  const { data: outlookAccounts = [], isLoading: outlookAccountsLoading } = useQuery<OutlookAccount[]>({ 
+  const { data: outlookAccounts = [], isLoading: outlookAccountsLoading } = useQuery<OutlookAccount[]>({
     queryKey: ['/api/outlook/accounts']
   });
-  
+
   const accountsLoading = gmailAccountsLoading || outlookAccountsLoading;
-  
+
   // Unified account list with proper typing
-  type UnifiedAccount = 
+  type UnifiedAccount =
     | ({ provider: 'gmail' } & GmailAccount)
     | ({ provider: 'outlook' } & OutlookAccount);
-  
+
   const unifiedAccounts: UnifiedAccount[] = [
     ...gmailAccounts.map(acc => ({ ...acc, provider: 'gmail' as const })),
     ...outlookAccounts.map(acc => ({ ...acc, provider: 'outlook' as const }))
@@ -43,10 +38,10 @@ export default function Settings() {
     const dateB = new Date(b.createdAt || 0);
     return dateB.getTime() - dateA.getTime();
   });
-  
+
   const totalAccounts = gmailAccounts.length + outlookAccounts.length;
   const canAddMore = totalAccounts < 4;
-  
+
   const { toast } = useToast();
   const [emailSyncDays, setEmailSyncDays] = useState<number>(90);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -63,12 +58,12 @@ export default function Settings() {
   const deleteGmailAccountMutation = useMutation({
     mutationFn: async (accountId: string) => {
       const response = await apiRequest('DELETE', `/api/gmail/accounts/${accountId}`);
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'Failed to disconnect account' }));
         throw new Error(errorData.message || 'Failed to disconnect account');
       }
-      
+
       // DELETE returns 204 No Content, so don't try to parse JSON
       return null;
     },
@@ -106,12 +101,12 @@ export default function Settings() {
   const deleteOutlookAccountMutation = useMutation({
     mutationFn: async (accountId: string) => {
       const response = await apiRequest('DELETE', `/api/outlook/accounts/${accountId}`);
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'Failed to disconnect account' }));
         throw new Error(errorData.message || 'Failed to disconnect account');
       }
-      
+
       // DELETE returns 204 No Content, so don't try to parse JSON
       return null;
     },
@@ -198,23 +193,25 @@ export default function Settings() {
   const handleConnectOutlook = () => {
     connectOutlookMutation.mutate();
   };
-  
+
+  // Ink-on-soft-ground badge for an account's sync status, per the design
+  // system's status principle -- a saturated fill is never used for state.
   const getSyncStatusBadge = (status: string) => {
     switch (status) {
       case 'syncing':
-        return <Badge variant="secondary" className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">Syncing</Badge>;
+        return <span className="badge-status bg-accent-soft text-accent-deep">Syncing</span>;
       case 'error':
-        return <Badge variant="destructive">Error</Badge>;
+        return <span className="badge-status bg-destructive/10 text-destructive">Error</span>;
       case 'idle':
-        return <Badge variant="outline" className="text-green-600 border-green-200 dark:text-green-400 dark:border-green-800">Ready</Badge>;
+        return <span className="badge-status bg-success-soft text-success">Ready</span>;
       case 'completed':
-        return <Badge variant="outline" className="text-green-600 border-green-200 dark:text-green-400 dark:border-green-800">Completed</Badge>;
+        return <span className="badge-status bg-success-soft text-success">Completed</span>;
       case 'disabled':
-        return <Badge variant="secondary" className="text-gray-600 dark:text-gray-400">Disabled</Badge>;
+        return <span className="badge-status bg-line-soft text-muted-foreground">Disabled</span>;
       case 'pending':
-        return <Badge variant="secondary">Pending</Badge>;
+        return <span className="badge-status bg-line-soft text-muted-foreground">Pending</span>;
       default:
-        return <Badge variant="secondary">{status || 'Unknown'}</Badge>;
+        return <span className="badge-status bg-line-soft text-muted-foreground">{status || 'Unknown'}</span>;
     }
   };
 
@@ -223,21 +220,21 @@ export default function Settings() {
     mutationFn: async () => {
       const response = await apiRequest("POST", "/api/sync-emails-llm");
       const data = await response.json().catch(() => ({ message: 'Invalid response' }));
-      
+
       if (!response.ok) {
         throw new Error(data.message || 'Failed to sync emails');
       }
-      
+
       return data;
     },
     onSuccess: () => {
       const userId = user?.id;
-      
+
       toast({
         title: "Email Sync Started",
         description: `Analyzing emails in background...`,
       });
-      
+
       // Invalidate all relevant queries to refresh data (aligned with dashboard)
       queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
       if (userId) {
@@ -272,14 +269,14 @@ export default function Settings() {
         title: "Settings Saved",
         description: "Your preferences have been updated successfully. Starting sync...",
       });
-      
+
       // Trigger automatic sync with new duration
       localStorage.setItem('justOnboarded', 'true');
       localStorage.setItem('onboardedAt', Date.now().toString());
-      
+
       // Dispatch custom event to trigger SyncProgressPanel
       window.dispatchEvent(new Event('syncTrigger'));
-      
+
       syncEmailsMutation.mutate();
     },
     onError: (error: any) => {
@@ -313,17 +310,17 @@ export default function Settings() {
     }
     updateSettingsMutation.mutate({ emailSyncDays });
   };
-  
+
   const handleLogout = () => {
     // Clear all cached data before logout for seamless account switching
     queryClient.clear();
-    
+
     // Show signing out feedback
     toast({
       title: "Signing out...",
       description: "You'll be redirected to sign in with a different account.",
     });
-    
+
     // Redirect to logout endpoint
     setTimeout(() => {
       window.location.href = '/api/logout';
@@ -331,264 +328,247 @@ export default function Settings() {
   };
 
   return (
-    <div className="container mx-auto px-6 py-8" data-testid="settings-page">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground">Settings</h1>
-        <p className="text-muted-foreground mt-2">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden bg-canvas" data-testid="settings-page">
+      {/* --- Page header ---------------------------------------------------- */}
+      <header
+        className="flex-shrink-0 bg-surface border-b border-line"
+        style={{ padding: "20px 24px 16px" }}
+      >
+        <h1 className="t-page">Settings</h1>
+        <p className="text-[12.5px] text-muted-foreground mt-1">
           Manage your account settings and preferences
         </p>
-      </div>
+      </header>
 
-      <div className="grid gap-6">
-        {/* User Profile Card */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Profile</CardTitle>
-            <CardDescription>
-              Your account information and preferences
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center space-x-4">
-              <Avatar className="h-16 w-16">
-                <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
-                <AvatarFallback className="bg-primary/10">
-                  <User className="h-8 w-8" />
-                </AvatarFallback>
-              </Avatar>
-              <div className="space-y-1">
-                <h3 className="font-semibold text-lg" data-testid="profile-name">
-                  {user?.firstName && user?.lastName 
-                    ? `${user.firstName} ${user.lastName}` 
-                    : 'User'
-                  }
-                </h3>
-                <p className="text-muted-foreground" data-testid="profile-email">
-                  {user?.email}
-                </p>
-                <Badge variant="outline" className="text-xs">
-                  Joined {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Recently'}
-                </Badge>
-              </div>
+      {/* --- Body ------------------------------------------------------------ */}
+      <main
+        className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-5"
+        style={{ padding: "20px 24px 40px" }}
+      >
+        {/* Profile */}
+        <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
+          <h2 className="t-label mb-3">Profile</h2>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Avatar className="h-11 w-11 flex-none">
+              <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
+              <AvatarFallback className="bg-line-soft">
+                <User size={17} strokeWidth={2} className="text-ink-body" />
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-[170px] flex-1 overflow-hidden">
+              <h3 className="t-card-title truncate" data-testid="profile-name">
+                {user?.firstName && user?.lastName
+                  ? `${user.firstName} ${user.lastName}`
+                  : 'User'
+                }
+              </h3>
+              <p className="text-[13px] text-ink-body truncate" data-testid="profile-email">
+                {user?.email}
+              </p>
             </div>
-            <div className="flex items-center gap-3">
-              <Button variant="outline" size="sm" disabled>
-                Edit Profile
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleLogout}
-                className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
-                data-testid="logout-settings-button"
+            <span className="badge-category flex-none">
+              Joined {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Recently'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 mt-4 pt-4 border-t border-line-soft">
+            <button type="button" className="btn-base btn-secondary" disabled>
+              Edit profile
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="btn-base btn-secondary"
+              data-testid="logout-settings-button"
+            >
+              <LogOut size={15} strokeWidth={2} />
+              Sign out
+            </button>
+          </div>
+        </section>
+
+        {/* Email accounts */}
+        <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div className="min-w-0">
+              <h2 className="t-label">Email accounts</h2>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                Connect Gmail and Outlook accounts for subscription tracking (max 4 total)
+              </p>
+            </div>
+            <div className="flex gap-2 flex-none">
+              <button
+                type="button"
+                onClick={handleConnectGmail}
+                disabled={connectGmailMutation.isPending || (gmailAccounts.length >= 2) || !canAddMore}
+                data-testid="connect-gmail-button"
+                className="btn-base btn-secondary"
               >
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign Out
-              </Button>
+                <SiGoogle size={13} />
+                {connectGmailMutation.isPending ? "Connecting..." : "Gmail"}
+              </button>
+              <button
+                type="button"
+                onClick={handleConnectOutlook}
+                disabled={connectOutlookMutation.isPending || (outlookAccounts.length >= 2) || !canAddMore}
+                data-testid="connect-outlook-button"
+                className="btn-base btn-secondary"
+              >
+                <Mail size={15} strokeWidth={2} />
+                {connectOutlookMutation.isPending ? "Connecting..." : "Outlook"}
+              </button>
             </div>
-          </CardContent>
-        </Card>
+          </div>
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Email Accounts</CardTitle>
-                <CardDescription>
-                  Connect multiple Gmail and Outlook accounts for comprehensive subscription tracking (max 4 total)
-                </CardDescription>
-              </div>
-              <div className="flex gap-2">
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={handleConnectGmail}
-                  disabled={connectGmailMutation.isPending || (gmailAccounts.length >= 2) || !canAddMore}
-                  data-testid="connect-gmail-button"
-                  className="gap-1.5"
-                >
-                  <SiGoogle className="h-3.5 w-3.5" />
-                  {connectGmailMutation.isPending ? "Connecting..." : "Gmail"}
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={handleConnectOutlook}
-                  disabled={connectOutlookMutation.isPending || (outlookAccounts.length >= 2) || !canAddMore}
-                  data-testid="connect-outlook-button"
-                  className="gap-1.5"
-                >
-                  <Mail className="h-3.5 w-3.5" />
-                  {connectOutlookMutation.isPending ? "Connecting..." : "Outlook"}
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
+          <div className="mt-3">
             {accountsLoading ? (
-              <div className="text-center py-8 text-muted-foreground">
-                Loading accounts...
-              </div>
+              <p className="py-8 text-center text-[13px] text-muted-foreground">
+                Loading accounts…
+              </p>
             ) : unifiedAccounts.length === 0 ? (
-              <div className="text-center py-8 border-2 border-dashed rounded-lg">
-                <Mail className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
-                <p className="font-medium text-muted-foreground mb-2">No email accounts connected</p>
-                <p className="text-sm text-muted-foreground mb-4">
+              <div className="flex flex-col items-center text-center py-8 px-4 border border-dashed border-line rounded-card">
+                <Mail size={17} strokeWidth={2} className="text-muted-foreground mb-2" />
+                <p className="t-card-title">No email accounts connected</p>
+                <p className="text-[12.5px] text-muted-foreground mt-1 max-w-[320px]">
                   Connect your Gmail or Outlook account to start tracking subscriptions
                 </p>
-                <div className="flex gap-2 justify-center">
-                  <Button 
-                    variant="outline" 
-                    size="sm"
+                <div className="flex gap-2 justify-center flex-wrap mt-4">
+                  {/* The one forward action on this screen: connecting a
+                      mailbox when none is connected yet. */}
+                  <button
+                    type="button"
                     onClick={handleConnectGmail}
                     disabled={connectGmailMutation.isPending}
                     data-testid="connect-first-gmail-button"
-                    className="gap-1.5"
+                    className="btn-base btn-accent"
                   >
-                    <SiGoogle className="h-3.5 w-3.5" />
+                    <SiGoogle size={13} />
                     {connectGmailMutation.isPending ? "Connecting..." : "Connect Gmail"}
-                  </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm"
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleConnectOutlook}
                     disabled={connectOutlookMutation.isPending}
                     data-testid="connect-first-outlook-button"
-                    className="gap-1.5"
+                    className="btn-base btn-secondary"
                   >
-                    <Mail className="h-3.5 w-3.5" />
+                    <Mail size={15} strokeWidth={2} />
                     {connectOutlookMutation.isPending ? "Connecting..." : "Connect Outlook"}
-                  </Button>
+                  </button>
                 </div>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="flex flex-col gap-2">
                 {unifiedAccounts.map((account) => {
                   const isGmail = account.provider === 'gmail';
                   const email = isGmail ? (account as GmailAccount).gmailEmail : (account as OutlookAccount).outlookEmail;
                   const accountId = account.id;
                   const testId = isGmail ? `gmail-account-${accountId}` : `outlook-account-${accountId}`;
-                  
+
                   return (
-                    <div 
+                    <div
                       key={`${account.provider}-${accountId}`}
-                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
+                      className="flex items-center gap-3 p-3 border border-line-soft rounded-lg flex-wrap"
                       data-testid={testId}
                     >
-                      <div className="flex items-center space-x-3 flex-1">
+                      <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-line-soft flex-none">
                         {isGmail ? (
-                          <div className="flex items-center justify-center h-8 w-8 rounded bg-primary/10">
-                            <SiGoogle className="h-4 w-4 text-primary" />
-                          </div>
+                          <SiGoogle size={14} className="text-ink-body" />
                         ) : (
-                          <div className="flex items-center justify-center h-8 w-8 rounded bg-blue-100 dark:bg-blue-900">
-                            <Mail className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                          </div>
+                          <Mail size={15} strokeWidth={2} className="text-ink-body" />
                         )}
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium" data-testid={isGmail ? `gmail-email-${accountId}` : `outlook-email-${accountId}`}>
-                              {email}
-                            </p>
-                            {isGmail ? (
-                              <Badge variant="outline" className="text-xs">Gmail</Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-800">Outlook</Badge>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 mt-1">
-                            {getSyncStatusBadge(account.syncStatus)}
-                            {account.lastSync && (
-                              <span className="text-xs text-muted-foreground">
-                                Last sync: {new Date(account.lastSync).toLocaleDateString()}
-                              </span>
-                            )}
-                          </div>
-                          {account.syncError && (
-                            <p className="text-xs text-destructive mt-1" data-testid={`sync-error-${accountId}`}>
-                              {account.syncError}
-                            </p>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-[13px] font-medium text-ink truncate min-w-[170px]" data-testid={isGmail ? `gmail-email-${accountId}` : `outlook-email-${accountId}`}>
+                            {email}
+                          </p>
+                          <span className="badge-cadence flex-none">{isGmail ? "Gmail" : "Outlook"}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          {getSyncStatusBadge(account.syncStatus)}
+                          {account.lastSync && (
+                            <span className="text-[11px] text-muted-foreground">
+                              Last sync: {new Date(account.lastSync).toLocaleDateString()}
+                            </span>
                           )}
                         </div>
+                        {account.syncError && (
+                          <p className="text-[11px] text-destructive mt-1" data-testid={`sync-error-${accountId}`}>
+                            {account.syncError}
+                          </p>
+                        )}
                       </div>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
+                      <button
+                        type="button"
                         onClick={() => isGmail ? handleDisconnectGmailAccount(accountId) : handleDisconnectOutlookAccount(accountId)}
                         disabled={pendingDeletes.has(accountId)}
-                        className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
+                        className="btn-base btn-secondary flex-none"
                         data-testid={isGmail ? `disconnect-gmail-${accountId}` : `disconnect-outlook-${accountId}`}
                       >
-                        <Trash2 className="mr-2 h-4 w-4" />
+                        <Trash2 size={15} strokeWidth={2} className="text-destructive" />
                         {pendingDeletes.has(accountId) ? "Removing..." : "Remove"}
-                      </Button>
+                      </button>
                     </div>
                   );
                 })}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Detection Settings</CardTitle>
-            <CardDescription>
-              Configure how subscriptions are detected and processed
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium">Currency</p>
-                <p className="text-sm text-muted-foreground">
-                  Primary currency for subscription tracking
-                </p>
-              </div>
-              <Badge variant="outline">INR</Badge>
-            </div>
+        {/* Detection settings */}
+        <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
+          <h2 className="t-label mb-3">Detection settings</h2>
 
-            <div className="space-y-3 pt-4 border-t">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <Label htmlFor="emailSyncDays" className="font-medium">
-                  Email Sync Period
-                </Label>
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <Input
-                    id="emailSyncDays"
-                    type="number"
-                    min="1"
-                    max="180"
-                    value={emailSyncDays}
-                    onChange={(e) => handleSyncDaysChange(e.target.value)}
-                    className="w-24"
-                    data-testid="email-sync-days-input"
-                  />
-                  <span className="text-sm text-muted-foreground">days (max 180)</span>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Number of days to fetch emails when syncing with Gmail. Default is 90 days.
-                </p>
-                {hasUnsavedChanges && (
-                  <Button
-                    size="sm"
-                    onClick={handleSaveSettings}
-                    disabled={updateSettingsMutation.isPending}
-                    className="mt-2"
-                    data-testid="save-settings-button"
-                  >
-                    <Save className="mr-2 h-3 w-3" />
-                    {updateSettingsMutation.isPending ? "Saving..." : "Save Changes"}
-                  </Button>
-                )}
-              </div>
+          <div className="flex items-center justify-between gap-3 pb-3 border-b border-line-soft">
+            <div>
+              <p className="text-[13px] font-medium text-ink-strong">Currency</p>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                Primary currency for subscription tracking
+              </p>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+            <span className="badge-cadence flex-none">INR</span>
+          </div>
+
+          <div className="flex flex-col gap-2 pt-3">
+            <div className="flex items-center gap-1.5">
+              <Calendar size={15} strokeWidth={2} className="text-muted-foreground" />
+              <label htmlFor="emailSyncDays" className="text-[13px] font-medium text-ink-strong">
+                Email sync period
+              </label>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="field w-24">
+                <input
+                  id="emailSyncDays"
+                  type="number"
+                  min={1}
+                  max={180}
+                  value={emailSyncDays}
+                  onChange={(e) => handleSyncDaysChange(e.target.value)}
+                  data-testid="email-sync-days-input"
+                />
+              </div>
+              <span className="text-[12.5px] text-muted-foreground">days (max 180)</span>
+              {hasUnsavedChanges && (
+                <button
+                  type="button"
+                  onClick={handleSaveSettings}
+                  disabled={updateSettingsMutation.isPending}
+                  className="btn-base btn-primary"
+                  data-testid="save-settings-button"
+                >
+                  <Save size={15} strokeWidth={2} />
+                  {updateSettingsMutation.isPending ? "Saving..." : "Save changes"}
+                </button>
+              )}
+            </div>
+            <p className="text-[12px] text-muted-foreground">
+              Number of days to fetch emails when syncing with Gmail. Default is 90 days.
+            </p>
+          </div>
+        </section>
+      </main>
     </div>
   );
 }
