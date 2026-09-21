@@ -12,6 +12,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useMailboxes } from "@/hooks/useMailboxes";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { AddSubscriptionModal } from "@/components/AddSubscriptionModal";
@@ -52,6 +53,7 @@ function timeAgo(date: Date): string {
 }
 
 export default function Dashboard() {
+  const mailboxes = useMailboxes();
   const { toast } = useToast();
   const { user } = useAuth();
   const currentUserId = user?.id;
@@ -381,10 +383,12 @@ export default function Dashboard() {
   };
 
   const handleSyncEmails = () => {
-    if (!user || !user.gmailConnected) {
+    // Any mailbox will do. This asked about Gmail specifically, so an account
+    // with only Outlook connected was told to connect Gmail first.
+    if (!mailboxes.hasAny) {
       toast({
-        title: "Gmail Not Connected",
-        description: "Please connect your Gmail account first",
+        title: "No mailbox connected",
+        description: "Connect a mailbox in Settings before syncing.",
         variant: "destructive",
       });
       return;
@@ -514,8 +518,11 @@ export default function Dashboard() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Connect Gmail (when not connected) -- otherwise Sync now */}
-          {(!user || !user.gmailConnected) ? (
+          {/* Sync now once any mailbox is connected; otherwise offer to connect one.
+              While the answer is still loading, neither is drawn -- guessing
+              "no mailbox" for a moment flashes the wrong button at someone who
+              has one. */}
+          {mailboxes.isLoading ? null : !mailboxes.hasAny ? (
             <button
               type="button"
               onClick={handleConnectGmail}

@@ -37,7 +37,8 @@ import type { SafeUser } from "@shared/schema";
 
 interface SidebarProps {
   user?: SafeUser;
-  isGmailConnected?: boolean;
+  /** Any mailbox, of any provider. Undefined while that is still loading. */
+  hasMailbox?: boolean;
 }
 
 const COLLAPSE_KEY = "verloq.nav.collapsed";
@@ -50,7 +51,7 @@ const NAVIGATION = [
   { name: "Settings", href: "/settings", icon: Settings },
 ] as const;
 
-export function Sidebar({ user, isGmailConnected }: SidebarProps) {
+export function Sidebar({ user, hasMailbox }: SidebarProps) {
   const [location] = useLocation();
   const { toast } = useToast();
 
@@ -206,7 +207,7 @@ export function Sidebar({ user, isGmailConnected }: SidebarProps) {
         but a mailbox that has stopped syncing is the one thing a user needs to
         find, and silence is how it goes unnoticed for a week.
       */}
-      {isGmailConnected === false && !showCollapsed && (
+      {hasMailbox === false && !showCollapsed && (
         <Link
           href="/settings"
           className="mt-2 flex items-start gap-2 rounded-lg border border-warning-line bg-warning-bg px-2.5 py-2 text-[11.5px] text-warning hover:bg-warning-soft"
