@@ -1,8 +1,5 @@
 import { useState, useEffect } from 'react';
 import { X, Minimize2, Maximize2, Mail, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 
@@ -51,10 +48,10 @@ export function SyncProgressPanel() {
   useEffect(() => {
     const justOnboarded = localStorage.getItem('justOnboarded');
     const onboardedAt = localStorage.getItem('onboardedAt');
-    
+
     if (justOnboarded === 'true' && onboardedAt) {
       const timeSinceOnboarding = Date.now() - parseInt(onboardedAt);
-      
+
       // Auto-open if flag set within last 5 minutes
       if (timeSinceOnboarding < 5 * 60 * 1000) {
         setIsClosed(false);
@@ -65,7 +62,7 @@ export function SyncProgressPanel() {
           message: 'Initializing email sync...',
           timestamp: new Date().toISOString(),
         });
-        
+
         // Clear the flag after opening
         localStorage.removeItem('justOnboarded');
         localStorage.removeItem('onboardedAt');
@@ -89,13 +86,13 @@ export function SyncProgressPanel() {
         message: 'Initializing email sync...',
         timestamp: new Date().toISOString(),
       });
-      
+
       // Set flag to indicate sync is in progress
       localStorage.setItem('syncInProgress', 'true');
     };
-    
+
     window.addEventListener('syncTrigger', handleSyncTrigger);
-    
+
     return () => {
       window.removeEventListener('syncTrigger', handleSyncTrigger);
     };
@@ -183,7 +180,7 @@ export function SyncProgressPanel() {
 
         try {
           const data: SyncProgress = JSON.parse(event.data);
-          
+
           if (data.type === 'connected') {
             console.log('SSE connected for sync progress');
             reconnectAttempts = 0; // Reset on successful connection
@@ -196,7 +193,7 @@ export function SyncProgressPanel() {
             setLastProgressAt(Date.now()); // Feeds the stall watchdog
 
             // A failure reported by the server has to set isError, which is
-            // what renders "Sync Failed" instead of "Sync Complete!". Before
+            // what renders "Sync failed" instead of "Sync complete". Before
             // this, isError was only ever set by the SSE connection dropping,
             // so a sync that failed server-side and said so still displayed as
             // a success.
@@ -213,7 +210,7 @@ export function SyncProgressPanel() {
 
       eventSource.onerror = () => {
         console.error('SSE connection error');
-        
+
         // Clean up heartbeat
         if (heartbeatTimeout) {
           clearTimeout(heartbeatTimeout);
@@ -225,7 +222,7 @@ export function SyncProgressPanel() {
           reconnectAttempts++;
           const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
           console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
-          
+
           if (reconnectTimeout) clearTimeout(reconnectTimeout);
           reconnectTimeout = setTimeout(connect, delay);
         } else {
@@ -238,7 +235,7 @@ export function SyncProgressPanel() {
             message: 'Sync failed after multiple connection attempts. Please try again.',
           } : null);
         }
-        
+
         eventSource?.close();
       };
     };
@@ -255,108 +252,125 @@ export function SyncProgressPanel() {
 
   if (isClosed || !syncProgress) return null;
 
+  const pct = Math.min(100, Math.max(0, syncProgress.progress));
+  const hasSuggestions = !!syncProgress.details?.suggestionsGenerated && syncProgress.details.suggestionsGenerated > 0;
+
   return (
-    <div 
-      className="fixed bottom-6 right-6 z-50 w-96 animate-in slide-in-from-bottom-5"
+    <div
+      className="fixed bottom-4 right-4 z-50 w-[380px] max-w-[calc(100vw-32px)] animate-in slide-in-from-bottom-5"
       data-testid="sync-progress-panel"
     >
-      <Card className="border-2 shadow-2xl">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-base">
-              {isError ? (
-                <AlertCircle className="h-5 w-5 text-red-500" data-testid="icon-error" />
-              ) : isComplete ? (
-                <CheckCircle2 className="h-5 w-5 text-green-500" data-testid="icon-complete" />
-              ) : (
-                <Loader2 className="h-5 w-5 animate-spin text-blue-500" data-testid="icon-syncing" />
-              )}
-              {isError ? 'Sync Failed' : isComplete ? 'Sync Complete!' : 'Syncing Emails'}
-            </CardTitle>
-            <div className="flex gap-1">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => setIsMinimized(!isMinimized)}
-                data-testid="button-minimize"
-              >
-                {isMinimized ? <Maximize2 className="h-4 w-4" /> : <Minimize2 className="h-4 w-4" />}
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => setIsClosed(true)}
-                data-testid="button-close"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
+      <div className="surface-card shadow-lg overflow-hidden flex flex-col">
+        {/* Header -- flex-none: inside this overflow-hidden column flex
+            container a strip with no explicit height collapses otherwise. */}
+        <div
+          className="flex-none flex items-center justify-between gap-2"
+          style={{ padding: "12px 14px" }}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            {isError ? (
+              <AlertCircle size={17} strokeWidth={2} className="text-destructive flex-none" data-testid="icon-error" />
+            ) : isComplete ? (
+              <CheckCircle2 size={17} strokeWidth={2} className="text-success flex-none" data-testid="icon-complete" />
+            ) : (
+              <Loader2 size={17} strokeWidth={2} className="animate-spin text-accent flex-none" data-testid="icon-syncing" />
+            )}
+            <h3 className="t-card-title truncate">
+              {isError ? 'Sync Failed' : isComplete ? 'Sync Complete!' : 'Syncing emails'}
+            </h3>
           </div>
-        </CardHeader>
+          <div className="flex items-center gap-1 flex-none">
+            <button
+              type="button"
+              onClick={() => setIsMinimized(!isMinimized)}
+              className="btn-base btn-ghost w-7 h-7 px-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="button-minimize"
+            >
+              {isMinimized ? <Maximize2 size={15} strokeWidth={2} /> : <Minimize2 size={15} strokeWidth={2} />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsClosed(true)}
+              className="btn-base btn-ghost w-7 h-7 px-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="button-close"
+            >
+              <X size={15} strokeWidth={2} />
+            </button>
+          </div>
+        </div>
 
         {!isMinimized && (
-          <CardContent className="space-y-3">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">{syncProgress.message}</span>
-                <span className="font-medium">{Math.round(syncProgress.progress)}%</span>
+          <div
+            className="flex-none flex flex-col gap-3 border-t border-line-soft"
+            style={{ padding: "14px" }}
+          >
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="t-body text-muted-foreground truncate">{syncProgress.message}</span>
+                <span className="t-body font-semibold text-ink tabular flex-none">{Math.round(pct)}%</span>
               </div>
-              <Progress value={syncProgress.progress} className="h-2" />
+              <div className="h-1.5 rounded-full bg-line-soft overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-accent transition-all"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
             </div>
 
             {syncProgress.details && (
-              <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
                 {syncProgress.details.emailsProcessed !== undefined && (
                   <div className="flex items-center gap-2" data-testid="stat-emails-scanned">
-                    <Mail className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <div className="font-medium">{syncProgress.details.emailsProcessed}</div>
-                      <div className="text-xs text-muted-foreground">Emails Scanned</div>
+                    <Mail size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
+                    <div className="min-w-0">
+                      <div className="t-body font-semibold text-ink tabular">{syncProgress.details.emailsProcessed}</div>
+                      <div className="t-caption">Emails scanned</div>
                     </div>
                   </div>
                 )}
-                
+
                 {syncProgress.details.candidateEmails !== undefined && (
                   <div className="flex items-center gap-2" data-testid="stat-candidates-found">
-                    <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                    <div>
-                      <div className="font-medium">{syncProgress.details.candidateEmails}</div>
-                      <div className="text-xs text-muted-foreground">Candidates Found</div>
+                    <CheckCircle2 size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
+                    <div className="min-w-0">
+                      <div className="t-body font-semibold text-ink tabular">{syncProgress.details.candidateEmails}</div>
+                      <div className="t-caption">Candidates found</div>
                     </div>
                   </div>
                 )}
 
                 {syncProgress.details.suggestionsGenerated !== undefined && (
                   <div className="flex items-center gap-2 col-span-2" data-testid="stat-suggestions">
-                    <div>
-                      <div className="font-medium text-green-600">{syncProgress.details.suggestionsGenerated} Suggestions</div>
-                      <div className="text-xs text-muted-foreground">Ready for review</div>
+                    <div className="min-w-0">
+                      <div className="t-body font-semibold text-success tabular">
+                        {syncProgress.details.suggestionsGenerated} Suggestions
+                      </div>
+                      <div className="t-caption">Ready for review</div>
                     </div>
                   </div>
                 )}
               </div>
             )}
 
-            {isComplete && syncProgress.details?.suggestionsGenerated && syncProgress.details.suggestionsGenerated > 0 && (
-              <Button 
-                className="w-full" 
+            {isComplete && hasSuggestions && (
+              <button
+                type="button"
+                className="btn-base btn-secondary w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 data-testid="button-review-suggestions"
                 onClick={() => setLocation('/review')}
               >
-                Review Suggestions
-              </Button>
+                Review suggestions
+              </button>
             )}
 
-            {isComplete && (!syncProgress.details?.suggestionsGenerated || syncProgress.details.suggestionsGenerated === 0) && (
-              <div className="text-sm text-center text-muted-foreground py-2">
+            {isComplete && !hasSuggestions && (
+              <div className="t-caption text-center py-1">
                 No subscription suggestions found
               </div>
             )}
-          </CardContent>
+          </div>
         )}
-      </Card>
+      </div>
     </div>
   );
 }

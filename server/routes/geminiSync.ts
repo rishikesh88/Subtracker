@@ -9,6 +9,7 @@ import { generateServiceKey } from "../utils/serviceKey";
 import { ensureFutureBillingDate } from "../utils/billingDate";
 import { isAuthenticated } from "../auth";
 import { setSyncRunner } from "../services/syncRunner";
+import { storeInvoiceAttachment } from "../lib/invoiceAttachment";
 
 // Helper function to get userId from normalized session structure
 function getUserId(req: any): string {
@@ -690,6 +691,31 @@ export function registerGeminiRoutes(app: Express) {
           const existingEmail = await storage.getEmailByGmailId(email.id);
           
           if (!existingEmail) {
+            /*
+             * Store the files before the row that points at them.
+             *
+             * Outlook receipts used to be saved with their filenames and
+             * nothing behind them, so every Outlook invoice read "no file
+             * attached" -- the upload step existed only in the Gmail path.
+             * The bytes are dropped afterwards: attachmentData is a text
+             * column, and base64 PDFs in it would make it unreadable.
+             */
+            const storedAttachments = email.attachments
+              ? await Promise.all(
+                  email.attachments.map(async (attachment) => {
+                    const { contentBase64, ...rest } = attachment;
+                    if (!contentBase64) return rest;
+                    const objectStoragePath = await storeInvoiceAttachment({
+                      buffer: Buffer.from(contentBase64, 'base64'),
+                      filename: rest.filename,
+                      mimeType: rest.mimeType,
+                      userId,
+                    });
+                    return { ...rest, objectStoragePath };
+                  })
+                )
+              : undefined;
+
             const emailData = {
               userId,
               emailProvider: 'outlook' as const,
@@ -700,7 +726,7 @@ export function registerGeminiRoutes(app: Express) {
               fromName: email.fromName || null,
               receivedAt: email.receivedAt,
               content: email.body,
-              attachmentData: email.attachments ? JSON.stringify({ attachments: email.attachments }) : null,
+              attachmentData: storedAttachments ? JSON.stringify({ attachments: storedAttachments }) : null,
               isTransaction: true,
               extractedAmount: null,
               extractedCurrency: null,

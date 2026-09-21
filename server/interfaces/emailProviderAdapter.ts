@@ -99,5 +99,14 @@ export interface NormalizedFullEmail extends NormalizedEmailMetadata {
     mimeType: string;
     size: number;
     attachmentId: string;
+    /**
+     * The file itself, base64, when the provider hands it over with the
+     * message. Never persisted -- it is uploaded to object storage and
+     * dropped, because a column holding base64 PDFs is a column that stops
+     * being readable.
+     */
+    contentBase64?: string;
+    /** Where the file was stored, once it has been. */
+    objectStoragePath?: string;
   }>;
 }

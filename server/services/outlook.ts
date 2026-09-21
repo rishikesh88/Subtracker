@@ -225,11 +225,18 @@ export class OutlookService implements EmailProviderAdapter {
     const bodyContent = msg.body?.content || '';
     const bodyType = msg.body?.contentType || 'text';
 
+    /*
+     * $expand=attachments hands the bytes over inline as contentBytes for an
+     * ordinary file attachment, so a receipt's PDF arrives with the message
+     * and needs no second request. It is carried on the normalised shape only
+     * as far as the sync, which stores it and drops it.
+     */
     const attachments = (msg.attachments || []).map((att: any) => ({
       filename: att.name || 'attachment',
       mimeType: att.contentType || 'application/octet-stream',
       size: att.size || 0,
-      attachmentId: att.id
+      attachmentId: att.id,
+      contentBase64: typeof att.contentBytes === 'string' ? att.contentBytes : undefined,
     }));
 
     return {
