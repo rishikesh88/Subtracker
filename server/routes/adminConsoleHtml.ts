@@ -960,6 +960,8 @@ ${head("Verloq Admin")}
  */
 export function microsoftPage(opts: {
   checks: import("../lib/microsoftConfigCheck").AppCheck[];
+  /** Microsoft-ish variables this server has under other names. */
+  relatedVariables: string[];
   version?: string;
 }): string {
   const version = escapeHtml(opts.version || "unknown");
@@ -1009,6 +1011,13 @@ export function microsoftPage(opts: {
           ${code}
           ${notChecked}
 
+          ${
+            check.clientId
+              ? `<p class="cell-sub" style="margin:1.25rem 0 .5rem">Client ID this server is using — check it matches the app you are editing in Azure</p>
+                 <p style="margin:0"><code>${escapeHtml(check.clientId)}</code></p>`
+              : ""
+          }
+
           <p class="cell-sub" style="margin:1.25rem 0 .5rem">Redirect URI — this must be registered in Azure, character for character</p>
           <p style="margin:0"><code>${escapeHtml(check.redirectUri)}</code></p>
 
@@ -1021,6 +1030,38 @@ export function microsoftPage(opts: {
       </section>`;
     })
     .join("");
+
+  /*
+   * Shown only when something is missing. "I definitely set that" is almost
+   * always a name mismatch -- the value is on the server under a name nothing
+   * reads -- and the only way to see that from here is to say which names are
+   * actually present.
+   */
+  const anythingMissing = opts.checks.some((c) => c.variables.some((v) => !v.set));
+  const related = !anythingMissing
+    ? ""
+    : opts.relatedVariables.length
+      ? `<section class="card">
+           <div class="card-header"><strong>Other Microsoft settings on this server</strong></div>
+           <div class="card-body">
+             <p style="margin:0 0 1rem">
+               These are set, but under names nothing reads. If a value you expected is in one
+               of these, copy it to the name listed above instead. Names only — no value is shown.
+             </p>
+             <p style="margin:0">${opts.relatedVariables.map((n) => `<code>${escapeHtml(n)}</code>`).join(" &middot; ")}</p>
+           </div>
+         </section>`
+      : `<section class="card">
+           <div class="card-header"><strong>Other Microsoft settings on this server</strong></div>
+           <div class="card-body">
+             <p style="margin:0">
+               None. This server has no Microsoft or Azure settings at all, under any name — so
+               if you have added them somewhere, it is not to the service running this site.
+               Check you are editing the same Railway service and environment, and that the
+               deploy finished after the change.
+             </p>
+           </div>
+         </section>`;
 
   return `<!doctype html>
 <html lang="en">
@@ -1055,6 +1096,7 @@ ${head("Microsoft setup")}
         this page or written to the logs.
       </p>
       ${cards}
+      ${related}
     </div>
   </main>
 </body>
