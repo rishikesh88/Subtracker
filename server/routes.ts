@@ -496,6 +496,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Google OAuth Authentication (for user login/signup)
+  /*
+   * Which sign-in methods this server can actually perform.
+   *
+   * The buttons used to be drawn unconditionally, so a provider with no
+   * credentials still offered a button -- which took the person to Microsoft
+   * or Google, failed, and returned them to a red error. An option that
+   * cannot work should not be offered at all.
+   *
+   * Unauthenticated, and deliberately only booleans: this says which buttons
+   * to draw, which anyone can see by looking at the page anyway.
+   */
+  app.get('/api/auth/providers', (_req, res) => {
+    res
+      .set("Cache-Control", "no-store")
+      .json({
+        google: Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+        microsoft: Boolean(
+          process.env.MICROSOFT_AUTH_CLIENT_ID && process.env.MICROSOFT_AUTH_CLIENT_SECRET
+        ),
+        replit: Boolean(process.env.REPLIT_DOMAINS),
+      });
+  });
+
   app.get('/api/auth/google-login', (req, res, next) => {
     // Check if Google OAuth is configured before attempting authentication
     if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
