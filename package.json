@@ -13,7 +13,8 @@
     "account:delete": "tsx server/scripts/deleteAccount.ts",
     "admin:password": "tsx server/scripts/adminPassword.ts",
     "test:crypto": "tsx server/lib/tokenCrypto.test.ts",
-    "test:admin-auth": "tsx server/lib/adminAuth.test.ts"
+    "test:admin-auth": "tsx server/lib/adminAuth.test.ts",
+    "test:billing-email": "tsx server/lib/billingEmail.test.ts"
   },
   "engines": {
     "node": ">=20"

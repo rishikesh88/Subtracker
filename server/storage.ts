@@ -9,6 +9,7 @@ import { findDuplicateHint } from "./utils/duplicateHints";
 import { invoiceExtractor } from "./services/invoiceExtractor";
 import { encryptFields, decryptFields } from "./lib/tokenCrypto";
 import { revokeGoogleToken } from "./lib/oauthRevoke";
+import { looksLikeBill } from "./lib/billingEmail";
 import { ObjectStorageService } from "./objectStorage";
 
 /**
@@ -1200,7 +1201,9 @@ export class DatabaseStorage implements IStorage {
                 gmailId: emails.gmailId,
                 subject: emails.subject,
                 receivedAt: emails.receivedAt,
-                attachmentData: emails.attachmentData
+                attachmentData: emails.attachmentData,
+                // Corroborates a bill when the subject alone is ambiguous.
+                extractedAmount: emails.extractedAmount
               })
               .from(emails)
               .where(
@@ -1219,7 +1222,27 @@ export class DatabaseStorage implements IStorage {
             let filelessCount = 0;
             let skippedCount = 0;
 
+            let notABillCount = 0;
+
             for (const evidenceEmail of evidenceEmails) {
+              /*
+               * Evidence is matched on the merchant's name, which for a
+               * merchant that also sells one-off things pulls in far more
+               * than the subscription: a Swiggy One membership arrives
+               * alongside every takeaway order, and each of those was
+               * becoming an invoice. Evidence for the suggestion is one
+               * thing; a bill worth filing is another.
+               */
+              const verdict = looksLikeBill(evidenceEmail, {
+                serviceName: createdSubscription.serviceName,
+                amount: createdSubscription.amount,
+              });
+              if (!verdict.isBill) {
+                console.log(`🚫 Not an invoice (${verdict.reason}): "${evidenceEmail.subject}"`);
+                notABillCount++;
+                continue;
+              }
+
               // Set by the attachment loop below. If it is still false when the
               // email is done, the receipt was in the email body rather than a
               // file, and gets a fileless invoice row instead.
@@ -1349,7 +1372,7 @@ export class DatabaseStorage implements IStorage {
             }
             if (createdCount === 0 && filelessCount === 0 && skippedCount === 0) {
               // Says why, so an empty result is not read as a failure.
-              console.log(`ℹ️  No invoices for ${createdSubscription.serviceName}: none of its ${evidenceEmails.length} evidence email(s) produced one`);
+              console.log(`ℹ️  No invoices for ${createdSubscription.serviceName}: of its ${evidenceEmails.length} evidence email(s), ${notABillCount} did not look like a bill`);
             }
           } catch (invoiceError) {
             // Don't fail the entire approval if invoice creation fails
