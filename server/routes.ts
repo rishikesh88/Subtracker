@@ -1194,15 +1194,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Outlook OAuth Routes (legacy endpoint for reconnect flow)
-  app.get("/api/auth/outlook/connect", isAuthenticated, async (req: any, res) => {
+  /*
+   * Outlook connect, for adding or reconnecting a mailbox from Settings.
+   *
+   * POST returning the URL, exactly as the Google route above does, because
+   * that is what Settings calls. It used to be a GET that redirected, so the
+   * button POSTed to a route that did not exist for that method and the user
+   * got "Connection Failed" with nothing in the logs to explain it.
+   */
+  app.post("/api/auth/outlook/connect", isAuthenticated, async (req: any, res) => {
     try {
       console.log("Outlook connection initiated");
-      console.log("Microsoft Client ID available:", !!process.env.MICROSOFT_CLIENT_ID);
-      console.log("Microsoft Client Secret available:", !!process.env.MICROSOFT_CLIENT_SECRET);
-      
+
+      // Named individually: "it did not work" is nearly always one of these
+      // two being unset, and a single boolean cannot say which.
+      if (!process.env.MICROSOFT_CLIENT_ID || !process.env.MICROSOFT_CLIENT_SECRET) {
+        const missing = [
+          !process.env.MICROSOFT_CLIENT_ID && "MICROSOFT_CLIENT_ID",
+          !process.env.MICROSOFT_CLIENT_SECRET && "MICROSOFT_CLIENT_SECRET",
+        ].filter(Boolean).join(" and ");
+        console.error(`Outlook connect refused: ${missing} not set`);
+        return res.status(503).json({
+          message: "Outlook is not configured on this server yet.",
+        });
+      }
+
       const userId = getUserId(req);
-      
+
       const state = randomBytes(32).toString('hex');
       oauthStates.set(state, { 
         timestamp: Date.now(),
@@ -1213,10 +1231,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const outlookService = new OutlookService();
       const authUrl = outlookService.getAuthUrl(state);
-      console.log("Generated Outlook auth URL with state:", authUrl);
-      
-      // Redirect to Microsoft OAuth
-      res.redirect(authUrl);
+      console.log("Generated Outlook auth URL with state");
+
+      res.json({ authUrl });
     } catch (error) {
       console.error("Outlook connection URL generation error:", error);
       res.status(500).json({ message: "Failed to generate Outlook auth URL" });
