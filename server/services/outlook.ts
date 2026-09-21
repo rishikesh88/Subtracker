@@ -128,7 +128,6 @@ export class OutlookService implements EmailProviderAdapter {
     const startDateISO = startDate.toISOString();
 
     let client = this.createClient(accessToken);
-    let currentAccessToken = accessToken;
 
     try {
       const response = await client
@@ -148,7 +147,6 @@ export class OutlookService implements EmailProviderAdapter {
         await onTokenRefresh(newTokens);
         
         client = this.createClient(newTokens.access_token);
-        currentAccessToken = newTokens.access_token;
 
         const response = await client
           .api('/me/messages')
@@ -174,28 +172,33 @@ export class OutlookService implements EmailProviderAdapter {
     let client = this.createClient(accessToken);
 
     try {
-      const message = await client
-        .api(`/me/messages/${messageId}`)
-        .select('id,subject,from,receivedDateTime,bodyPreview,hasAttachments,body,attachments')
-        .get();
-
-      return this.normalizeFullEmail(message);
+      return this.normalizeFullEmail(await this.getMessage(client, messageId));
     } catch (error: any) {
       if (error.statusCode === 401) {
         const newTokens = await this.refreshToken(refreshToken);
         await onTokenRefresh(newTokens);
-        
+
         client = this.createClient(newTokens.access_token);
-
-        const message = await client
-          .api(`/me/messages/${messageId}`)
-          .select('id,subject,from,receivedDateTime,bodyPreview,hasAttachments,body,attachments')
-          .get();
-
-        return this.normalizeFullEmail(message);
+        return this.normalizeFullEmail(await this.getMessage(client, messageId));
       }
       throw error;
     }
+  }
+
+  /**
+   * One message with its attachments.
+   *
+   * `attachments` is a navigation property on a Graph message, not a field, so
+   * naming it in $select does not fetch it -- it has to be $expand-ed. It was
+   * in the $select list, which is why an Outlook receipt never arrived with a
+   * file: msg.attachments came back undefined every time.
+   */
+  private async getMessage(client: Client, messageId: string): Promise<any> {
+    return client
+      .api(`/me/messages/${messageId}`)
+      .select('id,subject,from,receivedDateTime,bodyPreview,hasAttachments,body')
+      .expand('attachments')
+      .get();
   }
 
   private normalizeEmailMetadata(msg: any): NormalizedEmailMetadata {

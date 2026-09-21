@@ -636,11 +636,11 @@ export default function SubscriptionDetail({
 /**
  * A label/value row in the Details card.
  *
- * Both columns are left aligned and the label column is only as wide as the
- * longest label needs, so the value starts close to the word it answers
- * rather than across a gutter -- which is what a wide panel turned it into.
- * Below 420px the pair stacks, because a fixed label column plus a long
- * value has nowhere left to go.
+ * Label left, value hard against the card's right edge. With the values
+ * ragged in the middle of the row there was no edge for the eye to run down;
+ * against the right edge they line up as a column whatever their length.
+ * Below 420px the pair stacks and both go left, because a right-aligned
+ * value under its own label reads as unrelated to it.
  */
 function DetailRow({
   label,
@@ -654,14 +654,21 @@ function DetailRow({
   return (
     <div
       className={cn(
-        "flex flex-col gap-0.5 py-2 min-[420px]:flex-row min-[420px]:items-baseline min-[420px]:gap-3",
+        "flex flex-col gap-0.5 py-2 min-[420px]:flex-row min-[420px]:items-baseline min-[420px]:gap-4",
         !noBorder && "border-b border-line-soft"
       )}
     >
-      <span className="text-[12px] text-muted-foreground min-[420px]:w-[92px] min-[420px]:flex-none">
+      <span className="text-[12px] text-muted-foreground min-[420px]:flex-none">
         {label}
       </span>
-      <div className="min-w-0 text-left min-[420px]:flex-1">{children}</div>
+      {/*
+        justify-end as well as text-right: some values are a flex row of their
+        own (the source email's provider icon beside the address), and those
+        ignore text-align.
+      */}
+      <div className="min-w-0 min-[420px]:flex-1 min-[420px]:text-right min-[420px]:flex min-[420px]:flex-col min-[420px]:items-end">
+        {children}
+      </div>
     </div>
   );
 }

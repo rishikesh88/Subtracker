@@ -30,7 +30,9 @@ import {
   requireAdminCsrf,
   csrfTokenFor,
 } from "../lib/adminAuth";
-import { loginPage, consolePage } from "./adminConsoleHtml";
+import { loginPage, consolePage, microsoftPage } from "./adminConsoleHtml";
+import { checkMicrosoftConfig } from "../lib/microsoftConfigCheck";
+import { APP_BASE_URL } from "../config";
 // One definition of "what is running", shared with /healthz rather than a
 // second copy here that can drift from it.
 import { buildInfo } from "../lib/buildInfo";
@@ -230,6 +232,21 @@ export function registerAdminRoutes(app: Express): void {
   });
 
   // --- Read -------------------------------------------------------------
+
+  /*
+   * Is Microsoft still accepting our credentials? Azure client secrets expire,
+   * usually without anyone noticing until a user cannot connect, and the
+   * failure happens on Microsoft's side where our logs never see it.
+   */
+  app.get("/admin/microsoft", requireAdmin, async (_req, res) => {
+    try {
+      const checks = await checkMicrosoftConfig(APP_BASE_URL);
+      sendAdminPage(res, microsoftPage({ checks, version: buildInfo.commit }));
+    } catch (error) {
+      console.error("[Admin] Microsoft configuration check failed:", error);
+      res.status(500).json({ message: "Could not check the Microsoft configuration." });
+    }
+  });
 
   app.get("/admin/api/overview", requireAdmin, async (_req, res) => {
     try {
