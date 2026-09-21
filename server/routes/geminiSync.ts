@@ -8,6 +8,7 @@ import { TransactionDetector } from "../core/transactionDetector";
 import { generateServiceKey } from "../utils/serviceKey";
 import { ensureFutureBillingDate } from "../utils/billingDate";
 import { isAuthenticated } from "../auth";
+import { setSyncRunner } from "../services/syncRunner";
 
 // Helper function to get userId from normalized session structure
 function getUserId(req: any): string {
@@ -829,13 +830,32 @@ export function registerGeminiRoutes(app: Express) {
   }
   
   // Enhanced sync with LLM analysis (AUTHENTICATED) - Multi-Provider Multi-Account Support
-  app.post("/api/sync-emails-llm", isAuthenticated, async (req: any, res) => {
+  /**
+   * Start a sync for every mailbox this user has connected, Gmail and Outlook
+   * alike, and return once it is under way.
+   *
+   * Extracted from the route below so that it has one caller more than the
+   * button: the sync that fires after onboarding used a different, older
+   * implementation whose Outlook branch was an empty stub, so connecting an
+   * Outlook mailbox during onboarding did nothing at all and the dashboard
+   * stayed empty. Both paths now run this.
+   *
+   * It returns as soon as the work is scheduled. A wide date range can keep
+   * the run going for tens of minutes, which no proxy in front of the app
+   * would tolerate, so progress goes out over SSE rather than a response.
+   */
+  async function beginSyncForUser(
+    userId: string,
+    triggerSource: 'manual' | 'onboarding'
+  ): Promise<
+    | { ok: true; totalAccounts: number; gmailAccounts: number; outlookAccounts: number }
+    | { ok: false; status: number; message: string; alreadyRunning?: boolean }
+  > {
     try {
-      // Get userId from authenticated user, ignore request body for security
-      const userId = getUserId(req);
+      // The caller has already established who this is.
       
       if (!userId) {
-        return res.status(401).json({ message: "User not authenticated" });
+        return { ok: false as const, status: 401, message: "User not authenticated" };
       }
 
       // Fetch all Gmail and Outlook accounts for this user
@@ -845,13 +865,13 @@ export function registerGeminiRoutes(app: Express) {
       const totalAccounts = gmailAccounts.length + outlookAccounts.length;
       
       if (totalAccounts === 0) {
-        return res.status(400).json({ message: "No email accounts connected" });
+        return { ok: false as const, status: 400, message: "No email accounts connected" };
       }
       
       // Get user's email sync days setting (default 30, max 180)
       const user = await storage.getUser(userId);
       if (!user) {
-        return res.status(404).json({ message: "User not found" });
+        return { ok: false as const, status: 404, message: "User not found" };
       }
       
       const emailSyncDays = user.emailSyncDays || 30;
@@ -859,13 +879,15 @@ export function registerGeminiRoutes(app: Express) {
       // Claim the run before acknowledging it. A second trigger while one is in
       // flight would duplicate every Gemini call and race on the same rows, so
       // it is refused here rather than left to sort itself out.
-      const claim = await storage.startSyncJob(userId, 'manual');
+      const claim = await storage.startSyncJob(userId, triggerSource);
       if (claim.outcome === 'conflict') {
         console.log(`⛔ Sync already running for user ${userId}, rejecting duplicate trigger`);
-        return res.status(409).json({
+        return {
+          ok: false as const,
+          status: 409,
           message: "A sync is already running for this account. Wait for it to finish before starting another.",
-          alreadyRunning: true
-        });
+          alreadyRunning: true,
+        };
       }
 
       // 'unavailable' means the job table could not be written. Run anyway --
@@ -882,14 +904,12 @@ export function registerGeminiRoutes(app: Express) {
       // proxy in front of the app will tolerate. Acknowledge the request now and
       // report progress over SSE (/api/sync-progress/:userId); the client picks
       // up completion from there, not from this response.
-      res.status(202).json({
-        success: true,
-        started: true,
+      const summary = {
+        ok: true as const,
         totalAccounts,
         gmailAccounts: gmailAccounts.length,
         outlookAccounts: outlookAccounts.length,
-        message: `Sync started for ${totalAccounts} account(s)`
-      });
+      };
 
       setImmediate(async () => {
         try {
@@ -1109,14 +1129,39 @@ export function registerGeminiRoutes(app: Express) {
         }
       });
 
+      return summary;
     } catch (error) {
       console.error("Multi-account sync error:", error);
-      res.status(500).json({
-        message: "Failed to perform multi-account sync",
-        error: error instanceof Error ? error.message : 'Unknown error'
+      return {
+        ok: false as const,
+        status: 500,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  }
+
+  // Published so the onboarding trigger can run exactly this, rather than a
+  // second implementation that drifts from it.
+  setSyncRunner((userId) => beginSyncForUser(userId, 'onboarding').then(() => undefined));
+
+  app.post("/api/sync-emails-llm", isAuthenticated, async (req: any, res) => {
+    const result = await beginSyncForUser(getUserId(req), 'manual');
+    if (!result.ok) {
+      return res.status(result.status).json({
+        message: result.message,
+        ...(result.alreadyRunning ? { alreadyRunning: true } : {}),
       });
     }
+    res.status(202).json({
+      success: true,
+      started: true,
+      totalAccounts: result.totalAccounts,
+      gmailAccounts: result.gmailAccounts,
+      outlookAccounts: result.outlookAccounts,
+      message: `Sync started for ${result.totalAccounts} account(s)`,
+    });
   });
+
 
   // Get LLM suggestions for user review
   app.get("/api/llm-suggestions/:sessionId", async (req, res) => {

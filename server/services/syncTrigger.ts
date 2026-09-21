@@ -4,6 +4,7 @@
  */
 
 import type { IStorage } from '../storage';
+import { getSyncRunner } from './syncRunner';
 
 interface TriggerSyncOptions {
   userId: string;
@@ -24,11 +25,6 @@ export async function triggerEmailSync(
 ): Promise<void> {
   const { userId, emailSyncDays = 90, provider, triggerSource } = options;
 
-  // Validate provider - only Gmail supported until schema migration completes
-  if (provider !== 'gmail') {
-    console.warn(`[Sync] Provider '${provider}' not supported - email schema migration required. Gmail-only for now.`);
-    return;
-  }
 
   console.log(`[Event: sync_triggered] userId=${userId}, provider=${provider}, source=${triggerSource}, days=${emailSyncDays}`);
 
@@ -46,11 +42,27 @@ export async function triggerEmailSync(
       }
     });
 
-    // Trigger the actual sync asynchronously (non-blocking)
-    // This runs in the background without blocking the OAuth callback
+    /*
+     * Run the same sync the "Sync now" button runs.
+     *
+     * This used to call a second implementation living in this file, which
+     * handled Gmail with an older parser and printed "Outlook sync deferred"
+     * instead of doing anything -- so connecting an Outlook mailbox during
+     * onboarding left the dashboard empty, and a new Gmail user's first
+     * results came from a different engine than every later sync.
+     */
+    const runSync = getSyncRunner();
+
     setImmediate(async () => {
       try {
-        await executeSync(storage, userId, emailSyncDays);
+        if (runSync) {
+          await runSync(userId);
+        } else {
+          // Only reachable if the routes were never registered, which would
+          // mean the server is not serving requests either.
+          console.error('[Sync] No sync runner registered; nothing will be synced.');
+          return;
+        }
 
         // Written here, not before the run. `lastSync` previously advanced as
         // soon as a sync started, which made a crash indistinguishable from a
@@ -75,220 +87,16 @@ export async function triggerEmailSync(
   }
 }
 
-/**
- * Execute the actual sync process
- * This runs asynchronously in the background
+/*
+ * The second sync implementation that used to live here -- roughly two
+ * hundred lines driving an older parser, with an Outlook branch that logged
+ * "Outlook sync implementation pending" and returned -- has been removed.
+ *
+ * It was the cause of the bug this file now avoids: onboarding ran it while
+ * the Sync now button ran the Gemini pipeline, so the two disagreed about
+ * what a sync even was, and Outlook worked in one and not the other. Keeping
+ * a spare engine around only invites something to call the wrong one.
  */
-async function executeSync(
-  storage: IStorage,
-  userId: string,
-  emailSyncDays: number
-): Promise<void> {
-  console.log(`[Sync] Executing background sync for user ${userId}`);
-
-  const user = await storage.getUser(userId);
-  if (!user) {
-    throw new Error('User not found');
-  }
-
-  // Import services only when needed
-  const { GmailService } = await import('./gmail');
-  const { OutlookService } = await import('./outlook');
-  const { emailParser } = await import('./emailParser');
-
-  let totalEmailsProcessed = 0;
-
-  // Sync Gmail accounts
-  const gmailAccounts = await storage.getGmailAccounts(userId);
-  if (gmailAccounts.length > 0) {
-    console.log(`[Sync] Processing ${gmailAccounts.length} Gmail account(s)`);
-    const gmailService = new GmailService();
-
-    for (const account of gmailAccounts) {
-      try {
-        const onTokenRefresh = async (tokens: any) => {
-          const updateData: any = { accessToken: tokens.access_token };
-          if (tokens.refresh_token) updateData.refreshToken = tokens.refresh_token;
-          if (tokens.expiry_date) updateData.tokenExpiry = new Date(tokens.expiry_date);
-          await storage.updateGmailAccount(account.id, updateData);
-        };
-
-        // Emit progress before fetching
-        sendProgressUpdate(userId, {
-          stage: 'fetching',
-          progress: 20,
-          message: `Fetching emails from ${account.gmailEmail}...`,
-          details: {
-            emailsProcessed: totalEmailsProcessed
-          }
-        });
-
-        const messages = await gmailService.getEmails(
-          account.accessToken,
-          account.refreshToken || '',
-          onTokenRefresh,
-          emailSyncDays
-        );
-
-        console.log(`[Sync] Fetched ${messages.length} emails from Gmail`);
-
-        // Emit progress after fetch
-        sendProgressUpdate(userId, {
-          stage: 'processing',
-          progress: 40,
-          message: `Processing ${messages.length} emails...`,
-          details: {
-            total: messages.length,
-            emailsProcessed: totalEmailsProcessed
-          }
-        });
-
-        // Dynamic update interval based on batch size for real-time feedback
-        // Very small batches: every email
-        // Small batches: every 5 emails  
-        // Medium batches: every 20 emails
-        // Large batches: every 50 emails
-        const updateInterval = messages.length < 10 ? 1 : messages.length < 50 ? 5 : messages.length < 200 ? 20 : 50;
-        
-        let processedCount = 0;
-        for (const gmailMessage of messages) {
-          if (!gmailMessage.id) continue;
-
-          const existingEmail = await storage.getEmailByGmailId(gmailMessage.id);
-          if (existingEmail) {
-            processedCount++;
-            continue;
-          }
-
-          const parsedEmail = emailParser.parseEmail(gmailMessage);
-
-          await storage.createEmail({
-            userId,
-            gmailId: gmailMessage.id,
-            subject: parsedEmail.subject,
-            fromEmail: parsedEmail.fromEmail,
-            fromName: parsedEmail.fromName || null,
-            receivedAt: parsedEmail.receivedAt,
-            content: parsedEmail.content,
-            isTransaction: parsedEmail.isTransaction,
-            extractedAmount: parsedEmail.extractedAmount ? parsedEmail.extractedAmount.toString() : null,
-            extractedCurrency: parsedEmail.extractedCurrency || null,
-            merchantName: parsedEmail.merchantName || null,
-            subscriptionId: null,
-            processed: false
-          });
-
-          totalEmailsProcessed++;
-          processedCount++;
-
-          // Emit progress at dynamic intervals
-          if (processedCount % updateInterval === 0) {
-            const percentComplete = Math.min(40 + Math.floor((processedCount / messages.length) * 39), 79);
-            sendProgressUpdate(userId, {
-              stage: 'processing',
-              progress: percentComplete,
-              message: `Processed ${processedCount}/${messages.length} emails...`,
-              details: {
-                completed: processedCount,
-                total: messages.length,
-                emailsProcessed: totalEmailsProcessed
-              }
-            });
-          }
-        }
-
-        // Always emit final progress after processing all messages
-        sendProgressUpdate(userId, {
-          stage: 'processing',
-          progress: 79,
-          message: `Processed ${processedCount}/${messages.length} emails`,
-          details: {
-            completed: processedCount,
-            total: messages.length,
-            emailsProcessed: totalEmailsProcessed
-          }
-        });
-
-        console.log(`[Sync] Processed ${messages.length} emails from Gmail account ${account.gmailEmail}`);
-      } catch (error) {
-        console.error(`[Sync] Error syncing Gmail account ${account.id}:`, error);
-      }
-    }
-  }
-
-  // Sync Outlook accounts (similar logic)
-  const outlookAccounts = await storage.getOutlookAccounts(userId);
-  if (outlookAccounts.length > 0) {
-    console.log(`[Sync] Processing ${outlookAccounts.length} Outlook account(s)`);
-    // Outlook sync logic would go here
-    // For now, we'll log and skip to avoid complexity
-    console.log('[Sync] Outlook sync implementation pending');
-  }
-
-  sendProgressUpdate(userId, {
-    stage: 'analyzing',
-    progress: 80,
-    message: 'Running subscription detection...',
-    details: {
-      emailsProcessed: totalEmailsProcessed
-    }
-  });
-
-  // Run subscription detection if we have emails
-  if (totalEmailsProcessed > 0) {
-    try {
-      const { emails: allEmails } = await storage.getEmailsPaginated(userId, { page: 1, pageSize: 999999 });
-
-      const { enhancedSubscriptionDetector } = await import('./enhancedSubscriptionDetector');
-      
-      // Progressive loading: pass SSE callback so suggestions appear in real-time
-      const detectionResult = await enhancedSubscriptionDetector.detectSubscriptionSuggestions(
-        allEmails, 
-        userId,
-        (progressData) => {
-          // Forward progress updates via SSE for real-time UI updates
-          sendProgressUpdate(userId, progressData);
-        }
-      );
-
-      console.log(`[Sync] Generated ${detectionResult.suggestions.length} subscription suggestions`);
-
-      sendProgressUpdate(userId, {
-        stage: 'suggestions_ready',
-        progress: 100,
-        message: 'Sync complete!',
-        details: {
-          emailsProcessed: totalEmailsProcessed,
-          suggestionsGenerated: detectionResult.suggestions.length
-        }
-      });
-    } catch (error) {
-      console.error('[Sync] Subscription detection error:', error);
-      
-      sendProgressUpdate(userId, {
-        stage: 'completed',
-        progress: 100,
-        message: 'Sync complete (detection partial)',
-        details: {
-          emailsProcessed: totalEmailsProcessed,
-          suggestionsGenerated: 0
-        }
-      });
-    }
-  } else {
-    sendProgressUpdate(userId, {
-      stage: 'completed',
-      progress: 100,
-      message: 'No new emails found',
-      details: {
-        emailsProcessed: 0,
-        suggestionsGenerated: 0
-      }
-    });
-  }
-
-  console.log(`[Event: sync_completed] userId=${userId}, emailsProcessed=${totalEmailsProcessed}`);
-}
 
 /**
  * Send progress update via SSE

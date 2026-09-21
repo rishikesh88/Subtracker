@@ -1346,16 +1346,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
           updatedAt: new Date(),
         });
         console.log('[Event: onboarding_completed]', { userId, provider: 'outlook' });
-        
-        // Note: Background sync is currently Gmail-only due to email schema constraints
-        // Outlook email ingestion deferred until schema migration completes (see replit.md)
-        // When schema is ready, trigger sync here with provider: 'outlook'
-        console.log('[Sync] Outlook sync deferred - email schema migration required');
+      }
+
+      /*
+       * Start the first sync, exactly as the Gmail callback does.
+       *
+       * This used to print "Outlook sync deferred - email schema migration
+       * required" and do nothing. The schema gained its provider columns some
+       * time ago and the sync handles both providers, so the note outlived the
+       * limitation -- with the result that connecting an Outlook mailbox
+       * during onboarding left the dashboard empty with nothing running.
+       */
+      let syncTriggered = false;
+      if (wasOnboarding && user.privacyConsentGiven) {
+        triggerEmailSync(storage, {
+          userId,
+          emailSyncDays: stateData?.emailSyncDays || 90,
+          provider: 'outlook',
+          triggerSource: 'onboarding'
+        }).catch(error => {
+          console.error('Failed to trigger background sync:', error);
+        });
+        syncTriggered = true;
       }
 
       console.log("Outlook connected successfully for user:", userId);
 
-      const redirectUrl = `/auth/callback?provider=outlook&success=true`;
+      const redirectUrl = syncTriggered
+        ? `/auth/callback?provider=outlook&success=true&syncing=true`
+        : `/auth/callback?provider=outlook&success=true`;
       res.redirect(redirectUrl);
     } catch (error) {
       console.error("Outlook OAuth callback error:", error);
