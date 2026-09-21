@@ -1011,6 +1011,13 @@ export function microsoftPage(opts: {
           ${code}
           ${notChecked}
 
+          ${
+            check.clientId
+              ? `<p class="cell-sub" style="margin:1.25rem 0 .5rem">Client ID this server is using — check it matches the app you are editing in Azure</p>
+                 <p style="margin:0"><code>${escapeHtml(check.clientId)}</code></p>`
+              : ""
+          }
+
           <p class="cell-sub" style="margin:1.25rem 0 .5rem">Redirect URI — this must be registered in Azure, character for character</p>
           <p style="margin:0"><code>${escapeHtml(check.redirectUri)}</code></p>
 

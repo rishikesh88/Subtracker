@@ -46,6 +46,16 @@ export interface AppCheck {
   scopes: string[];
   /** Microsoft's own code, when it gave one. Worth quoting in a search. */
   code?: string;
+  /**
+   * The client ID in full.
+   *
+   * Shown, unlike the secret, because it is not one: it travels in the query
+   * string of every sign-in and is visible to anyone who watches the browser.
+   * Hiding it only makes "is this variable pointing at the app I am editing?"
+   * impossible to answer, which is the question that matters when someone has
+   * more than one registration.
+   */
+  clientId?: string;
   /** Stated on the page so the check is never read as proving more than it does. */
   notChecked: string[];
 }
@@ -53,6 +63,7 @@ export interface AppCheck {
 const NOT_CHECKED = [
   "Whether the client secret is still valid — Microsoft only tests that when someone actually signs in. If connecting fails at the very last step, an expired secret is the first thing to renew.",
   "Whether the redirect URI below is registered — Microsoft only checks that after sign-in. Compare it against Azure by eye.",
+  "Which account types the app allows. If connecting fails with \"not enabled for consumers\", set Supported account types in Azure to include personal Microsoft accounts — and make sure you are editing the app whose client ID is shown here.",
 ];
 
 async function probeClientId(
@@ -86,7 +97,11 @@ async function probeClientId(
 
   // No error at all means Microsoft went straight to asking for a sign-in.
   if (!code || code === "50058") {
-    return { status: "ok", detail: "Microsoft recognises this application." };
+    return {
+      status: "ok",
+      detail:
+        "Microsoft recognises this application. Check the client ID below against the app you have been editing in Azure — this only proves some app with that ID exists, not that it is the right one.",
+    };
   }
 
   if (code === "50059" || code === "700016" || code === "700027") {
@@ -167,6 +182,7 @@ export async function checkMicrosoftConfig(appBaseUrl: string): Promise<AppCheck
           variables,
           redirectUri: registration.redirectUri,
           scopes: registration.scopes,
+          clientId: registration.clientId || undefined,
           notChecked: [],
         };
       }
@@ -184,6 +200,7 @@ export async function checkMicrosoftConfig(appBaseUrl: string): Promise<AppCheck
         variables,
         redirectUri: registration.redirectUri,
         scopes: registration.scopes,
+        clientId: registration.clientId,
         notChecked: result.status === "ok" ? NOT_CHECKED : [],
       };
     })
