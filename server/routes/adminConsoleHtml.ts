@@ -378,6 +378,7 @@ ${head("Verloq Admin")}
     <h1>Verloq Admin</h1>
     <div class="topbar-right">
       <span class="topbar-build" title="The commit this server was built from">build ${version}</span>
+      <a class="btn btn-outline btn-sm" href="/admin/microsoft">Microsoft setup</a>
       <span class="topbar-email">${adminEmail}</span>
       <form method="post" action="/admin/logout">
         <button class="btn btn-outline btn-sm" type="submit">Sign out</button>
@@ -946,6 +947,116 @@ ${head("Verloq Admin")}
   applyRoute();
 })();
 </script>
+</body>
+</html>`;
+}
+
+/**
+ * The Microsoft setup page.
+ *
+ * Plain server-rendered HTML with no scripting: its whole job is to answer
+ * "are these credentials still good?" in one look, from a browser, on a
+ * phone. Everything on it is either a yes/no or a value to paste into Azure.
+ */
+export function microsoftPage(opts: {
+  checks: import("../lib/microsoftConfigCheck").AppCheck[];
+  version?: string;
+}): string {
+  const version = escapeHtml(opts.version || "unknown");
+
+  const badge = (status: string) => {
+    switch (status) {
+      case "ok": return '<span class="badge badge-success">Working</span>';
+      case "unconfigured": return '<span class="badge badge-muted">Not set up</span>';
+      case "unreachable": return '<span class="badge badge-warning">Could not check</span>';
+      default: return '<span class="badge badge-destructive">Not recognised</span>';
+    }
+  };
+
+  const cards = opts.checks
+    .map((check) => {
+      const variables = check.variables
+        .map(
+          (v) =>
+            `<tr><td><code>${escapeHtml(v.name)}</code></td><td>${
+              v.set
+                ? '<span class="badge badge-success">Set</span>'
+                : '<span class="badge badge-destructive">Missing</span>'
+            }</td></tr>`
+        )
+        .join("");
+
+      const code = check.code
+        ? `<p class="cell-sub" style="margin:.5rem 0 0">Microsoft's code for this: <code>${escapeHtml(check.code)}</code></p>`
+        : "";
+
+      // Said out loud, so a green badge is never read as "everything is fine".
+      const notChecked = check.notChecked.length
+        ? `<p class="cell-sub" style="margin:1.25rem 0 .5rem">What this does not tell you</p>
+           <ul class="muted" style="margin:0;padding-left:1.1rem;font-size:0.8125rem;line-height:1.55">
+             ${check.notChecked.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}
+           </ul>`
+        : "";
+
+      return `
+      <section class="card">
+        <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+          <strong>${escapeHtml(check.name)}</strong>
+          ${badge(check.status)}
+        </div>
+        <div class="card-body">
+          <p style="margin:0 0 1rem">${escapeHtml(check.detail)}</p>
+          ${code}
+          ${notChecked}
+
+          <p class="cell-sub" style="margin:1.25rem 0 .5rem">Redirect URI — this must be registered in Azure, character for character</p>
+          <p style="margin:0"><code>${escapeHtml(check.redirectUri)}</code></p>
+
+          <p class="cell-sub" style="margin:1.25rem 0 .5rem">Permissions this asks for</p>
+          <p style="margin:0">${check.scopes.map((sc) => `<code>${escapeHtml(sc)}</code>`).join(" &middot; ")}</p>
+
+          <p class="cell-sub" style="margin:1.25rem 0 .5rem">Settings on this server</p>
+          <div class="table-container"><div class="table-scroll"><table><tbody>${variables}</tbody></table></div></div>
+        </div>
+      </section>`;
+    })
+    .join("");
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+${head("Microsoft setup")}
+<style>
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.8125rem;
+    background: hsl(var(--muted));
+    padding: 0.125rem 0.375rem;
+    border-radius: 4px;
+    overflow-wrap: anywhere;
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Microsoft setup</h1>
+    <div class="topbar-right">
+      <span class="topbar-build" title="The commit this server was built from">build ${version}</span>
+      <a class="btn btn-outline btn-sm" href="/admin">Back to console</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="stack">
+      <p class="muted" style="margin:0">
+        Asked of Microsoft just now, without signing anyone in. This confirms the
+        application exists; it cannot confirm the secret or the redirect URI,
+        which Microsoft only tests during a real sign-in. No secret is shown on
+        this page or written to the logs.
+      </p>
+      ${cards}
+    </div>
+  </main>
 </body>
 </html>`;
 }
