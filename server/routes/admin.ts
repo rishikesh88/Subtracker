@@ -31,7 +31,7 @@ import {
   csrfTokenFor,
 } from "../lib/adminAuth";
 import { loginPage, consolePage, microsoftPage } from "./adminConsoleHtml";
-import { checkMicrosoftConfig } from "../lib/microsoftConfigCheck";
+import { checkMicrosoftConfig, relatedVariableNames } from "../lib/microsoftConfigCheck";
 import { APP_BASE_URL } from "../config";
 // One definition of "what is running", shared with /healthz rather than a
 // second copy here that can drift from it.
@@ -241,7 +241,14 @@ export function registerAdminRoutes(app: Express): void {
   app.get("/admin/microsoft", requireAdmin, async (_req, res) => {
     try {
       const checks = await checkMicrosoftConfig(APP_BASE_URL);
-      sendAdminPage(res, microsoftPage({ checks, version: buildInfo.commit }));
+      sendAdminPage(
+        res,
+        microsoftPage({
+          checks,
+          relatedVariables: relatedVariableNames(),
+          version: buildInfo.commit,
+        })
+      );
     } catch (error) {
       console.error("[Admin] Microsoft configuration check failed:", error);
       res.status(500).json({ message: "Could not check the Microsoft configuration." });

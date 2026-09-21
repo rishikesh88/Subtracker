@@ -189,3 +189,31 @@ export async function checkMicrosoftConfig(appBaseUrl: string): Promise<AppCheck
     })
   );
 }
+
+/**
+ * Microsoft-ish variables this server has, that are NOT the ones it reads.
+ *
+ * The common failure when a setup page says "missing" but the person is sure
+ * they set it: the values are there under different names. Azure's own portal
+ * calls them "Application (client) ID" and "Client secret", so they get saved
+ * as AZURE_CLIENT_ID, MS_CLIENT_SECRET, OUTLOOK_CLIENT_ID and so on, and the
+ * code reading MICROSOFT_CLIENT_ID never sees them.
+ *
+ * Names only, never values. A name is not a secret; a value always is. The
+ * scan is limited to a pattern rather than listing the whole environment,
+ * because the rest of it is nobody's business even on an admin page.
+ */
+export function relatedVariableNames(): string[] {
+  const alreadyReported = new Set([
+    "MICROSOFT_CLIENT_ID",
+    "MICROSOFT_CLIENT_SECRET",
+    "MICROSOFT_AUTH_CLIENT_ID",
+    "MICROSOFT_AUTH_CLIENT_SECRET",
+  ]);
+
+  return Object.keys(process.env)
+    .filter((name) => /MICROSOFT|AZURE|ENTRA|OUTLOOK|GRAPH|^MS_/i.test(name))
+    .filter((name) => !alreadyReported.has(name))
+    .filter((name) => Boolean(process.env[name]))
+    .sort();
+}
