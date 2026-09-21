@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -6,7 +7,22 @@ import { AlertCircle } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
 import { FaMicrosoft } from "react-icons/fa";
 
+/**
+ * Which sign-in methods this server can actually perform.
+ *
+ * A provider with no credentials was offered anyway: the button took the
+ * person to Microsoft or Google, failed, and returned them here to a red
+ * error. An option that cannot work is not shown at all.
+ */
+function useAuthProviders() {
+  const { data } = useQuery<{ google: boolean; microsoft: boolean; replit: boolean }>({
+    queryKey: ["/api/auth/providers"],
+  });
+  return data;
+}
+
 export default function Login() {
+  const providers = useAuthProviders();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [email, setEmail] = useState("");
@@ -126,37 +142,43 @@ export default function Login() {
 
         {/* OAuth Buttons */}
         <div className="flex flex-col gap-2 mb-4">
-          <button
-            type="button"
-            onClick={handleGoogleLogin}
-            className="btn-base btn-secondary w-full"
-            data-testid="button-google-login"
-          >
-            <FcGoogle className="h-4 w-4" />
-            Sign in with Google
-          </button>
+          {providers?.google && (
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              className="btn-base btn-secondary w-full"
+              data-testid="button-google-login"
+            >
+              <FcGoogle className="h-4 w-4" />
+              Sign in with Google
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={handleMicrosoftLogin}
-            className="btn-base btn-secondary w-full"
-            data-testid="button-microsoft-login"
-          >
-            <FaMicrosoft className="h-4 w-4 text-blue-600" />
-            Sign in with Microsoft
-          </button>
+          {providers?.microsoft && (
+            <button
+              type="button"
+              onClick={handleMicrosoftLogin}
+              className="btn-base btn-secondary w-full"
+              data-testid="button-microsoft-login"
+            >
+              <FaMicrosoft className="h-4 w-4 text-blue-600" />
+              Sign in with Microsoft
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={handleReplitLogin}
-            className="btn-base btn-secondary w-full"
-            data-testid="button-replit-login"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M21.3 17.5c0 1-.8 1.8-1.8 1.8h-6.2c-.5 0-.9-.4-.9-.9v-6.2c0-.5.4-.9.9-.9h6.2c1 0 1.8.8 1.8 1.8v4.4zm-9 1.8H5.7c-1 0-1.8-.8-1.8-1.8V13c0-1 .8-1.8 1.8-1.8h6.2c.5 0 .9.4.9.9v6.3c0 .5-.4.9-.9.9zm9-12.8c0 1-.8 1.8-1.8 1.8h-6.2c-.5 0-.9-.4-.9-.9V1.2c0-.5.4-.9.9-.9h6.2c1 0 1.8.8 1.8 1.8v4.4z"/>
-            </svg>
-            Sign in with Replit
-          </button>
+          {providers?.replit && (
+            <button
+              type="button"
+              onClick={handleReplitLogin}
+              className="btn-base btn-secondary w-full"
+              data-testid="button-replit-login"
+            >
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M21.3 17.5c0 1-.8 1.8-1.8 1.8h-6.2c-.5 0-.9-.4-.9-.9v-6.2c0-.5.4-.9.9-.9h6.2c1 0 1.8.8 1.8 1.8v4.4zm-9 1.8H5.7c-1 0-1.8-.8-1.8-1.8V13c0-1 .8-1.8 1.8-1.8h6.2c.5 0 .9.4.9.9v6.3c0 .5-.4.9-.9.9zm9-12.8c0 1-.8 1.8-1.8 1.8h-6.2c-.5 0-.9-.4-.9-.9V1.2c0-.5.4-.9.9-.9h6.2c1 0 1.8.8 1.8 1.8v4.4z"/>
+              </svg>
+              Sign in with Replit
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-3 mb-4">

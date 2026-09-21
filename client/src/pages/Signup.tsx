@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -6,7 +7,22 @@ import { AlertCircle } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
 import { FaMicrosoft } from "react-icons/fa";
 
+/**
+ * Which sign-in methods this server can actually perform.
+ *
+ * A provider with no credentials was offered anyway: the button took the
+ * person to Microsoft or Google, failed, and returned them here to a red
+ * error. An option that cannot work is not shown at all.
+ */
+function useAuthProviders() {
+  const { data } = useQuery<{ google: boolean; microsoft: boolean; replit: boolean }>({
+    queryKey: ["/api/auth/providers"],
+  });
+  return data;
+}
+
 export default function Signup() {
+  const providers = useAuthProviders();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [email, setEmail] = useState("");
@@ -120,25 +136,29 @@ export default function Signup() {
 
         {/* OAuth Buttons - No Replit for Signup */}
         <div className="flex flex-col gap-2 mb-4">
-          <button
-            type="button"
-            onClick={handleGoogleSignup}
-            className="btn-base btn-secondary w-full"
-            data-testid="button-google-signup"
-          >
-            <FcGoogle className="h-4 w-4" />
-            Sign up with Google
-          </button>
+          {providers?.google && (
+            <button
+              type="button"
+              onClick={handleGoogleSignup}
+              className="btn-base btn-secondary w-full"
+              data-testid="button-google-signup"
+            >
+              <FcGoogle className="h-4 w-4" />
+              Sign up with Google
+            </button>
+          )}
 
-          <button
-            type="button"
-            onClick={handleMicrosoftSignup}
-            className="btn-base btn-secondary w-full"
-            data-testid="button-microsoft-signup"
-          >
-            <FaMicrosoft className="h-4 w-4 text-blue-600" />
-            Sign up with Microsoft
-          </button>
+          {providers?.microsoft && (
+            <button
+              type="button"
+              onClick={handleMicrosoftSignup}
+              className="btn-base btn-secondary w-full"
+              data-testid="button-microsoft-signup"
+            >
+              <FaMicrosoft className="h-4 w-4 text-blue-600" />
+              Sign up with Microsoft
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-3 mb-4">
