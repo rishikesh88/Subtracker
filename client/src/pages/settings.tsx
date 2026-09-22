@@ -1,12 +1,22 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { User, LogOut, Mail, Calendar, Save, Trash2, RefreshCw } from "lucide-react";
+import { User, LogOut, Mail, Calendar, Save, Trash2, RefreshCw, AlertTriangle } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useMailboxes } from "@/hooks/useMailboxes";
 import type { SafeUser, GmailAccount, OutlookAccount } from "@shared/schema";
 import { useState, useEffect } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function Settings() {
   const { data: user } = useQuery<SafeUser>({
@@ -49,6 +59,7 @@ export default function Settings() {
   const [emailSyncDays, setEmailSyncDays] = useState<number>(90);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set());
+  const [showClearDataDialog, setShowClearDataDialog] = useState(false);
 
   // Initialize emailSyncDays from user data
   useEffect(() => {
@@ -56,6 +67,47 @@ export default function Settings() {
       setEmailSyncDays(user.emailSyncDays);
     }
   }, [user]);
+
+  /* Deleting everything read from the mailboxes.
+   *
+   * The endpoint has existed for a while with nothing calling it, which meant
+   * the only route was emailing us by hand. Google's review of a restricted
+   * Gmail scope looks for a path a user can find on their own, and so does
+   * anyone who simply changes their mind.
+   *
+   * It does not close the account or disconnect a mailbox -- those are their
+   * own controls, and disconnecting is what cancels Google's permission. This
+   * removes what was read. */
+  const clearDataMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('DELETE', '/api/clear-data');
+      return response.json();
+    },
+    onSuccess: (result) => {
+      setShowClearDataDialog(false);
+      toast({
+        title: "Everything read from your mailboxes is deleted",
+        description: `${result.clearedSubscriptions ?? 0} subscriptions and ${result.clearedEmails ?? 0} stored emails removed. Your mailboxes stay connected.`,
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey[0]?.toString() ?? "";
+          return key.startsWith('/api/subscriptions')
+            || key.startsWith('/api/suggestions')
+            || key.startsWith('/api/emails')
+            || key.startsWith('/api/stats')
+            || key.startsWith('/api/auth/user');
+        },
+      });
+    },
+    onError: () => {
+      toast({
+        title: "That didn't delete",
+        description: "Nothing was removed. Try again, or write to us and we will do it by hand.",
+        variant: "destructive",
+      });
+    },
+  });
 
   // Delete Gmail account mutation
   const deleteGmailAccountMutation = useMutation({
@@ -348,45 +400,104 @@ export default function Settings() {
         className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-5"
         style={{ padding: "20px 24px 40px" }}
       >
-        {/* Profile */}
-        <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
-          <h2 className="t-label mb-3">Profile</h2>
-          <div className="flex items-center gap-3 flex-wrap">
-            <Avatar className="h-11 w-11 flex-none">
-              <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
-              <AvatarFallback className="bg-line-soft">
-                <User size={17} strokeWidth={2} className="text-ink-body" />
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-[170px] flex-1 overflow-hidden">
-              <h3 className="t-card-title truncate" data-testid="profile-name">
-                {user?.firstName && user?.lastName
-                  ? `${user.firstName} ${user.lastName}`
-                  : 'User'
-                }
-              </h3>
-              <p className="text-[13px] text-ink-body truncate" data-testid="profile-email">
-                {user?.email}
+        {/* Profile and Detection share the top row; the mailbox list gets the
+            full width beneath it, because an address like
+            accounts.payable.india@verloq.co has nowhere to go in half a column
+            and the list is the part that grows as accounts are added. */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Profile */}
+          <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
+            <h2 className="t-label mb-3">Profile</h2>
+            <div className="flex items-center gap-3 flex-wrap">
+              <Avatar className="h-11 w-11 flex-none">
+                <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
+                <AvatarFallback className="bg-line-soft">
+                  <User size={17} strokeWidth={2} className="text-ink-body" />
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-[170px] flex-1 overflow-hidden">
+                <h3 className="t-card-title truncate" data-testid="profile-name">
+                  {user?.firstName && user?.lastName
+                    ? `${user.firstName} ${user.lastName}`
+                    : 'User'
+                  }
+                </h3>
+                <p className="text-[13px] text-ink-body truncate" data-testid="profile-email">
+                  {user?.email}
+                </p>
+              </div>
+              <span className="badge-category flex-none">
+                Joined {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Recently'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 mt-4 pt-4 border-t border-line-soft">
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="btn-base btn-secondary"
+                data-testid="logout-settings-button"
+              >
+                <LogOut size={15} strokeWidth={2} />
+                Sign out
+              </button>
+            </div>
+          </section>
+
+          {/* Detection settings */}
+          <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
+            <h2 className="t-label mb-3">Detection settings</h2>
+
+            <div className="flex items-center justify-between gap-3 pb-3 border-b border-line-soft">
+              <div>
+                <p className="text-[13px] font-medium text-ink-strong">Currency</p>
+                <p className="text-[12px] text-muted-foreground mt-0.5">
+                  Primary currency for subscription tracking
+                </p>
+              </div>
+              <span className="badge-cadence flex-none">INR</span>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-3">
+              <div className="flex items-center gap-1.5">
+                <Calendar size={15} strokeWidth={2} className="text-muted-foreground" />
+                <label htmlFor="emailSyncDays" className="text-[13px] font-medium text-ink-strong">
+                  Email sync period
+                </label>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="field w-24">
+                  <input
+                    id="emailSyncDays"
+                    type="number"
+                    min={1}
+                    max={180}
+                    value={emailSyncDays}
+                    onChange={(e) => handleSyncDaysChange(e.target.value)}
+                    data-testid="email-sync-days-input"
+                  />
+                </div>
+                <span className="text-[12.5px] text-muted-foreground">days (max 180)</span>
+                {hasUnsavedChanges && (
+                  <button
+                    type="button"
+                    onClick={handleSaveSettings}
+                    disabled={updateSettingsMutation.isPending}
+                    className="btn-base btn-primary"
+                    data-testid="save-settings-button"
+                  >
+                    <Save size={15} strokeWidth={2} />
+                    {updateSettingsMutation.isPending ? "Saving..." : "Save changes"}
+                  </button>
+                )}
+              </div>
+              <p className="text-[12px] text-muted-foreground">
+                Number of days to fetch emails when syncing with Gmail. Default is 90 days.
               </p>
             </div>
-            <span className="badge-category flex-none">
-              Joined {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Recently'}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 mt-4 pt-4 border-t border-line-soft">
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="btn-base btn-secondary"
-              data-testid="logout-settings-button"
-            >
-              <LogOut size={15} strokeWidth={2} />
-              Sign out
-            </button>
-          </div>
-        </section>
+          </section>
+        </div>
 
-        {/* Email accounts */}
+{/* Email accounts */}
         <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0">
@@ -532,59 +643,71 @@ export default function Settings() {
           </div>
         </section>
 
-        {/* Detection settings */}
+        {/* Deleting what was read. Its own card at the foot of the page:
+            destructive, and nothing above it should be mistaken for it. */}
         <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
-          <h2 className="t-label mb-3">Detection settings</h2>
-
-          <div className="flex items-center justify-between gap-3 pb-3 border-b border-line-soft">
-            <div>
-              <p className="text-[13px] font-medium text-ink-strong">Currency</p>
+          <h2 className="t-label mb-3">Your data</h2>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="min-w-0 max-w-[62ch]">
+              <p className="text-[13px] font-medium text-ink-strong">
+                Delete everything read from your mailboxes
+              </p>
               <p className="text-[12px] text-muted-foreground mt-0.5">
-                Primary currency for subscription tracking
+                Every subscription, every stored receipt and everything found during a sync.
+                Your mailboxes stay connected and can be synced again &mdash; to cut off access
+                entirely, remove them above.
               </p>
             </div>
-            <span className="badge-cadence flex-none">INR</span>
-          </div>
-
-          <div className="flex flex-col gap-2 pt-3">
-            <div className="flex items-center gap-1.5">
-              <Calendar size={15} strokeWidth={2} className="text-muted-foreground" />
-              <label htmlFor="emailSyncDays" className="text-[13px] font-medium text-ink-strong">
-                Email sync period
-              </label>
-            </div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="field w-24">
-                <input
-                  id="emailSyncDays"
-                  type="number"
-                  min={1}
-                  max={180}
-                  value={emailSyncDays}
-                  onChange={(e) => handleSyncDaysChange(e.target.value)}
-                  data-testid="email-sync-days-input"
-                />
-              </div>
-              <span className="text-[12.5px] text-muted-foreground">days (max 180)</span>
-              {hasUnsavedChanges && (
-                <button
-                  type="button"
-                  onClick={handleSaveSettings}
-                  disabled={updateSettingsMutation.isPending}
-                  className="btn-base btn-primary"
-                  data-testid="save-settings-button"
-                >
-                  <Save size={15} strokeWidth={2} />
-                  {updateSettingsMutation.isPending ? "Saving..." : "Save changes"}
-                </button>
-              )}
-            </div>
-            <p className="text-[12px] text-muted-foreground">
-              Number of days to fetch emails when syncing with Gmail. Default is 90 days.
-            </p>
+            <button
+              type="button"
+              onClick={() => setShowClearDataDialog(true)}
+              disabled={clearDataMutation.isPending}
+              className="btn-base btn-secondary text-destructive flex-none"
+              data-testid="clear-data-button"
+            >
+              <Trash2 size={15} strokeWidth={2} />
+              {clearDataMutation.isPending ? "Deleting\u2026" : "Delete my data"}
+            </button>
           </div>
         </section>
       </main>
+
+      <AlertDialog open={showClearDataDialog} onOpenChange={setShowClearDataDialog}>
+        <AlertDialogContent data-testid="clear-data-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete everything read from your mailboxes?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p className="font-semibold text-destructive">This cannot be undone.</p>
+              <ul className="list-disc list-inside pl-4 space-y-1">
+                <li>Every subscription Verloq found or you added</li>
+                <li>Every receipt and invoice stored against them</li>
+                <li>Everything kept from previous syncs</li>
+              </ul>
+              <p>
+                Your account stays open and your mailboxes stay connected, so a future sync
+                starts again from empty. To cut off access to a mailbox, remove it instead.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              className="btn-base btn-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="cancel-clear-data"
+            >
+              Keep my data
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => clearDataMutation.mutate()}
+              disabled={clearDataMutation.isPending}
+              className="btn-base bg-destructive text-white hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="confirm-clear-data"
+            >
+              <AlertTriangle size={15} strokeWidth={2} />
+              Delete everything
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

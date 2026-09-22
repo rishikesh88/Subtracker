@@ -1604,7 +1604,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const subscriptions = await storage.getSubscriptions(userId);
-      res.json(subscriptions);
+
+      /* The detection pipeline writes `merchantEmail` as null, so the only
+         record of who billed you is the email the charge was found in. Filled
+         in here from that evidence, which is what lets the interface show a
+         brand's logo without keeping a list of brands. Response only -- the
+         column is untouched and `updateSubscriptionSchema` cannot write it. */
+      const senders = await storage.getSubscriptionSenders(userId);
+      res.json(subscriptions.map((s) => ({
+        ...s,
+        merchantEmail: s.merchantEmail ?? senders.get(s.id) ?? null,
+      })));
     } catch (error) {
       console.error("Get subscriptions error:", error);
       res.status(500).json({ message: "Failed to fetch subscriptions" });
@@ -1724,7 +1734,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Unauthorized to view this subscription" });
       }
 
-      res.json(subscription);
+      // Same as the list route: the sender of the receipt, so the drawer can
+      // draw the same logo the card does.
+      const senders = await storage.getSubscriptionSenders(userId);
+      res.json({
+        ...subscription,
+        merchantEmail: subscription.merchantEmail ?? senders.get(subscription.id) ?? null,
+      });
     } catch (error) {
       console.error("Get subscription error:", error);
       res.status(500).json({ message: "Failed to fetch subscription" });
