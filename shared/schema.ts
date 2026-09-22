@@ -290,10 +290,26 @@ export const upsertUserSchema = createInsertSchema(users).pick({
   profileImageUrl: true,
 });
 
-export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
-  id: true,
-  detectedAt: true,
-});
+/*
+ * JSON has no date type, so an HTTP client can only send a timestamp as a
+ * string -- and the generated schema expects a Date, which rejects it. That
+ * made every timestamp column on this table unreachable over the API: the
+ * server-side sync pipeline passes real Dates and worked, while anything
+ * posting JSON could not set a renewal date at all.
+ *
+ * `z.coerce.date()` accepts both, so the pipeline is unaffected.
+ */
+const jsonDate = z.coerce.date();
+
+export const insertSubscriptionSchema = createInsertSchema(subscriptions)
+  .omit({
+    id: true,
+    detectedAt: true,
+  })
+  .extend({
+    nextBillingDate: jsonDate.nullish(),
+    lastEmailDate: jsonDate.nullish(),
+  });
 
 export const updateSubscriptionSchema = createInsertSchema(subscriptions).pick({
   serviceName: true,
