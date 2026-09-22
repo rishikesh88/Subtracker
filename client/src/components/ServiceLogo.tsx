@@ -50,8 +50,13 @@ export function ServiceLogo({ name, size = 34, className }: ServiceLogoProps) {
   // without this, one failed logo would poison every later name in that slot.
   useEffect(() => setFailed(false), [src]);
 
+  /* A white tile with a hairline edge, not a grey fill. Brandfetch marks are
+     square and many carry their own white ground, so a grey tile behind one
+     read as a square sitting inside a rounded box. On white the mark's own
+     ground disappears into the tile and only the rounded edge is visible. */
   const tile = cn(
-    "flex-none rounded-logo bg-line-soft flex items-center justify-center overflow-hidden",
+    "flex-none rounded-logo bg-surface border border-line",
+    "flex items-center justify-center overflow-hidden",
     className
   );
   const style = { width: size, height: size };
@@ -74,10 +79,13 @@ export function ServiceLogo({ name, size = 34, className }: ServiceLogoProps) {
       <img
         src={src}
         alt=""
-        width={Math.round(size * 0.58)}
-        height={Math.round(size * 0.58)}
         loading="lazy"
         onError={() => setFailed(true)}
+        /* Fills the tile and is inset by padding rather than being given a
+           fixed width, so a wordmark wider than it is tall keeps its shape
+           instead of being squashed into a square box. */
+        className="w-full h-full object-contain"
+        style={{ padding: Math.round(size * 0.18) }}
         data-testid="service-logo-image"
       />
     </span>

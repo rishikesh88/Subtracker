@@ -321,7 +321,15 @@ export const updateSubscriptionSchema = createInsertSchema(subscriptions).pick({
   ownerName: true,
   ownerEmail: true,
   description: true,
-}).partial();
+  nextBillingDate: true,
+})
+  .extend({
+    /* Same reason as the insert schema above: a browser can only send this as
+       a string. It was previously left out of this list entirely, so a renewal
+       date could be set when a subscription was added and never corrected. */
+    nextBillingDate: jsonDate.nullish(),
+  })
+  .partial();
 
 export const insertInvoiceSchema = createInsertSchema(invoices).omit({
   id: true,
