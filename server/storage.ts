@@ -1,6 +1,6 @@
 import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, type SyncJob, users, syncJobs, subscriptions, emails, screenedMessages, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
-import { eq, and, desc, asc, count, sql, inArray, isNotNull } from 'drizzle-orm';
+import { eq, and, desc, asc, count, sql, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { randomUUID } from "crypto";
 import { convertCurrency } from "./utils/currencyConverter";
@@ -358,6 +358,63 @@ export class DatabaseStorage implements IStorage {
    * only on a token of four characters or more that is not a generic word.
    * A wrong logo is worse than no logo, so it would rather find nothing.
    */
+  /** The address the evidence for a suggestion arrived from, newest first. */
+  private async senderOfEvidence(
+    userId: string,
+    evidenceEmailIds: string[] | null | undefined,
+  ): Promise<string | null> {
+    if (!evidenceEmailIds || evidenceEmailIds.length === 0) return null;
+    try {
+      const rows = await this.db
+        .select({ fromEmail: emails.fromEmail })
+        .from(emails)
+        .where(and(eq(emails.userId, userId), inArray(emails.gmailId, evidenceEmailIds)))
+        .orderBy(desc(emails.receivedAt))
+        .limit(1);
+      return rows[0]?.fromEmail ?? null;
+    } catch (error) {
+      console.error('Error resolving sender of evidence:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Fill in `merchantEmail` for subscriptions created before it was written
+   * at creation time.
+   *
+   * Runs the expensive resolution once and persists the answer, so the work
+   * happens on one page load rather than every one. Rows it cannot resolve
+   * stay null -- see the caller for why that does not become a loop.
+   */
+  async backfillMerchantEmails(userId: string): Promise<number> {
+    try {
+      const senders = await this.getSubscriptionSenders(userId);
+      if (senders.size === 0) return 0;
+
+      const rows = await this.db
+        .select({ id: subscriptions.id })
+        .from(subscriptions)
+        .where(and(eq(subscriptions.userId, userId), isNull(subscriptions.merchantEmail)));
+
+      let written = 0;
+      for (const row of rows) {
+        const sender = senders.get(row.id);
+        if (!sender) continue;
+        await this.db
+          .update(subscriptions)
+          .set({ merchantEmail: sender })
+          .where(and(eq(subscriptions.id, row.id), eq(subscriptions.userId, userId)));
+        written += 1;
+      }
+      if (written > 0) console.log(`🏷️  Filled merchantEmail on ${written} subscriptions for ${userId}`);
+      return written;
+    } catch (error) {
+      // A missing logo is not worth failing a page load over.
+      console.error('Error backfilling merchant emails:', error);
+      return 0;
+    }
+  }
+
   async getSubscriptionSenders(userId: string): Promise<Map<string, string>> {
     try {
       type BrandRow = { id: string; serviceName: string; merchantName: string | null };
@@ -1260,7 +1317,10 @@ export class DatabaseStorage implements IStorage {
           status: 'active' as const,
           nextBillingDate,
           lastEmailDate,
-          merchantEmail: null
+          /* The sender of the evidence is the vendor, and this is the moment
+             we know it. Writing it here means the dashboard reads a column
+             instead of recomputing the same answer on every page load. */
+          merchantEmail: await this.senderOfEvidence(userId, suggestion.evidenceEmailIds),
         };
         
         // Use createSubscription method which has deduplication logic

@@ -93,6 +93,18 @@ const oauthStates = new Map<string, {
 }>();
 
 /**
+ * Users whose subscriptions have already been checked for a missing
+ * `merchantEmail` in this process.
+ *
+ * The fill itself is persisted, so this only guards the rows that cannot be
+ * resolved at all -- without it, an account holding one unresolvable
+ * subscription would re-run the whole scan on every dashboard load, forever.
+ * Losing the set on restart costs one extra pass, which is the right trade
+ * against a column that would only ever mean "we looked and found nothing".
+ */
+const backfilledUsers = new Set<string>();
+
+/**
  * Last progress event per user, replayed to a client that reconnects mid-sync.
  *
  * Long-lived SSE streams do not survive a full sync: the platform proxy closes
@@ -1603,18 +1615,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ message: "User not authenticated" });
       }
 
-      const subscriptions = await storage.getSubscriptions(userId);
+      let subscriptions = await storage.getSubscriptions(userId);
 
-      /* The detection pipeline writes `merchantEmail` as null, so the only
-         record of who billed you is the email the charge was found in. Filled
-         in here from that evidence, which is what lets the interface show a
-         brand's logo without keeping a list of brands. Response only -- the
-         column is untouched and `updateSubscriptionSchema` cannot write it. */
-      const senders = await storage.getSubscriptionSenders(userId);
-      res.json(subscriptions.map((s) => ({
-        ...s,
-        merchantEmail: s.merchantEmail ?? senders.get(s.id) ?? null,
-      })));
+      /* `merchantEmail` is written when a subscription is created, so this is
+         normally a column read and nothing more. Rows that predate that are
+         filled in once, here, and then never again -- see backfilledUsers. */
+      if (!backfilledUsers.has(userId) && subscriptions.some((s) => !s.merchantEmail)) {
+        backfilledUsers.add(userId);
+        const written = await storage.backfillMerchantEmails(userId);
+        if (written > 0) subscriptions = await storage.getSubscriptions(userId);
+      }
+
+      res.json(subscriptions);
     } catch (error) {
       console.error("Get subscriptions error:", error);
       res.status(500).json({ message: "Failed to fetch subscriptions" });
@@ -1734,13 +1746,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Unauthorized to view this subscription" });
       }
 
-      // Same as the list route: the sender of the receipt, so the drawer can
-      // draw the same logo the card does.
-      const senders = await storage.getSubscriptionSenders(userId);
-      res.json({
-        ...subscription,
-        merchantEmail: subscription.merchantEmail ?? senders.get(subscription.id) ?? null,
-      });
+      res.json(subscription);
     } catch (error) {
       console.error("Get subscription error:", error);
       res.status(500).json({ message: "Failed to fetch subscription" });
