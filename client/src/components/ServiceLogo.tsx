@@ -5,32 +5,42 @@ import { findService, type CatalogueService } from "@/lib/serviceCatalogue";
 /**
  * Where a logo comes from, in order.
  *
- * 1. Simple Icons, for the 21 catalogue brands it still carries. Official
- *    mark, official colour, no API key, and one consistent silhouette weight
- *    across the whole grid.
- * 2. A favicon, for the nine Simple Icons has withdrawn at the trademark
- *    holders' request -- Slack, Salesforce, Adobe, AWS, Azure, Microsoft 365,
- *    Canva, OpenAI and Monday.com. Whatever the site publishes, so quality
- *    varies, but a real logo beats a letter.
- * 3. The service's first letter, for everything else -- which is every
- *    subscription found in email, since those are named by whatever the
+ * 1. Brandfetch, once a client id is configured. It resolves by domain, so it
+ *    covers all thirty rather than the subset one icon set happens to carry.
+ *    The id is publishable by design -- it travels in the image URL and is
+ *    visible in the browser either way -- which is why it can live in the
+ *    client bundle. Absent, this tier is simply skipped.
+ * 2. Simple Icons, pinned to a major version on jsDelivr, which is the URL
+ *    their README documents. Pinning matters: they withdraw brands twice a
+ *    year at trademark holders' request, and an unpinned URL 404s when they
+ *    do. Nine of our thirty have already gone that way.
+ * 3. The service's first letter. Not an edge case -- it is what every
+ *    subscription found in email gets, since those are named by whatever the
  *    receipt called them and have no domain to look up.
  *
- * Changing provider is these two functions and nothing else.
+ * An earlier version used `icons.duckduckgo.com/ip3/{domain}.ico` for tier 2.
+ * That endpoint exists for DuckDuckGo's own browser extension: undocumented,
+ * no published terms, no stability commitment. It should not have shipped and
+ * has been removed rather than demoted.
  */
+const BRANDFETCH_CLIENT_ID = import.meta.env.VITE_BRANDFETCH_CLIENT_ID as string | undefined;
+
+function brandfetchUrl(domain: string, size: number): string | null {
+  if (!BRANDFETCH_CLIENT_ID) return null;
+  const edge = Math.max(64, size * 2); // retina, and their smallest sensible step
+  return `https://cdn.brandfetch.io/${domain}/w/${edge}/h/${edge}?c=${BRANDFETCH_CLIENT_ID}`;
+}
+
 function simpleIconsUrl(slug: string): string {
-  return `https://cdn.simpleicons.org/${slug}`;
+  return `https://cdn.jsdelivr.net/npm/simple-icons@v16/icons/${slug}.svg`;
 }
 
-function faviconUrl(domain: string): string {
-  return `https://icons.duckduckgo.com/ip3/${domain}.ico`;
-}
-
-function sourcesFor(service: CatalogueService | undefined): string[] {
+function sourcesFor(service: CatalogueService | undefined, size: number): string[] {
   if (!service) return [];
-  return service.slug
-    ? [simpleIconsUrl(service.slug), faviconUrl(service.domain)]
-    : [faviconUrl(service.domain)];
+  return [
+    brandfetchUrl(service.domain, size),
+    service.slug ? simpleIconsUrl(service.slug) : null,
+  ].filter((u): u is string => u !== null);
 }
 
 interface ServiceLogoProps {
@@ -50,7 +60,7 @@ interface ServiceLogoProps {
  */
 export function ServiceLogo({ name, size = 34, className }: ServiceLogoProps) {
   const service = findService(name);
-  const sources = useMemo(() => sourcesFor(service), [service]);
+  const sources = useMemo(() => sourcesFor(service, size), [service, size]);
   const [attempt, setAttempt] = useState(0);
 
   // A card can be reused for a different subscription as a list re-renders;
