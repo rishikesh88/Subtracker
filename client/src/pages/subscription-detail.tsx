@@ -43,6 +43,10 @@ export default function SubscriptionDetail({
   const { toast } = useToast();
   const [isEditMode, setIsEditMode] = useState(false);
   const [formData, setFormData] = useState<Partial<Subscription>>({});
+  /* Held apart from formData because <input type="date"> speaks YYYY-MM-DD
+     while the column is a timestamp. Converting on the way in and out keeps
+     the input controlled without casting a string into a Date-typed field. */
+  const [renewalInput, setRenewalInput] = useState("");
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   // The invoice currently being looked at, or null when nothing is open.
   const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
@@ -102,6 +106,7 @@ export default function SubscriptionDetail({
         frequency: subscription.frequency,
         currency: subscription.currency,
       });
+      setRenewalInput(toDateInput(parseValidDate(subscription.nextBillingDate)));
     }
   }, [subscription]);
 
@@ -216,7 +221,12 @@ export default function SubscriptionDetail({
   };
 
   const handleSave = () => {
-    updateMutation.mutate(formData);
+    /* An empty input clears the date rather than leaving the old one, which
+       is what someone deleting the field is asking for. */
+    updateMutation.mutate({
+      ...formData,
+      nextBillingDate: renewalInput || null,
+    } as Partial<Subscription>);
   };
 
   const handleCancel = () => {
@@ -228,6 +238,7 @@ export default function SubscriptionDetail({
         ownerName: subscription.ownerName || '',
         ownerEmail: subscription.ownerEmail || '',
       });
+      setRenewalInput(toDateInput(parseValidDate(subscription.nextBillingDate)));
     }
     setIsEditMode(false);
   };
@@ -367,6 +378,18 @@ export default function SubscriptionDetail({
           <DetailRow label="Billing cycle">
             <span className="text-[13px] text-ink">{billingCycle}</span>
           </DetailRow>
+          {isEditMode && (
+            <DetailRow label="Next renewal">
+              <div className="field">
+                <input
+                  type="date"
+                  value={renewalInput}
+                  onChange={(e) => setRenewalInput(e.target.value)}
+                  data-testid="input-next-billing-date"
+                />
+              </div>
+            </DetailRow>
+          )}
           <DetailRow label="Started">
             <span className="text-[13px] text-ink">{startedDate ? formatDate(startedDate) : "—"}</span>
           </DetailRow>
@@ -674,6 +697,19 @@ function DetailRow({
 }
 
 /** Parses a date field into a valid Date, or null if missing/unparseable. */
+/**
+ * A Date as `<input type="date">` wants it.
+ *
+ * Built from the local date parts rather than `toISOString().slice(0, 10)`,
+ * which reports the UTC day -- so a renewal on the 1st, opened anywhere east
+ * of UTC, would show as the 31st of the month before.
+ */
+function toDateInput(date: Date | null): string {
+  if (!date) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function parseValidDate(date: string | Date | null | undefined): Date | null {
   if (!date) return null;
   const d = new Date(date);

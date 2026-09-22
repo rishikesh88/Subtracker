@@ -424,8 +424,8 @@ function Stepper({ step, onGoTo }: { step: number; onGoTo: (n: number) => void }
 
 /* ---------------------------------------------------------------- step 1 */
 
-/* Slug the display name, not the icon slug: nine catalogue rows have no icon
-   slug, so keying off it produced ids like "service-option-Microsoft 365". */
+/* Slug the display name for a stable test id. Derived rather than stored,
+   so a catalogue row is one line and cannot drift out of step with it. */
 function testId(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
