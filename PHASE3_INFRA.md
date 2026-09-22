@@ -220,25 +220,51 @@ Signup is gated on this working: a user who never receives the OTP cannot get in
 
 ### Which Node the build uses
 
-Railpack takes the Node version from `package.json` > `engines` > `node`, and
-nothing else in this repository — confirmed by reading Railpack's own source
-(`applyNodeVersionResolution` in `core/providers/node/node.go`), not inferred
-from the build log. A `RAILPACK_NODE_VERSION` service variable would override
-it; none is set, and none should be, because then the pin would live in two
-places.
+**`.node-version`.** The build log names its source outright:
 
-`engines.node` is `22.x`. `.node-version` carries `22` as well, but that file
-is there for local version managers (nvm, fnm, volta) — Railway does not read
-it. **If the version needs changing, change `package.json`.**
+    node │ 22.23.2 │ idiomatic-version-file (22.23.2)
 
-It was `>=20` until this was pinned, which resolved to Node 20 on Railway while
-every local check ran on Node 22. Two things came of that gap:
+`engines.node` is `22.x` as well and agrees, but it is not what won. An
+earlier version of this section said the opposite -- that Railpack reads only
+`package.json` > `engines` > `node` and ignores `.node-version` -- on the
+strength of reading `applyNodeVersionResolution` in Railpack's source. That
+function is real, but mise resolves an idiomatic version file first, so the
+conclusion was wrong. Both files say 22, so nothing broke; the documentation
+was simply misleading about which one to edit.
 
-- The deployed bundle was **1,023 kB**; the same commit built on Node 22 is
-  **701 kB** — 322 kB smaller, and 71 kB less over the wire after gzip.
-- `@azure/identity` requires Node 22 and was being installed onto Node 20, so
-  every build printed an `EBADENGINE` warning. Nothing broke, because nothing
-  imports that package, but a local check on Node 22 could never have caught it.
+**Change `.node-version` first**, and keep `engines.node` in step so npm's
+`EBADENGINE` warnings stay meaningful. A `RAILPACK_NODE_VERSION` service
+variable would override both; none is set, and none should be.
+
+It was `>=20` until this was pinned, which resolved to Node 20 on Railway
+while every local check ran on Node 22. One real consequence: `@azure/identity`
+requires Node 22 and was being installed onto Node 20, so every build printed
+an `EBADENGINE` warning. Nothing broke, because nothing imports that package,
+but a local check on Node 22 could never have caught it.
+
+### The deployed bundle is ~325 kB bigger than the same commit built locally
+
+Measured, not explained. An earlier note here blamed the Node version and
+claimed the pin would take the bundle from 1,023 kB to 701 kB. **It did not.**
+
+| Build | Node | Bundle |
+|---|---|---|
+| Railway, 21 Sep | 20.20.2 | 1,023 kB |
+| Railway, 22 Sep | 22.23.2 | 1,042 kB |
+| Local | 22.22.2 | 716 kB |
+
+The gap is constant across Node versions, so the Node version was never the
+cause. Ruled out since: `NODE_ENV=production` at build time (identical bundle
+and identical hash either way), a stale `node_modules` (a clean `npm ci` from
+the lockfile reproduces the local number), and anything in the client source
+branching on the environment (there is none).
+
+What is left to check: Railway transforms **1,895** modules where this
+repository transforms **1,890**, so five modules enter the graph there that do
+not here. Finding those five is where the next attempt should start.
+
+This is a page-weight question, not a fault -- the app has shipped at roughly
+this size throughout.
 
 ### Two deployments, one repository
 
