@@ -6,19 +6,13 @@
  * here is still addable by typing its name -- the catalogue is a shortcut,
  * not a whitelist.
  *
- * `slug` is a Simple Icons identifier. Nine of these thirty are `null`,
- * because Simple Icons no longer carries them -- Slack, Salesforce, Adobe,
- * AWS, Azure, Microsoft 365, Canva, OpenAI and Monday.com have all been
- * withdrawn at the trademark holders' request. Checked against the package
- * itself rather than assumed, which is why the list is exact.
- *
- * `domain` is what those nine fall back to, and it is filled in for every
- * row so the order can be changed without revisiting them.
+ * `domain` is what fetches the logo: Brandfetch is keyed on it, and all
+ * thirty were checked in a browser against the real client id before this
+ * list was trusted. A domain Brandfetch does not know falls back to the
+ * service's first letter, so getting one wrong is visible, not silent.
  */
 export interface CatalogueService {
   name: string;
-  /** Simple Icons id, or null where Simple Icons has withdrawn the brand. */
-  slug: string | null;
   domain: string;
   category: string;
   /** One plain line on what it is. Shown on the card in the picker. */
@@ -27,77 +21,77 @@ export interface CatalogueService {
 
 export const SERVICE_CATALOGUE: CatalogueService[] = [
   // Collaboration
-  { name: "Slack",                slug: null,                 domain: "slack.com",              category: "Collaboration",
+  { name: "Slack",                domain: "slack.com",              category: "Collaboration",
     description: "Team messaging in channels" },
-  { name: "Notion",               slug: "notion",             domain: "notion.so",              category: "Collaboration",
+  { name: "Notion",               domain: "notion.so",              category: "Collaboration",
     description: "Notes, docs and wikis in one place" },
-  { name: "Google Workspace",     slug: "google",             domain: "workspace.google.com",   category: "Collaboration",
+  { name: "Google Workspace",     domain: "workspace.google.com",   category: "Collaboration",
     description: "Gmail, Docs, Drive and Calendar" },
-  { name: "Microsoft 365",        slug: null,                 domain: "microsoft.com",          category: "Collaboration",
+  { name: "Microsoft 365",        domain: "microsoft.com",          category: "Collaboration",
     description: "Word, Excel, Outlook and Teams" },
-  { name: "Zoom",                 slug: "zoom",               domain: "zoom.us",                category: "Collaboration",
+  { name: "Zoom",                 domain: "zoom.us",                category: "Collaboration",
     description: "Video calls and webinars" },
-  { name: "Atlassian",            slug: "atlassian",          domain: "atlassian.com",          category: "Collaboration",
+  { name: "Atlassian",            domain: "atlassian.com",          category: "Collaboration",
     description: "Jira, Confluence and Bitbucket" },
 
   // Work management
-  { name: "Asana",                slug: "asana",              domain: "asana.com",              category: "Work management",
+  { name: "Asana",                domain: "asana.com",              category: "Work management",
     description: "Projects, tasks and who owns what" },
-  { name: "Linear",               slug: "linear",             domain: "linear.app",             category: "Work management",
+  { name: "Linear",               domain: "linear.app",             category: "Work management",
     description: "Issue tracking for software teams" },
-  { name: "Monday.com",           slug: null,                 domain: "monday.com",             category: "Work management",
+  { name: "Monday.com",           domain: "monday.com",             category: "Work management",
     description: "Boards for planning work" },
-  { name: "Airtable",             slug: "airtable",           domain: "airtable.com",           category: "Work management",
+  { name: "Airtable",             domain: "airtable.com",           category: "Work management",
     description: "Spreadsheets that work like a database" },
 
   // Design
-  { name: "Figma",                slug: "figma",              domain: "figma.com",              category: "Design",
+  { name: "Figma",                domain: "figma.com",              category: "Design",
     description: "Design files and prototypes" },
-  { name: "Adobe Creative Cloud", slug: null,                 domain: "adobe.com",              category: "Design",
+  { name: "Adobe Creative Cloud", domain: "adobe.com",              category: "Design",
     description: "Photoshop, Illustrator and the rest" },
-  { name: "Canva",                slug: null,                 domain: "canva.com",              category: "Design",
+  { name: "Canva",                domain: "canva.com",              category: "Design",
     description: "Quick design without a designer" },
 
   // Developer and infrastructure
-  { name: "GitHub",               slug: "github",             domain: "github.com",             category: "Developer",
+  { name: "GitHub",               domain: "github.com",             category: "Developer",
     description: "Code hosting and pull requests" },
-  { name: "Amazon Web Services",  slug: null,                 domain: "aws.amazon.com",         category: "Developer",
+  { name: "Amazon Web Services",  domain: "aws.amazon.com",         category: "Developer",
     description: "Cloud servers, storage and databases" },
-  { name: "Google Cloud",         slug: "googlecloud",        domain: "cloud.google.com",       category: "Developer",
+  { name: "Google Cloud",         domain: "cloud.google.com",       category: "Developer",
     description: "Google's cloud servers and storage" },
-  { name: "Microsoft Azure",      slug: null,                 domain: "azure.microsoft.com",    category: "Developer",
+  { name: "Microsoft Azure",      domain: "azure.microsoft.com",    category: "Developer",
     description: "Microsoft's cloud servers and storage" },
-  { name: "Vercel",               slug: "vercel",             domain: "vercel.com",             category: "Developer",
+  { name: "Vercel",               domain: "vercel.com",             category: "Developer",
     description: "Hosting for web apps" },
-  { name: "Cloudflare",           slug: "cloudflare",         domain: "cloudflare.com",         category: "Developer",
+  { name: "Cloudflare",           domain: "cloudflare.com",         category: "Developer",
     description: "Domains, DNS and protection from attacks" },
-  { name: "Sentry",               slug: "sentry",             domain: "sentry.io",              category: "Developer",
+  { name: "Sentry",               domain: "sentry.io",              category: "Developer",
     description: "Tells you when your app breaks" },
 
   // AI
-  { name: "OpenAI",               slug: null,                 domain: "openai.com",             category: "AI",
+  { name: "OpenAI",               domain: "openai.com",             category: "AI",
     description: "ChatGPT and the API behind it" },
-  { name: "Anthropic",            slug: "anthropic",          domain: "anthropic.com",          category: "AI",
+  { name: "Anthropic",            domain: "anthropic.com",          category: "AI",
     description: "Claude and the API behind it" },
-  { name: "GitHub Copilot",       slug: "githubcopilot",      domain: "github.com",             category: "AI",
+  { name: "GitHub Copilot",       domain: "github.com",             category: "AI",
     description: "Code suggestions while you type" },
-  { name: "Perplexity",           slug: "perplexity",         domain: "perplexity.ai",          category: "AI",
+  { name: "Perplexity",           domain: "perplexity.ai",          category: "AI",
     description: "Search that answers in sentences" },
 
   // Sales and support
-  { name: "HubSpot",              slug: "hubspot",            domain: "hubspot.com",            category: "Sales",
+  { name: "HubSpot",              domain: "hubspot.com",            category: "Sales",
     description: "Marketing, sales and customer records" },
-  { name: "Salesforce",           slug: null,                 domain: "salesforce.com",         category: "Sales",
+  { name: "Salesforce",           domain: "salesforce.com",         category: "Sales",
     description: "Customer records and sales pipeline" },
-  { name: "Intercom",             slug: "intercom",           domain: "intercom.com",           category: "Sales",
+  { name: "Intercom",             domain: "intercom.com",           category: "Sales",
     description: "Chat and support inside your product" },
 
   // Finance and operations
-  { name: "Stripe",               slug: "stripe",             domain: "stripe.com",             category: "Finance",
+  { name: "Stripe",               domain: "stripe.com",             category: "Finance",
     description: "Takes card payments" },
-  { name: "QuickBooks",           slug: "quickbooks",         domain: "quickbooks.intuit.com",  category: "Finance",
+  { name: "QuickBooks",           domain: "quickbooks.intuit.com",  category: "Finance",
     description: "Bookkeeping, invoices and tax" },
-  { name: "Xero",                 slug: "xero",               domain: "xero.com",               category: "Finance",
+  { name: "Xero",                 domain: "xero.com",               category: "Finance",
     description: "Accounting and bank reconciliation" },
 ];
 
