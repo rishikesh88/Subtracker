@@ -348,45 +348,104 @@ export default function Settings() {
         className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-5"
         style={{ padding: "20px 24px 40px" }}
       >
-        {/* Profile */}
-        <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
-          <h2 className="t-label mb-3">Profile</h2>
-          <div className="flex items-center gap-3 flex-wrap">
-            <Avatar className="h-11 w-11 flex-none">
-              <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
-              <AvatarFallback className="bg-line-soft">
-                <User size={17} strokeWidth={2} className="text-ink-body" />
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-[170px] flex-1 overflow-hidden">
-              <h3 className="t-card-title truncate" data-testid="profile-name">
-                {user?.firstName && user?.lastName
-                  ? `${user.firstName} ${user.lastName}`
-                  : 'User'
-                }
-              </h3>
-              <p className="text-[13px] text-ink-body truncate" data-testid="profile-email">
-                {user?.email}
+        {/* Profile and Detection share the top row; the mailbox list gets the
+            full width beneath it, because an address like
+            accounts.payable.india@verloq.co has nowhere to go in half a column
+            and the list is the part that grows as accounts are added. */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          {/* Profile */}
+          <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
+            <h2 className="t-label mb-3">Profile</h2>
+            <div className="flex items-center gap-3 flex-wrap">
+              <Avatar className="h-11 w-11 flex-none">
+                <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || 'User'} />
+                <AvatarFallback className="bg-line-soft">
+                  <User size={17} strokeWidth={2} className="text-ink-body" />
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-[170px] flex-1 overflow-hidden">
+                <h3 className="t-card-title truncate" data-testid="profile-name">
+                  {user?.firstName && user?.lastName
+                    ? `${user.firstName} ${user.lastName}`
+                    : 'User'
+                  }
+                </h3>
+                <p className="text-[13px] text-ink-body truncate" data-testid="profile-email">
+                  {user?.email}
+                </p>
+              </div>
+              <span className="badge-category flex-none">
+                Joined {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Recently'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 mt-4 pt-4 border-t border-line-soft">
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="btn-base btn-secondary"
+                data-testid="logout-settings-button"
+              >
+                <LogOut size={15} strokeWidth={2} />
+                Sign out
+              </button>
+            </div>
+          </section>
+
+          {/* Detection settings */}
+          <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
+            <h2 className="t-label mb-3">Detection settings</h2>
+
+            <div className="flex items-center justify-between gap-3 pb-3 border-b border-line-soft">
+              <div>
+                <p className="text-[13px] font-medium text-ink-strong">Currency</p>
+                <p className="text-[12px] text-muted-foreground mt-0.5">
+                  Primary currency for subscription tracking
+                </p>
+              </div>
+              <span className="badge-cadence flex-none">INR</span>
+            </div>
+
+            <div className="flex flex-col gap-2 pt-3">
+              <div className="flex items-center gap-1.5">
+                <Calendar size={15} strokeWidth={2} className="text-muted-foreground" />
+                <label htmlFor="emailSyncDays" className="text-[13px] font-medium text-ink-strong">
+                  Email sync period
+                </label>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="field w-24">
+                  <input
+                    id="emailSyncDays"
+                    type="number"
+                    min={1}
+                    max={180}
+                    value={emailSyncDays}
+                    onChange={(e) => handleSyncDaysChange(e.target.value)}
+                    data-testid="email-sync-days-input"
+                  />
+                </div>
+                <span className="text-[12.5px] text-muted-foreground">days (max 180)</span>
+                {hasUnsavedChanges && (
+                  <button
+                    type="button"
+                    onClick={handleSaveSettings}
+                    disabled={updateSettingsMutation.isPending}
+                    className="btn-base btn-primary"
+                    data-testid="save-settings-button"
+                  >
+                    <Save size={15} strokeWidth={2} />
+                    {updateSettingsMutation.isPending ? "Saving..." : "Save changes"}
+                  </button>
+                )}
+              </div>
+              <p className="text-[12px] text-muted-foreground">
+                Number of days to fetch emails when syncing with Gmail. Default is 90 days.
               </p>
             </div>
-            <span className="badge-category flex-none">
-              Joined {user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'Recently'}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 mt-4 pt-4 border-t border-line-soft">
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="btn-base btn-secondary"
-              data-testid="logout-settings-button"
-            >
-              <LogOut size={15} strokeWidth={2} />
-              Sign out
-            </button>
-          </div>
-        </section>
+          </section>
+        </div>
 
-        {/* Email accounts */}
+{/* Email accounts */}
         <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0">
@@ -529,59 +588,6 @@ export default function Settings() {
                 })}
               </div>
             )}
-          </div>
-        </section>
-
-        {/* Detection settings */}
-        <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
-          <h2 className="t-label mb-3">Detection settings</h2>
-
-          <div className="flex items-center justify-between gap-3 pb-3 border-b border-line-soft">
-            <div>
-              <p className="text-[13px] font-medium text-ink-strong">Currency</p>
-              <p className="text-[12px] text-muted-foreground mt-0.5">
-                Primary currency for subscription tracking
-              </p>
-            </div>
-            <span className="badge-cadence flex-none">INR</span>
-          </div>
-
-          <div className="flex flex-col gap-2 pt-3">
-            <div className="flex items-center gap-1.5">
-              <Calendar size={15} strokeWidth={2} className="text-muted-foreground" />
-              <label htmlFor="emailSyncDays" className="text-[13px] font-medium text-ink-strong">
-                Email sync period
-              </label>
-            </div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <div className="field w-24">
-                <input
-                  id="emailSyncDays"
-                  type="number"
-                  min={1}
-                  max={180}
-                  value={emailSyncDays}
-                  onChange={(e) => handleSyncDaysChange(e.target.value)}
-                  data-testid="email-sync-days-input"
-                />
-              </div>
-              <span className="text-[12.5px] text-muted-foreground">days (max 180)</span>
-              {hasUnsavedChanges && (
-                <button
-                  type="button"
-                  onClick={handleSaveSettings}
-                  disabled={updateSettingsMutation.isPending}
-                  className="btn-base btn-primary"
-                  data-testid="save-settings-button"
-                >
-                  <Save size={15} strokeWidth={2} />
-                  {updateSettingsMutation.isPending ? "Saving..." : "Save changes"}
-                </button>
-              )}
-            </div>
-            <p className="text-[12px] text-muted-foreground">
-              Number of days to fetch emails when syncing with Gmail. Default is 90 days.
-            </p>
           </div>
         </section>
       </main>
