@@ -4,6 +4,7 @@ import { eq, and, desc, asc, count, sql, inArray, isNotNull } from 'drizzle-orm'
 import { neon } from '@neondatabase/serverless';
 import { randomUUID } from "crypto";
 import { convertCurrency } from "./utils/currencyConverter";
+import { brandTokens } from "./lib/brandTokens";
 import { advanceOnePeriod, ensureFutureBillingDate } from "./utils/billingDate";
 import { findDuplicateHint } from "./utils/duplicateHints";
 import { invoiceExtractor } from "./services/invoiceExtractor";
@@ -336,34 +337,83 @@ export class DatabaseStorage implements IStorage {
    * The address each subscription's receipts arrive from, keyed by id.
    *
    * `subscriptions.merchantEmail` is written as null by the detection
-   * pipeline, so it is never a usable answer. The evidence is on the emails
-   * themselves -- `fromEmail` is not-null there and they carry the
-   * subscription id -- and for a billing email the sender is the merchant.
+   * pipeline, so it is never a usable answer. The sender of the receipt is,
+   * and it is on the emails themselves.
    *
-   * That is what lets the interface show a brand's logo without keeping a
-   * list of brands: the domain comes from whoever sent the receipt.
+   * Two passes, because one is not enough:
    *
-   * One query for the whole account, newest email per subscription, rather
-   * than a lookup per card.
+   * 1. `emails.subscriptionId`, which is authoritative. It is also written in
+   *    exactly one place -- approving a suggestion that matched evidence --
+   *    and that column holds one id, so two subscriptions from the same
+   *    vendor fight over the same receipts and the later approval wins. That
+   *    is why iCloud+ showed Apple's logo while Apple One Family showed a
+   *    letter.
+   *
+   * 2. The brand's name against the sending domains on the account. A
+   *    subscription called "Google One (100 GB)" never matched its evidence
+   *    because the matcher looks for the whole service name inside the email
+   *    text; "google" against `payments-noreply@google.com` does.
+   *
+   * The second pass only matches inside the domain, never the subject, and
+   * only on a token of four characters or more that is not a generic word.
+   * A wrong logo is worse than no logo, so it would rather find nothing.
    */
   async getSubscriptionSenders(userId: string): Promise<Map<string, string>> {
     try {
-      const rows = await this.db
-        .select({
-          subscriptionId: emails.subscriptionId,
-          fromEmail: emails.fromEmail,
-        })
-        .from(emails)
-        .where(and(eq(emails.userId, userId), isNotNull(emails.subscriptionId)))
-        .orderBy(desc(emails.receivedAt));
+      type BrandRow = { id: string; serviceName: string; merchantName: string | null };
+      const [linked, allSenders, subs] = await Promise.all([
+        this.db
+          .select({ subscriptionId: emails.subscriptionId, fromEmail: emails.fromEmail })
+          .from(emails)
+          .where(and(eq(emails.userId, userId), isNotNull(emails.subscriptionId)))
+          .orderBy(desc(emails.receivedAt)),
+        this.db
+          .select({ fromEmail: emails.fromEmail })
+          .from(emails)
+          .where(eq(emails.userId, userId))
+          .orderBy(desc(emails.receivedAt))
+          .limit(2000),
+        this.db
+          .select({
+            id: subscriptions.id,
+            serviceName: subscriptions.serviceName,
+            merchantName: subscriptions.merchantName,
+          })
+          .from(subscriptions)
+          .where(eq(subscriptions.userId, userId)),
+      ]);
 
       const byId = new Map<string, string>();
-      for (const row of rows) {
-        // Ordered newest first, so the first one seen wins.
+      for (const row of linked) {
+        // Newest first, so the first one seen wins.
         if (row.subscriptionId && row.fromEmail && !byId.has(row.subscriptionId)) {
           byId.set(row.subscriptionId, row.fromEmail);
         }
       }
+
+      const unresolved = (subs as BrandRow[]).filter((row) => !byId.has(row.id));
+      if (unresolved.length === 0) return byId;
+
+      // Newest first, so a brand that changed sender resolves to its latest.
+      const senders: string[] = [];
+      const seen = new Set<string>();
+      for (const row of allSenders) {
+        const address = row.fromEmail?.toLowerCase();
+        if (address && !seen.has(address)) {
+          seen.add(address);
+          senders.push(address);
+        }
+      }
+
+      for (const sub of unresolved) {
+        const match = senders.find((address) => {
+          const domain = address.slice(address.lastIndexOf('@') + 1);
+          return brandTokens(sub.merchantName, sub.serviceName)
+            .some((token) => domain.replace(/[^a-z0-9]/g, '').includes(token));
+        });
+        if (match) byId.set(sub.id, match);
+      }
+
       return byId;
     } catch (error) {
       // A missing logo is not worth failing a page load over.
