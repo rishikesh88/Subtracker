@@ -47,8 +47,11 @@
   --rule-soft:    #E7E9EC;
   --field-border: #DFE2E6;
 
-  --accent:       #6366D8;
-  --accent-dark:  #4E51C0;
+  /* The brand mark's own indigo. Also the app's --accent, so the site,
+     the app and the logo are one colour rather than three near-misses.
+     6.29:1 on white, where the previous #6366D8 scraped AA at 4.75:1. */
+  --accent:       #4F46E5;
+  --accent-dark:  #4338CA;
 
   /* Gradient mesh stops — sky, lavender, blush violet at half saturation. */
   --mesh-1:       #A9D8F5;

@@ -218,6 +218,28 @@ Signup is gated on this working: a user who never receives the OTP cannot get in
   This has happened repeatedly. The cost of rebuilding every time is a few
   minutes; the cost of not doing it is shipping nothing and not knowing.
 
+### Which Node the build uses
+
+Railpack takes the Node version from `package.json` > `engines` > `node`, and
+nothing else in this repository — confirmed by reading Railpack's own source
+(`applyNodeVersionResolution` in `core/providers/node/node.go`), not inferred
+from the build log. A `RAILPACK_NODE_VERSION` service variable would override
+it; none is set, and none should be, because then the pin would live in two
+places.
+
+`engines.node` is `22.x`. `.node-version` carries `22` as well, but that file
+is there for local version managers (nvm, fnm, volta) — Railway does not read
+it. **If the version needs changing, change `package.json`.**
+
+It was `>=20` until this was pinned, which resolved to Node 20 on Railway while
+every local check ran on Node 22. Two things came of that gap:
+
+- The deployed bundle was **1,023 kB**; the same commit built on Node 22 is
+  **701 kB** — 322 kB smaller, and 71 kB less over the wire after gzip.
+- `@azure/identity` requires Node 22 and was being installed onto Node 20, so
+  every build printed an `EBADENGINE` warning. Nothing broke, because nothing
+  imports that package, but a local check on Node 22 could never have caught it.
+
 ### Two deployments, one repository
 
 `verloq.co` (the marketing site) and `app.verloq.co` (the app) are deployed by

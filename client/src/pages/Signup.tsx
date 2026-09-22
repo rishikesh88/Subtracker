@@ -6,6 +6,7 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { AlertCircle } from "lucide-react";
 import { FcGoogle } from "react-icons/fc";
 import { FaMicrosoft } from "react-icons/fa";
+import { Logo } from "@/components/Logo";
 
 /**
  * Which sign-in methods this server can actually perform.
@@ -108,7 +109,7 @@ export default function Signup() {
     <div className="min-h-screen bg-canvas flex items-center justify-center px-4">
       <div className="max-w-[400px] w-full">
         <div className="flex items-center justify-center gap-2.5 mb-5">
-          <span className="w-[22px] h-[22px] flex-none rounded-logo bg-accent" aria-hidden="true" />
+          <Logo />
           <span className="font-serif text-[21px] leading-none tracking-[-0.02em] text-ink">Verloq</span>
         </div>
         <div className="max-w-[400px] w-full surface-card" style={{ padding: "24px" }}>

@@ -10,13 +10,14 @@ import {
   FREQUENCY_SUFFIX,
 } from "@/lib/format";
 import { type Subscription } from "@shared/schema";
+import { ServiceLogo } from "@/components/ServiceLogo";
 
 interface SubscriptionCardProps {
   subscription: Subscription;
 }
 
 /**
- * A single subscription card, per the design system: 34px initial tile,
+ * A single subscription card, per the design system: 34px logo tile,
  * two-line title, status/cadence/category badges, and a footer with the
  * renew/ended date on the left and the price on the right. Shared by the
  * dashboard and the subscriptions page so there is exactly one card.
@@ -24,7 +25,6 @@ interface SubscriptionCardProps {
 export function SubscriptionCard({ subscription: sub }: SubscriptionCardProps) {
   const badge = statusBadge(sub.status);
   const bucket = filterBucket(sub.status);
-  const initial = (sub.serviceName?.[0] ?? "?").toUpperCase();
   const frequencyLabel = FREQUENCY_LABEL[sub.frequency] ?? sub.frequency;
   const frequencySuffix = FREQUENCY_SUFFIX[sub.frequency] ?? "";
 
@@ -39,9 +39,7 @@ export function SubscriptionCard({ subscription: sub }: SubscriptionCardProps) {
       data-testid={`subscription-card-${sub.id}`}
     >
       <div className="flex items-center gap-2.5">
-        <span className="w-[34px] h-[34px] flex-none rounded-logo bg-line-soft flex items-center justify-center text-[14px] font-bold text-ink-body">
-          {initial}
-        </span>
+        <ServiceLogo name={sub.serviceName} size={34} />
         <span
           className="t-card-title flex-1 min-w-0 line-clamp-2 [text-wrap:pretty]"
           data-testid={`subscription-name-${sub.id}`}

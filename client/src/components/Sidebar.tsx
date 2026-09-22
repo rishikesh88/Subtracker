@@ -34,6 +34,7 @@ import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import type { SafeUser } from "@shared/schema";
+import { Logo } from "@/components/Logo";
 
 interface SidebarProps {
   user?: SafeUser;
@@ -135,10 +136,7 @@ export function Sidebar({ user, hasMailbox }: SidebarProps) {
     >
       {/* --- Brand ------------------------------------------------------- */}
       <div className={cn("flex items-center gap-2.5 pb-4", showCollapsed ? "flex-col px-0" : "px-1")}>
-        <span
-          className="w-[22px] h-[22px] flex-none rounded-logo bg-accent"
-          aria-hidden="true"
-        />
+        <Logo />
         {!showCollapsed && (
           <span className="font-serif text-[21px] leading-none tracking-[-0.02em] text-ink">
             Verloq

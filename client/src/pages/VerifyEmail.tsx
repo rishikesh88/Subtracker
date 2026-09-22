@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Mail, CheckCircle2, Loader2 } from "lucide-react";
+import { Logo } from "@/components/Logo";
 
 export default function VerifyEmail() {
   const [, setLocation] = useLocation();
@@ -107,7 +108,7 @@ export default function VerifyEmail() {
 
         <div className="flex items-center justify-center gap-2.5 mb-5">
 
-          <span className="w-[22px] h-[22px] flex-none rounded-logo bg-accent" aria-hidden="true" />
+          <Logo />
 
           <span className="font-serif text-[21px] leading-none tracking-[-0.02em] text-ink">Verloq</span>
 
