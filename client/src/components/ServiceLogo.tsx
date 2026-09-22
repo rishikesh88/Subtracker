@@ -50,10 +50,11 @@ export function ServiceLogo({ name, size = 34, className }: ServiceLogoProps) {
   // without this, one failed logo would poison every later name in that slot.
   useEffect(() => setFailed(false), [src]);
 
-  /* A white tile with a hairline edge, not a grey fill. Brandfetch marks are
-     square and many carry their own white ground, so a grey tile behind one
-     read as a square sitting inside a rounded box. On white the mark's own
-     ground disappears into the tile and only the rounded edge is visible. */
+  /* A white tile with a hairline edge and `overflow-hidden`, which is what
+     does the work here: Brandfetch sends a square image that usually carries
+     its own background, so insetting it left a square sitting inside a round
+     box. Filling the tile instead puts the image's own corners under the
+     tile's radius, and they get clipped to it. */
   const tile = cn(
     "flex-none rounded-logo bg-surface border border-line",
     "flex items-center justify-center overflow-hidden",
@@ -81,11 +82,11 @@ export function ServiceLogo({ name, size = 34, className }: ServiceLogoProps) {
         alt=""
         loading="lazy"
         onError={() => setFailed(true)}
-        /* Fills the tile and is inset by padding rather than being given a
-           fixed width, so a wordmark wider than it is tall keeps its shape
-           instead of being squashed into a square box. */
-        className="w-full h-full object-contain"
-        style={{ padding: Math.round(size * 0.18) }}
+        /* Fills the tile edge to edge so the radius has something to clip.
+           `cover` rather than `contain`: contain letterboxes, which leaves the
+           tile's own white showing in two corners and defeats the point. The
+           source is square, so nothing is cropped. */
+        className="w-full h-full object-cover"
         data-testid="service-logo-image"
       />
     </span>
