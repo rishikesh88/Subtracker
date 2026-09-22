@@ -95,12 +95,55 @@ export const SERVICE_CATALOGUE: CatalogueService[] = [
     description: "Accounting and bank reconciliation" },
 ];
 
-/** Case-insensitive lookup, so a subscription detected from email can find its logo too. */
 const BY_NAME = new Map(SERVICE_CATALOGUE.map((s) => [s.name.toLowerCase(), s]));
 
+/* Longest first, so "Google Workspace" is tried before a bare "Google" would be. */
+const BY_LENGTH = [...SERVICE_CATALOGUE].sort((a, b) => b.name.length - a.name.length);
+
+/**
+ * Find a catalogue entry for a subscription's name.
+ *
+ * Exact match first, then a prefix match at a word boundary. The prefix pass
+ * exists because a subscription found in email is named by whatever the
+ * receipt called it -- "Figma Professional", "Slack Pro" -- which never
+ * matches a catalogue row exactly, so every one of them fell back to a letter.
+ */
 export function findService(name: string | null | undefined): CatalogueService | undefined {
   if (!name) return undefined;
-  return BY_NAME.get(name.trim().toLowerCase());
+  const q = name.trim().toLowerCase();
+  if (!q) return undefined;
+
+  const exact = BY_NAME.get(q);
+  if (exact) return exact;
+
+  return BY_LENGTH.find((s) => {
+    const n = s.name.toLowerCase();
+    return q.startsWith(n) && (q.length === n.length || /[\s(:\u2013-]/.test(q[n.length]));
+  });
+}
+
+/**
+ * The brand's domain, taken from the address the receipt came from.
+ *
+ * This is what gives a logo to everything the catalogue does not list. A
+ * subscription detected in email carries the sender's address, and for a
+ * billing email that sender is the brand -- so `billing@netflix.com` is
+ * Netflix's domain without Netflix needing to be in any list.
+ *
+ * Returns the host, and the host minus its first label when there are three
+ * or more, so `mail.netflix.com` offers `netflix.com` as a second try. Both
+ * are candidates rather than a guess: the caller tries them in order.
+ */
+export function domainsFromEmail(email: string | null | undefined): string[] {
+  if (!email) return [];
+  const at = email.lastIndexOf("@");
+  if (at < 0) return [];
+
+  const host = email.slice(at + 1).trim().toLowerCase().replace(/[>\s]+$/, "");
+  const labels = host.split(".");
+  if (labels.length < 2 || labels.some((l) => !l)) return [];
+
+  return labels.length >= 3 ? [host, labels.slice(1).join(".")] : [host];
 }
 
 /**

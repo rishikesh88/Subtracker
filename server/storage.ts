@@ -1,6 +1,6 @@
 import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, type SyncJob, users, syncJobs, subscriptions, emails, screenedMessages, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
-import { eq, and, desc, asc, count, sql, inArray } from 'drizzle-orm';
+import { eq, and, desc, asc, count, sql, inArray, isNotNull } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { randomUUID } from "crypto";
 import { convertCurrency } from "./utils/currencyConverter";
@@ -329,6 +329,46 @@ export class DatabaseStorage implements IStorage {
     } catch (error) {
       console.error('Error getting subscriptions:', error);
       throw error;
+    }
+  }
+
+  /**
+   * The address each subscription's receipts arrive from, keyed by id.
+   *
+   * `subscriptions.merchantEmail` is written as null by the detection
+   * pipeline, so it is never a usable answer. The evidence is on the emails
+   * themselves -- `fromEmail` is not-null there and they carry the
+   * subscription id -- and for a billing email the sender is the merchant.
+   *
+   * That is what lets the interface show a brand's logo without keeping a
+   * list of brands: the domain comes from whoever sent the receipt.
+   *
+   * One query for the whole account, newest email per subscription, rather
+   * than a lookup per card.
+   */
+  async getSubscriptionSenders(userId: string): Promise<Map<string, string>> {
+    try {
+      const rows = await this.db
+        .select({
+          subscriptionId: emails.subscriptionId,
+          fromEmail: emails.fromEmail,
+        })
+        .from(emails)
+        .where(and(eq(emails.userId, userId), isNotNull(emails.subscriptionId)))
+        .orderBy(desc(emails.receivedAt));
+
+      const byId = new Map<string, string>();
+      for (const row of rows) {
+        // Ordered newest first, so the first one seen wins.
+        if (row.subscriptionId && row.fromEmail && !byId.has(row.subscriptionId)) {
+          byId.set(row.subscriptionId, row.fromEmail);
+        }
+      }
+      return byId;
+    } catch (error) {
+      // A missing logo is not worth failing a page load over.
+      console.error('Error getting subscription senders:', error);
+      return new Map();
     }
   }
 

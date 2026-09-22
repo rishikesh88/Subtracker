@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { findService } from "@/lib/serviceCatalogue";
+import { findService, domainsFromEmail } from "@/lib/serviceCatalogue";
 
 /**
  * The one place a logo URL is built.
@@ -25,9 +25,34 @@ function logoUrl(domain: string): string | null {
   return `https://cdn.brandfetch.io/${domain}?c=${BRANDFETCH_CLIENT_ID}`;
 }
 
+/**
+ * Every domain worth trying for this subscription, best first.
+ *
+ * The catalogue's own domain leads because it is curated. After that comes
+ * the address the receipt arrived from, which is what gives a logo to
+ * everything the catalogue does not list -- Netflix, Swiggy, an insurer --
+ * since for a billing email the sender is the brand.
+ */
+function candidateUrls(name: string | null | undefined, merchantEmail?: string | null): string[] {
+  const service = findService(name);
+  const domains = [service?.domain, ...domainsFromEmail(merchantEmail)]
+    .filter((d): d is string => Boolean(d));
+
+  const seen = new Set<string>();
+  return domains
+    .filter((d) => !seen.has(d) && seen.add(d))
+    .map(logoUrl)
+    .filter((u): u is string => u !== null);
+}
+
 interface ServiceLogoProps {
   name: string | null | undefined;
-  /** Tile edge in px. The mark is inset within it. */
+  /**
+   * The address this subscription's receipts come from, where there is one.
+   * Passing it is what lets a brand outside the catalogue find its logo.
+   */
+  merchantEmail?: string | null;
+  /** Tile edge in px. */
   size?: number;
   className?: string;
 }
@@ -41,14 +66,14 @@ interface ServiceLogoProps {
  * and shape of the logo tile, and a row of cards does not shift when one of
  * them cannot find a mark.
  */
-export function ServiceLogo({ name, size = 34, className }: ServiceLogoProps) {
-  const service = findService(name);
-  const src = service ? logoUrl(service.domain) : null;
-  const [failed, setFailed] = useState(false);
+export function ServiceLogo({ name, merchantEmail, size = 34, className }: ServiceLogoProps) {
+  const sources = useMemo(() => candidateUrls(name, merchantEmail), [name, merchantEmail]);
+  const [attempt, setAttempt] = useState(0);
+  const src = sources[attempt];
 
   // A card can be reused for a different subscription as a list re-renders;
   // without this, one failed logo would poison every later name in that slot.
-  useEffect(() => setFailed(false), [src]);
+  useEffect(() => setAttempt(0), [sources.join("|")]);
 
   /* A white tile with a hairline edge and `overflow-hidden`, which is what
      does the work here: Brandfetch sends a square image that usually carries
@@ -62,7 +87,7 @@ export function ServiceLogo({ name, size = 34, className }: ServiceLogoProps) {
   );
   const style = { width: size, height: size };
 
-  if (!src || failed) {
+  if (!src) {
     return (
       <span
         className={cn(tile, "font-bold text-ink-body")}
@@ -78,10 +103,14 @@ export function ServiceLogo({ name, size = 34, className }: ServiceLogoProps) {
   return (
     <span className={tile} style={style}>
       <img
+        // Remounting on src change resets the element's own error state, so a
+        // second candidate is actually attempted rather than staying broken.
+        key={src}
         src={src}
         alt=""
         loading="lazy"
-        onError={() => setFailed(true)}
+        // Advances to the next candidate domain; running out lands on the letter.
+        onError={() => setAttempt((n) => n + 1)}
         /* Fills the tile edge to edge so the radius has something to clip.
            `cover` rather than `contain`: contain letterboxes, which leaves the
            tile's own white showing in two corners and defeats the point. The

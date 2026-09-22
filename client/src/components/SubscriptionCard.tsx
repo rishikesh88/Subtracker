@@ -39,7 +39,7 @@ export function SubscriptionCard({ subscription: sub }: SubscriptionCardProps) {
       data-testid={`subscription-card-${sub.id}`}
     >
       <div className="flex items-center gap-2.5">
-        <ServiceLogo name={sub.serviceName} size={34} />
+        <ServiceLogo name={sub.serviceName} merchantEmail={sub.merchantEmail} size={34} />
         <span
           className="t-card-title flex-1 min-w-0 line-clamp-2 [text-wrap:pretty]"
           data-testid={`subscription-name-${sub.id}`}

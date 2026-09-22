@@ -21,6 +21,7 @@ import { ObjectUploader } from "@/components/ObjectUploader";
 import { InvoicePreview, previewKind, downloadUrl } from "@/components/InvoicePreview";
 import { cn } from "@/lib/utils";
 import { displayCategory, statusBadge, formatDate, formatCurrency, FREQUENCY_LABEL } from "@/lib/format";
+import { ServiceLogo } from "@/components/ServiceLogo";
 
 /**
  * The subscription detail, rendered inside the drawer on the subscriptions
@@ -264,7 +265,6 @@ export default function SubscriptionDetail({
     );
   }
 
-  const initial = (subscription.serviceName?.[0] ?? "?").toUpperCase();
   const badge = statusBadge(subscription.status);
   const frequencyLabel = FREQUENCY_LABEL[subscription.frequency] ?? subscription.frequency;
   const category = displayCategory(subscription.category);
@@ -282,9 +282,7 @@ export default function SubscriptionDetail({
       {/* 1. Header */}
       <div className="flex flex-col gap-2.5">
         <div className="flex items-start gap-3">
-          <span className="w-[34px] h-[34px] flex-none rounded-logo bg-line-soft flex items-center justify-center text-[14px] font-bold text-ink-body">
-            {initial}
-          </span>
+          <ServiceLogo name={subscription.serviceName} merchantEmail={subscription.merchantEmail} size={34} />
           <h2 className="t-object flex-1 min-w-0 [text-wrap:pretty]" data-testid="subscription-name">
             {subscription.serviceName}
           </h2>

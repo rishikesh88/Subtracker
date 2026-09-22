@@ -32,6 +32,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { displayCategory, formatDate, formatCurrency, FREQUENCY_LABEL, FREQUENCY_SUFFIX } from "@/lib/format";
 import { ChevronLeft, ChevronRight, Check, X, Inbox, FileText, Calendar } from "lucide-react";
+import { ServiceLogo } from "@/components/ServiceLogo";
 
 /**
  * The attachment evidence is stored as a JSON string and can be malformed or
@@ -260,10 +261,6 @@ export default function ReviewInbox() {
     }
   };
 
-  const getServiceInitial = (serviceName: string) => {
-    return (serviceName?.charAt(0) || '?').toUpperCase();
-  };
-
   if (!userId) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -412,9 +409,7 @@ export default function ReviewInbox() {
                       onCheckedChange={(checked) => handleSuggestionSelect(suggestion.id, checked as boolean)}
                       disabled={isProcessing}
                     />
-                    <span className="w-[34px] h-[34px] flex-none rounded-logo bg-line-soft flex items-center justify-center text-[14px] font-bold text-ink-body">
-                      {getServiceInitial(suggestion.serviceName)}
-                    </span>
+                    <ServiceLogo name={suggestion.serviceName} size={34} />
                     <span className="t-card-title flex-1 min-w-0 truncate">{suggestion.serviceName}</span>
                     <span className="t-price flex-none">
                       {formatCurrency(parseFloat(suggestion.amount) || 0, suggestion.currency)}
