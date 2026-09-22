@@ -25,20 +25,24 @@ import { findService, type CatalogueService } from "@/lib/serviceCatalogue";
  */
 const BRANDFETCH_CLIENT_ID = import.meta.env.VITE_BRANDFETCH_CLIENT_ID as string | undefined;
 
-function brandfetchUrl(domain: string, size: number): string | null {
+/* Exactly the shape Brandfetch's own snippet uses. An earlier version added
+   /w/{n}/h/{n} path segments for a retina-sized fetch; those are an extension
+   this environment cannot reach the CDN to confirm, and a wrong path returns
+   nothing rather than a smaller image. The tile is 30-34px and the img is
+   sized in CSS, so the default serves it. */
+function brandfetchUrl(domain: string): string | null {
   if (!BRANDFETCH_CLIENT_ID) return null;
-  const edge = Math.max(64, size * 2); // retina, and their smallest sensible step
-  return `https://cdn.brandfetch.io/${domain}/w/${edge}/h/${edge}?c=${BRANDFETCH_CLIENT_ID}`;
+  return `https://cdn.brandfetch.io/${domain}?c=${BRANDFETCH_CLIENT_ID}`;
 }
 
 function simpleIconsUrl(slug: string): string {
   return `https://cdn.jsdelivr.net/npm/simple-icons@v16/icons/${slug}.svg`;
 }
 
-function sourcesFor(service: CatalogueService | undefined, size: number): string[] {
+function sourcesFor(service: CatalogueService | undefined): string[] {
   if (!service) return [];
   return [
-    brandfetchUrl(service.domain, size),
+    brandfetchUrl(service.domain),
     service.slug ? simpleIconsUrl(service.slug) : null,
   ].filter((u): u is string => u !== null);
 }
@@ -60,7 +64,7 @@ interface ServiceLogoProps {
  */
 export function ServiceLogo({ name, size = 34, className }: ServiceLogoProps) {
   const service = findService(name);
-  const sources = useMemo(() => sourcesFor(service, size), [service, size]);
+  const sources = useMemo(() => sourcesFor(service), [service]);
   const [attempt, setAttempt] = useState(0);
 
   // A card can be reused for a different subscription as a list re-renders;

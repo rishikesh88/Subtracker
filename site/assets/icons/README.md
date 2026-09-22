@@ -1,7 +1,19 @@
 # Service icons
 
-Seven brand marks, one per ledger row in `index.html`. All seven are installed
-and wired up — this file records what was done to them and why.
+Seven brand marks, one per ledger row in `index.html`.
+
+## These are now the fallback, not the first choice
+
+The ledger rows fetch their logo from Brandfetch, keyed on the service's
+domain, so the site and the app draw a brand the same way. Each `<img>` still
+names its file here in an `onerror` handler: if Brandfetch is unreachable,
+rate-limited, or has no mark for that domain, the row falls back to the file
+beside this README and the hero keeps working.
+
+Do not delete them. They are the reason a third-party outage cannot empty the
+hero, and they are the only copies normalised to the inset described below.
+
+The rest of this file records what was done to them and why.
 
 ## What is here
 
