@@ -1,12 +1,22 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { User, LogOut, Mail, Calendar, Save, Trash2, RefreshCw } from "lucide-react";
+import { User, LogOut, Mail, Calendar, Save, Trash2, RefreshCw, AlertTriangle } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useMailboxes } from "@/hooks/useMailboxes";
 import type { SafeUser, GmailAccount, OutlookAccount } from "@shared/schema";
 import { useState, useEffect } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function Settings() {
   const { data: user } = useQuery<SafeUser>({
@@ -49,6 +59,7 @@ export default function Settings() {
   const [emailSyncDays, setEmailSyncDays] = useState<number>(90);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [pendingDeletes, setPendingDeletes] = useState<Set<string>>(new Set());
+  const [showClearDataDialog, setShowClearDataDialog] = useState(false);
 
   // Initialize emailSyncDays from user data
   useEffect(() => {
@@ -56,6 +67,47 @@ export default function Settings() {
       setEmailSyncDays(user.emailSyncDays);
     }
   }, [user]);
+
+  /* Deleting everything read from the mailboxes.
+   *
+   * The endpoint has existed for a while with nothing calling it, which meant
+   * the only route was emailing us by hand. Google's review of a restricted
+   * Gmail scope looks for a path a user can find on their own, and so does
+   * anyone who simply changes their mind.
+   *
+   * It does not close the account or disconnect a mailbox -- those are their
+   * own controls, and disconnecting is what cancels Google's permission. This
+   * removes what was read. */
+  const clearDataMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest('DELETE', '/api/clear-data');
+      return response.json();
+    },
+    onSuccess: (result) => {
+      setShowClearDataDialog(false);
+      toast({
+        title: "Everything read from your mailboxes is deleted",
+        description: `${result.clearedSubscriptions ?? 0} subscriptions and ${result.clearedEmails ?? 0} stored emails removed. Your mailboxes stay connected.`,
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) => {
+          const key = query.queryKey[0]?.toString() ?? "";
+          return key.startsWith('/api/subscriptions')
+            || key.startsWith('/api/suggestions')
+            || key.startsWith('/api/emails')
+            || key.startsWith('/api/stats')
+            || key.startsWith('/api/auth/user');
+        },
+      });
+    },
+    onError: () => {
+      toast({
+        title: "That didn't delete",
+        description: "Nothing was removed. Try again, or write to us and we will do it by hand.",
+        variant: "destructive",
+      });
+    },
+  });
 
   // Delete Gmail account mutation
   const deleteGmailAccountMutation = useMutation({
@@ -590,7 +642,72 @@ export default function Settings() {
             )}
           </div>
         </section>
+
+        {/* Deleting what was read. Its own card at the foot of the page:
+            destructive, and nothing above it should be mistaken for it. */}
+        <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
+          <h2 className="t-label mb-3">Your data</h2>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="min-w-0 max-w-[62ch]">
+              <p className="text-[13px] font-medium text-ink-strong">
+                Delete everything read from your mailboxes
+              </p>
+              <p className="text-[12px] text-muted-foreground mt-0.5">
+                Every subscription, every stored receipt and everything found during a sync.
+                Your mailboxes stay connected and can be synced again &mdash; to cut off access
+                entirely, remove them above.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowClearDataDialog(true)}
+              disabled={clearDataMutation.isPending}
+              className="btn-base btn-secondary text-destructive flex-none"
+              data-testid="clear-data-button"
+            >
+              <Trash2 size={15} strokeWidth={2} />
+              {clearDataMutation.isPending ? "Deleting\u2026" : "Delete my data"}
+            </button>
+          </div>
+        </section>
       </main>
+
+      <AlertDialog open={showClearDataDialog} onOpenChange={setShowClearDataDialog}>
+        <AlertDialogContent data-testid="clear-data-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete everything read from your mailboxes?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <p className="font-semibold text-destructive">This cannot be undone.</p>
+              <ul className="list-disc list-inside pl-4 space-y-1">
+                <li>Every subscription Verloq found or you added</li>
+                <li>Every receipt and invoice stored against them</li>
+                <li>Everything kept from previous syncs</li>
+              </ul>
+              <p>
+                Your account stays open and your mailboxes stay connected, so a future sync
+                starts again from empty. To cut off access to a mailbox, remove it instead.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              className="btn-base btn-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="cancel-clear-data"
+            >
+              Keep my data
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => clearDataMutation.mutate()}
+              disabled={clearDataMutation.isPending}
+              className="btn-base bg-destructive text-white hover:bg-destructive/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="confirm-clear-data"
+            >
+              <AlertTriangle size={15} strokeWidth={2} />
+              Delete everything
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

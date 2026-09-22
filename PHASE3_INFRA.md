@@ -107,6 +107,14 @@ Create an API key (AI Studio, or Vertex in the same project):
 GEMINI_API_KEY=...
 ```
 
+**Billing must be enabled on this project.** Not for the quota. On the free
+tier Google's terms permit using prompts and responses to improve its products,
+and Verloq sends whole receipt emails. Section 4 of the privacy policy promises
+that will not happen, which is true only of the paid tier -- so a free-tier key
+makes the published policy false and breaks the Limited Use requirement that
+`gmail.readonly` is granted under. It is the first thing a restricted-scope
+reviewer can check, and the cheapest thing to get wrong.
+
 ### 2e. OAuth — one client, two redirect URIs
 
 **Consent screen:** External. App name, support email, logo, and the privacy
