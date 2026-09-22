@@ -153,71 +153,69 @@ export default function Connect() {
           <DialogHeader>
             <DialogTitle className="t-section flex items-center gap-2">
               <Shield size={17} strokeWidth={2} className="text-accent" />
-              Privacy & Data Access
+              Privacy
             </DialogTitle>
             <DialogDescription className="t-body text-ink-body mt-1">
-              Exactly what Verloq reads, what it cannot do, and what happens when you disconnect.
+              What Verloq can see, and what it can&apos;t.
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col gap-5 py-2">
-            {/* Privacy Guarantees */}
-            <div className="flex flex-col gap-3.5">
-              <div className="flex gap-3">
-                <div className="w-9 h-9 flex-none rounded-logo bg-line-soft flex items-center justify-center">
-                  <Database size={17} strokeWidth={2} className="text-muted-foreground" />
-                </div>
-                <div>
-                  <h4 className="t-card-title">What Verloq reads</h4>
-                  <p className="t-body text-ink-body mt-0.5">
-                    It scans message headers (subject, sender and date) across the window you pick,
-                    then opens only the messages that look like receipts. Those it reads in full,
-                    including any attached invoice, and sends to Google's Gemini API to pull out the
-                    service, amount and date. The rest of your mail is never opened.
-                  </p>
-                </div>
-              </div>
+            {/*
+              Three short facts, not three paragraphs. The material one -- that
+              the body of a likely receipt is read and sent to Gemini -- stays
+              on this screen, because that is the disclosure consent is being
+              given for. Everything else moved to the policy behind the link.
+            */}
+            <ul className="flex flex-col gap-3">
+              <li className="flex gap-2.5">
+                <Database size={15} strokeWidth={2} className="text-muted-foreground flex-none mt-[3px]" />
+                <p className="t-body text-ink-body">
+                  <span className="font-semibold text-ink">Reads receipts, not your mail.</span>{" "}
+                  Subjects and senders across the window you pick, then only the messages that look
+                  like receipts — those in full, sent to Google&apos;s Gemini to pull out the
+                  service, amount and date.
+                </p>
+              </li>
 
-              <div className="flex gap-3">
-                <div className="w-9 h-9 flex-none rounded-logo bg-line-soft flex items-center justify-center">
-                  <Shield size={17} strokeWidth={2} className="text-muted-foreground" />
-                </div>
-                <div>
-                  <h4 className="t-card-title">Read-Only Access</h4>
-                  <p className="t-body text-ink-body mt-0.5">
-                    We can't send, delete, or modify your emails. Your inbox stays exactly as it is.
-                  </p>
-                </div>
-              </div>
+              <li className="flex gap-2.5">
+                <Shield size={15} strokeWidth={2} className="text-muted-foreground flex-none mt-[3px]" />
+                <p className="t-body text-ink-body">
+                  <span className="font-semibold text-ink">Cannot change anything.</span>{" "}
+                  It can&apos;t send, delete or edit. Your mailbox stays as it is.
+                </p>
+              </li>
 
-              <div className="flex gap-3">
-                <div className="w-9 h-9 flex-none rounded-logo bg-line-soft flex items-center justify-center">
-                  <Lock size={17} strokeWidth={2} className="text-muted-foreground" />
-                </div>
-                <div>
-                  <h4 className="t-card-title">Disconnect anytime</h4>
-                  <p className="t-body text-ink-body mt-0.5">
-                    Disconnecting deletes the tokens Verloq holds and asks Google to revoke the
-                    permission, so it stops reading your mailbox and drops off your account
-                    permissions. Subscriptions it already found stay until you clear them. You can
-                    also remove the permission yourself at{" "}
-                    <a
-                      href="https://myaccount.google.com/permissions"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline underline-offset-2 text-accent"
-                    >
-                      myaccount.google.com/permissions
-                    </a>
-                    .
-                  </p>
-                </div>
-              </div>
-            </div>
+              <li className="flex gap-2.5">
+                <Lock size={15} strokeWidth={2} className="text-muted-foreground flex-none mt-[3px]" />
+                <p className="t-body text-ink-body">
+                  <span className="font-semibold text-ink">Disconnect whenever you like.</span>{" "}
+                  {/*
+                    Said per provider because they differ. Google publishes an
+                    endpoint that cancels the permission and Verloq calls it;
+                    Microsoft publishes no equivalent for a personal account,
+                    so claiming Verloq cancels it there would be untrue.
+                  */}
+                  {selectedProvider === 'outlook'
+                    ? 'Verloq deletes its keys and stops reading at once. Microsoft has no way for an app to cancel the permission, so remove Verloq yourself in your Microsoft account.'
+                    : 'Verloq deletes its keys and asks Google to cancel the permission, so it stops reading and drops off your account.'}
+                </p>
+              </li>
+            </ul>
+
+            <a
+              href="https://verloq.co/privacy.html"
+              target="_blank"
+              rel="noreferrer"
+              className="t-body text-accent underline underline-offset-2 self-start"
+              data-testid="link-privacy-policy"
+            >
+              Read the full privacy policy
+            </a>
 
             {/* Backfill Window Selector */}
             <div className="border-t border-line-soft pt-5">
-              <h4 className="t-label">Scan History</h4>
+              <h4 className="t-label">Scan history</h4>
               <p className="t-caption mt-1 mb-3.5">
                 Choose how far back we should scan for subscriptions
               </p>

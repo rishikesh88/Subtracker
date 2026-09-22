@@ -1,7 +1,4 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Progress } from "@/components/ui/progress";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useSyncProgress, type SyncProgressUpdate } from "@/hooks/useSyncProgress";
 import { Loader2, CheckCircle, AlertCircle, Wifi, WifiOff } from "lucide-react";
@@ -20,7 +17,7 @@ const stageLabels: Record<string, string> = {
   'gmail_fetch': 'Fetching Emails',
   'parsing': 'Parsing Content',
   'parsing_complete': 'Processing Complete',
-  'filtering_complete': 'Filtering Candidates', 
+  'filtering_complete': 'Filtering Candidates',
   'llm_analysis_start': 'Starting AI Analysis',
   'llm_analysis_complete': 'AI Analysis Complete',
   'sync_complete': 'Sync Complete',
@@ -60,50 +57,52 @@ export function SyncProgressModal({ isOpen, onOpenChange, userId, onComplete }: 
   const isFailed = progress.currentStage === 'error';
   const isComplete = !isFailed && progress.progress === 100;
   const isInProgress = !isFailed && progress.progress > 0 && progress.progress < 100;
+  const pct = Math.min(100, Math.max(0, progress.progress));
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[500px]" data-testid="sync-progress-modal">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="font-serif text-[21px] font-normal tracking-[-0.02em] leading-none flex flex-wrap items-center gap-2">
             {isFailed ? (
-              <AlertCircle className="h-5 w-5 text-destructive" />
+              <AlertCircle size={17} strokeWidth={2} className="text-destructive flex-none" />
             ) : isComplete ? (
-              <CheckCircle className="h-5 w-5 text-green-500" />
+              <CheckCircle size={17} strokeWidth={2} className="text-success flex-none" />
             ) : isInProgress ? (
-              <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+              <Loader2 size={17} strokeWidth={2} className="animate-spin text-accent flex-none" />
             ) : (
-              <div className="h-5 w-5" />
+              <div className="h-[17px] w-[17px] flex-none" />
             )}
-            Email Sync Progress
+            <span>Email sync progress</span>
             {progress.isConnected ? (
-              <Wifi className="h-4 w-4 text-green-500" />
+              <Wifi size={15} strokeWidth={2} className="text-success flex-none" />
             ) : (
-              <WifiOff className="h-4 w-4 text-gray-400" />
+              <WifiOff size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
             )}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4">
           {/* Current Progress */}
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <div className="font-medium" data-testid="current-stage">
+          <div className="flex flex-col gap-2">
+            <div className="flex justify-between items-center gap-2">
+              <div className="t-body font-semibold text-ink" data-testid="current-stage">
                 {stageLabels[progress.currentStage] || progress.currentStage}
               </div>
-              <div className="text-sm text-muted-foreground" data-testid="progress-percentage">
-                {progress.progress}%
+              <div className="t-caption tabular flex-none" data-testid="progress-percentage">
+                {pct}%
               </div>
             </div>
-            
-            <Progress 
-              value={progress.progress} 
-              className="w-full" 
-              data-testid="progress-bar"
-            />
-            
+
+            <div className="h-1.5 rounded-full bg-line-soft overflow-hidden" data-testid="progress-bar">
+              <div
+                className="h-full rounded-full bg-accent transition-all"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+
             <p
-              className={isFailed ? "text-sm text-destructive" : "text-sm text-muted-foreground"}
+              className={isFailed ? "t-caption text-destructive" : "t-caption"}
               data-testid="progress-message"
             >
               {isFailed
@@ -112,27 +111,27 @@ export function SyncProgressModal({ isOpen, onOpenChange, userId, onComplete }: 
             </p>
 
             {progress.details && (
-              <div className="flex gap-2 text-xs flex-wrap" data-testid="progress-details">
+              <div className="flex gap-2 flex-wrap" data-testid="progress-details">
                 {progress.details.totalAccounts !== undefined && progress.details.completed !== undefined && (
-                  <Badge variant="secondary">{progress.details.completed}/{progress.details.totalAccounts} accounts</Badge>
+                  <span className="badge-cadence">{progress.details.completed}/{progress.details.totalAccounts} accounts</span>
                 )}
                 {progress.details.gmailAccounts !== undefined && (
-                  <Badge variant="outline" className="bg-primary/10">{progress.details.gmailAccounts} Gmail</Badge>
+                  <span className="badge-cadence">{progress.details.gmailAccounts} Gmail</span>
                 )}
                 {progress.details.outlookAccounts !== undefined && (
-                  <Badge variant="outline" className="bg-blue-100 dark:bg-blue-900">{progress.details.outlookAccounts} Outlook</Badge>
+                  <span className="badge-cadence">{progress.details.outlookAccounts} Outlook</span>
                 )}
                 {progress.details.emailCount && (
-                  <Badge variant="secondary">{progress.details.emailCount} emails</Badge>
+                  <span className="badge-cadence">{progress.details.emailCount} emails</span>
                 )}
                 {progress.details.candidates && (
-                  <Badge variant="secondary">{progress.details.candidates} candidates</Badge>
+                  <span className="badge-cadence">{progress.details.candidates} candidates</span>
                 )}
                 {progress.details.total && progress.details.parsed && (
-                  <Badge variant="secondary">{progress.details.parsed}/{progress.details.total} parsed</Badge>
+                  <span className="badge-cadence">{progress.details.parsed}/{progress.details.total} parsed</span>
                 )}
                 {progress.details.high && (
-                  <Badge variant="secondary">{progress.details.high} high confidence</Badge>
+                  <span className="badge-cadence">{progress.details.high} high confidence</span>
                 )}
               </div>
             )}
@@ -140,24 +139,24 @@ export function SyncProgressModal({ isOpen, onOpenChange, userId, onComplete }: 
 
           {/* Error Display */}
           {progress.error && (
-            <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-md">
-              <AlertCircle className="h-4 w-4 text-destructive" />
-              <span className="text-sm text-destructive">{progress.error}</span>
+            <div className="flex items-center gap-2 bg-destructive/10 rounded-lg" style={{ padding: "10px 12px" }}>
+              <AlertCircle size={15} strokeWidth={2} className="text-destructive flex-none" />
+              <span className="t-body text-destructive">{progress.error}</span>
             </div>
           )}
 
           {/* Update Log */}
           {progress.updates.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Progress Log</div>
-              <ScrollArea className="h-32 rounded-md border p-3">
-                <div className="space-y-1">
+            <div className="flex flex-col gap-2">
+              <div className="t-label">Progress log</div>
+              <ScrollArea className="h-32 rounded-lg border border-line-soft" style={{ padding: "10px 12px" }}>
+                <div className="flex flex-col gap-1">
                   {progress.updates.slice(-10).map((update, index) => (
-                    <div key={index} className="text-xs">
+                    <div key={index} className="t-caption">
                       <span className="text-muted-foreground">
                         {formatUpdateTime(update.timestamp)}
                       </span>
-                      <span className="ml-2">
+                      <span className="ml-2 text-ink">
                         {update.message || `Stage: ${update.stage}`}
                       </span>
                     </div>
@@ -170,20 +169,23 @@ export function SyncProgressModal({ isOpen, onOpenChange, userId, onComplete }: 
           {/* Action Buttons */}
           <div className="flex justify-end gap-2">
             {isComplete ? (
-              <Button 
-                onClick={handleClose} 
+              <button
+                type="button"
+                onClick={handleClose}
+                className="btn-base btn-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 data-testid="button-view-suggestions"
               >
-                View Suggestions
-              </Button>
+                View suggestions
+              </button>
             ) : (
-              <Button 
-                variant="outline" 
+              <button
+                type="button"
                 onClick={handleClose}
+                className="btn-base btn-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 data-testid="button-close-progress"
               >
-                Run in Background
-              </Button>
+                Run in background
+              </button>
             )}
           </div>
         </div>

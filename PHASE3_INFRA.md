@@ -218,6 +218,44 @@ Signup is gated on this working: a user who never receives the OTP cannot get in
   This has happened repeatedly. The cost of rebuilding every time is a few
   minutes; the cost of not doing it is shipping nothing and not knowing.
 
+### Two deployments, one repository
+
+`verloq.co` (the marketing site) and `app.verloq.co` (the app) are deployed by
+different hosts from the same repository, and they are meant to stay that way.
+Nothing in the build couples them:
+
+| | Host | Serves | Built from |
+|---|---|---|---|
+| Site | Netlify | `verloq.co` | `site/`, published as-is, no build step |
+| App | Railway | `app.verloq.co` | `client/` → `dist/public`, `server/` → `dist/index.js` |
+
+- Vite's root is `client/`, so the app build never reads `site/`.
+- Tailwind scans `./client/**` only, so the site cannot pull app styles in or
+  push its own out.
+- No application code references `site/` at all.
+- `netlify.toml` carries `ignore = "git diff --quiet ... -- site/"`, so a push
+  that touches only the app does not redeploy the site.
+
+**The one asymmetry worth fixing in the dashboard.** Railway watches the whole
+repository, so editing a line of copy in `site/` rebuilds and redeploys the
+app. It is harmless but wasteful, and it blurs the boundary. Set **Watch
+Paths** in Railway (Settings → Source) so the app only builds for its own
+files:
+
+```
+client/**
+server/**
+shared/**
+package.json
+package-lock.json
+vite.config.ts
+tailwind.config.ts
+tsconfig.json
+```
+
+That is the mirror of the rule `netlify.toml` already applies in the other
+direction: each deploy reacts only to the files it actually ships.
+
 ### Checking what is actually deployed
 
 `GET /healthz` is unauthenticated and answers it in one request:

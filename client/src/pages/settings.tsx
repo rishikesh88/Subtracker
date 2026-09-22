@@ -1,9 +1,10 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { User, LogOut, Mail, Calendar, Save, Trash2 } from "lucide-react";
+import { User, LogOut, Mail, Calendar, Save, Trash2, RefreshCw } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useMailboxes } from "@/hooks/useMailboxes";
 import type { SafeUser, GmailAccount, OutlookAccount } from "@shared/schema";
 import { useState, useEffect } from "react";
 
@@ -41,6 +42,8 @@ export default function Settings() {
 
   const totalAccounts = gmailAccounts.length + outlookAccounts.length;
   const canAddMore = totalAccounts < 4;
+
+  const mailboxes = useMailboxes();
 
   const { toast } = useToast();
   const [emailSyncDays, setEmailSyncDays] = useState<number>(90);
@@ -371,9 +374,6 @@ export default function Settings() {
             </span>
           </div>
           <div className="flex items-center gap-2 mt-4 pt-4 border-t border-line-soft">
-            <button type="button" className="btn-base btn-secondary" disabled>
-              Edit profile
-            </button>
             <button
               type="button"
               onClick={handleLogout}
@@ -396,6 +396,22 @@ export default function Settings() {
               </p>
             </div>
             <div className="flex gap-2 flex-none">
+              {mailboxes.hasAny && (
+                <button
+                  type="button"
+                  onClick={() => syncEmailsMutation.mutate()}
+                  disabled={syncEmailsMutation.isPending}
+                  data-testid="sync-now-settings"
+                  className="btn-base btn-secondary"
+                >
+                  <RefreshCw
+                    size={15}
+                    strokeWidth={2}
+                    className={syncEmailsMutation.isPending ? "animate-spin" : undefined}
+                  />
+                  Sync now
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleConnectGmail}
