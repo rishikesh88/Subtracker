@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import type { UploadResult } from "@uppy/core";
-import { ArrowLeft, Check, Search, Upload, X } from "lucide-react";
+import { ArrowLeft, Check, Plus, Search, Upload, X } from "lucide-react";
 
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
-  searchServices,
+  browseServices,
+  SERVICE_CATEGORIES,
   type CatalogueService,
 } from "@/lib/serviceCatalogue";
 import { ServiceLogo } from "@/components/ServiceLogo";
@@ -54,10 +55,10 @@ const FREQUENCIES: { value: Frequency; label: string }[] = [
   { value: "weekly", label: "Weekly" },
 ];
 
-const STEP_TITLES = [
-  "Choose a service",
-  "Cost and renewal",
-  "Owner and receipt",
+const STEPS = [
+  { title: "Service", hint: "What you pay for" },
+  { title: "Cost", hint: "How much, how often" },
+  { title: "Details", hint: "Owner and receipt" },
 ];
 
 export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModalProps) {
@@ -66,6 +67,7 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
 
   const [step, setStep] = useState(1);
   const [query, setQuery] = useState("");
+  const [category, setCategory] = useState<string | null>(SERVICE_CATEGORIES[0]);
   const [service, setService] = useState<CatalogueService | null>(null);
   const [customName, setCustomName] = useState("");
 
@@ -73,7 +75,9 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
   const [currency, setCurrency] = useState("INR");
   const [frequency, setFrequency] = useState<Frequency>("monthly");
   const [nextBillingDate, setNextBillingDate] = useState("");
-  const [category, setCategory] = useState("");
+  /* The subscription's own category, distinct from the tab above: choosing
+     Slack fills this with "Collaboration", but it stays editable. */
+  const [categoryField, setCategoryField] = useState("");
 
   const [ownerName, setOwnerName] = useState("");
   const [ownerEmail, setOwnerEmail] = useState("");
@@ -83,7 +87,7 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
   const searchRef = useRef<HTMLInputElement>(null);
 
   const serviceName = service?.name ?? customName.trim();
-  const results = useMemo(() => searchServices(query), [query]);
+  const results = useMemo(() => browseServices(query, category), [query, category]);
 
   /* A closed dialog keeps its state in React, so a second open would show the
      last attempt half-filled. Reset on open rather than on close, so the
@@ -92,13 +96,14 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
     if (!open) return;
     setStep(1);
     setQuery("");
+    setCategory(SERVICE_CATEGORIES[0]);
     setService(null);
     setCustomName("");
     setAmount("");
     setCurrency("INR");
     setFrequency("monthly");
     setNextBillingDate("");
-    setCategory("");
+    setCategoryField("");
     setOwnerName("");
     setOwnerEmail("");
     setInvoices([]);
@@ -118,7 +123,7 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
         amount: Number(amount).toString(),
         currency,
         frequency,
-        category: category.trim() || null,
+        category: categoryField.trim() || null,
         ownerName: ownerName.trim() || null,
         ownerEmail: ownerEmail.trim() || null,
         nextBillingDate: nextBillingDate || null,
@@ -167,7 +172,7 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
   function chooseService(next: CatalogueService) {
     setService(next);
     setCustomName("");
-    setCategory(next.category);
+    setCategoryField(next.category);
     setError(null);
     setStep(2);
   }
@@ -177,7 +182,7 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
     if (!name) return;
     setService(null);
     setCustomName(name);
-    setCategory("");
+    setCategoryField("");
     setError(null);
     setStep(2);
   }
@@ -213,41 +218,26 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-[680px] p-0 gap-0 overflow-hidden"
+        className="sm:max-w-[720px] p-0 gap-0 overflow-hidden"
         data-testid="add-subscription-modal"
       >
-        {/* --- Header ------------------------------------------------- */}
-        <div className="flex items-start gap-3 px-6 pt-5 pb-4 border-b border-line-soft">
-          {step > 1 && (
-            <button
-              type="button"
-              onClick={() => { setError(null); setStep(step - 1); }}
-              className="btn-base btn-ghost mt-0.5 px-2"
-              data-testid="button-back"
-            >
-              <ArrowLeft size={16} strokeWidth={2} />
-              <span className="sr-only">Back</span>
-            </button>
-          )}
-
-          {step > 1 && <ServiceLogo name={serviceName} size={34} />}
-
-          <div className="flex-1 min-w-0">
-            <h2 className="t-section" data-testid="modal-title">
-              {step === 1 ? "Add subscription" : serviceName}
-            </h2>
-            <p className="t-caption mt-0.5">
-              Step {step} of 3 · {STEP_TITLES[step - 1]}
-            </p>
-          </div>
+        {/* --- Header and stepper ------------------------------------- */}
+        <div className="px-6 pt-5 pb-4 border-b border-line-soft">
+          <h2 className="t-section" data-testid="modal-title">Add subscription</h2>
+          <Stepper
+            step={step}
+            onGoTo={(n) => { setError(null); setStep(n); }}
+          />
         </div>
 
         {/* --- Body --------------------------------------------------- */}
-        <div className="px-6 py-5 max-h-[62vh] overflow-y-auto">
+        <div className="px-6 py-5 max-h-[52vh] overflow-y-auto">
           {step === 1 && (
             <ChooseService
               query={query}
               onQuery={setQuery}
+              category={category}
+              onCategory={setCategory}
               results={results}
               onChoose={chooseService}
               onCustom={chooseCustom}
@@ -255,46 +245,76 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
             />
           )}
 
-          {step === 2 && (
-            <CostAndRenewal
-              amount={amount} onAmount={setAmount}
-              currency={currency} onCurrency={setCurrency}
-              frequency={frequency} onFrequency={setFrequency}
-              nextBillingDate={nextBillingDate} onNextBillingDate={setNextBillingDate}
-              category={category} onCategory={setCategory}
-            />
-          )}
+          {step > 1 && (
+            <>
+              {/* Which subscription this is about, restated where the
+                  fields are -- the stepper above says where you are, not
+                  what you are filling in. */}
+              <div className="flex items-center gap-2.5 pb-4 mb-4 border-b border-line-soft">
+                <ServiceLogo name={serviceName} size={34} />
+                <div className="min-w-0">
+                  <p className="t-card-title truncate" data-testid="chosen-service">{serviceName}</p>
+                  <p className="t-caption">{service?.category ?? "Added by name"}</p>
+                </div>
+              </div>
 
-          {step === 3 && (
-            <OwnerAndReceipt
-              ownerName={ownerName} onOwnerName={setOwnerName}
-              ownerEmail={ownerEmail} onOwnerEmail={setOwnerEmail}
-              invoices={invoices}
-              onRemoveInvoice={(i) => setInvoices((prev) => prev.filter((_, n) => n !== i))}
-              onGetUploadParameters={handleGetUploadParameters}
-              onUploadComplete={handleUploadComplete}
-              onUploadError={(message) =>
-                toast({ title: "That file wasn't uploaded", description: message, variant: "destructive" })
-              }
-            />
+              {step === 2 && (
+                <CostAndRenewal
+                  amount={amount} onAmount={setAmount}
+                  currency={currency} onCurrency={setCurrency}
+                  frequency={frequency} onFrequency={setFrequency}
+                  nextBillingDate={nextBillingDate} onNextBillingDate={setNextBillingDate}
+                  category={categoryField} onCategory={setCategoryField}
+                />
+              )}
+
+              {step === 3 && (
+                <OwnerAndReceipt
+                  ownerName={ownerName} onOwnerName={setOwnerName}
+                  ownerEmail={ownerEmail} onOwnerEmail={setOwnerEmail}
+                  invoices={invoices}
+                  onRemoveInvoice={(i) => setInvoices((prev) => prev.filter((_, n) => n !== i))}
+                  onGetUploadParameters={handleGetUploadParameters}
+                  onUploadComplete={handleUploadComplete}
+                  onUploadError={(message) =>
+                    toast({ title: "That file wasn't uploaded", description: message, variant: "destructive" })
+                  }
+                />
+              )}
+            </>
           )}
         </div>
 
-        {/* --- Footer ------------------------------------------------- */}
-        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-line-soft bg-rail">
-          <p className="t-caption text-destructive" role="alert" data-testid="step-error">
-            {error}
-          </p>
-
-          <div className="flex items-center gap-2 flex-none">
-            <button
-              type="button"
-              className="btn-base btn-secondary"
-              onClick={() => onOpenChange(false)}
-              data-testid="button-cancel-add"
-            >
-              Cancel
-            </button>
+        {/* --- Footer -------------------------------------------------
+            Pinned, with the two actions at opposite ends rather than
+            bunched in one corner. The list above runs underneath it. */}
+        <div className="border-t border-line-soft bg-rail">
+          {error && (
+            <p className="px-6 pt-3 t-caption text-destructive" role="alert" data-testid="step-error">
+              {error}
+            </p>
+          )}
+          <div className="flex items-center justify-between gap-3 px-6 py-4">
+            {step === 1 ? (
+              <button
+                type="button"
+                className="btn-base btn-secondary"
+                onClick={() => onOpenChange(false)}
+                data-testid="button-cancel-add"
+              >
+                Cancel
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn-base btn-secondary"
+                onClick={() => { setError(null); setStep(step - 1); }}
+                data-testid="button-back"
+              >
+                <ArrowLeft size={15} strokeWidth={2} />
+                Back
+              </button>
+            )}
 
             {step === 2 && (
               <button
@@ -315,13 +335,90 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
                 onClick={() => createMutation.mutate()}
                 data-testid="button-add-subscription"
               >
-                {createMutation.isPending ? "Adding…" : "Add subscription"}
+                {createMutation.isPending ? "Adding\u2026" : "Add subscription"}
               </button>
             )}
           </div>
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* ---------------------------------------------------------------- stepper */
+
+/**
+ * Three numbered steps across the top, joined by a rule.
+ *
+ * A step already completed is a tick and stays clickable, so going back two
+ * steps is one click rather than two. A step not yet reached is inert --
+ * offering it would promise a jump the form cannot honour, since step two
+ * needs an amount before step three means anything.
+ */
+function Stepper({ step, onGoTo }: { step: number; onGoTo: (n: number) => void }) {
+  return (
+    <ol className="flex items-stretch gap-1 mt-4" data-testid="stepper">
+      {STEPS.map((s, i) => {
+        const n = i + 1;
+        const state = n < step ? "done" : n === step ? "current" : "todo";
+        const reachable = state === "done";
+
+        return (
+          <li key={s.title} className="flex-1 flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              disabled={!reachable}
+              onClick={() => reachable && onGoTo(n)}
+              aria-current={state === "current" ? "step" : undefined}
+              className={cn(
+                "flex items-center gap-2 min-w-0 rounded-[8px] py-1 pr-2 -ml-1 pl-1 text-left",
+                reachable && "hover:bg-line-soft cursor-pointer",
+                !reachable && "cursor-default",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              )}
+              data-testid={`stepper-step-${n}`}
+              data-state={state}
+            >
+              <span
+                className={cn(
+                  "w-[22px] h-[22px] flex-none rounded-full flex items-center justify-center",
+                  "text-[11px] font-semibold tabular-nums",
+                  state === "done" && "bg-accent text-white",
+                  state === "current" && "bg-ink text-white",
+                  state === "todo" && "border border-line-firm text-muted-foreground"
+                )}
+                aria-hidden="true"
+              >
+                {state === "done" ? <Check size={13} strokeWidth={2.5} /> : n}
+              </span>
+              <span className="min-w-0 hidden sm:block">
+                <span
+                  className={cn(
+                    "block text-[12px] font-semibold leading-tight truncate",
+                    state === "todo" ? "text-muted-foreground" : "text-ink"
+                  )}
+                >
+                  {s.title}
+                </span>
+                <span className="block text-[11px] text-muted-foreground leading-tight truncate">
+                  {s.hint}
+                </span>
+              </span>
+            </button>
+
+            {i < STEPS.length - 1 && (
+              <span
+                className={cn(
+                  "flex-1 h-px min-w-[12px]",
+                  n < step ? "bg-accent" : "bg-line-firm"
+                )}
+                aria-hidden="true"
+              />
+            )}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -334,16 +431,19 @@ function testId(name: string): string {
 }
 
 function ChooseService({
-  query, onQuery, results, onChoose, onCustom, searchRef,
+  query, onQuery, category, onCategory, results, onChoose, onCustom, searchRef,
 }: {
   query: string;
   onQuery: (v: string) => void;
+  category: string | null;
+  onCategory: (v: string) => void;
   results: CatalogueService[];
   onChoose: (s: CatalogueService) => void;
   onCustom: () => void;
   searchRef: React.RefObject<HTMLInputElement>;
 }) {
   const typed = query.trim();
+  const searching = typed.length > 0;
   /* An exact hit is already in the grid, so offering to add it again as a
      custom name would be two routes to the same subscription. */
   const exact = results.some((s) => s.name.toLowerCase() === typed.toLowerCase());
@@ -365,30 +465,68 @@ function ChooseService({
         />
       </div>
 
+      {/* Tabs step aside while searching: a search reaches every category,
+          so leaving one highlighted would say otherwise. */}
+      {!searching && (
+        <div
+          className="flex items-center gap-1 overflow-x-auto -mx-1 px-1 pb-0.5"
+          role="tablist"
+          aria-label="Service categories"
+        >
+          {SERVICE_CATEGORIES.map((c) => {
+            const active = c === category;
+            return (
+              <button
+                key={c}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => onCategory(c)}
+                className={cn(
+                  "flex-none rounded-[8px] px-2.5 py-1.5 text-[12px] font-medium whitespace-nowrap transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  active
+                    ? "bg-ink text-white"
+                    : "text-ink-body hover:bg-line-soft"
+                )}
+                data-testid={`category-tab-${testId(c)}`}
+              >
+                {c}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {results.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           {results.map((s) => (
             <button
-              key={s.slug + s.name}
+              key={s.name}
               type="button"
               onClick={() => onChoose(s)}
               className={cn(
-                "surface-card p-3 flex items-center gap-2.5 text-left min-h-[58px]",
+                // A fixed height rather than h-full: grid rows size themselves,
+                // so a two-line description made one row taller than the next.
+                "surface-card p-3 flex flex-col gap-2 text-left min-h-[112px]",
                 "hover:border-line-firm transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               )}
               data-testid={`service-option-${testId(s.name)}`}
             >
               <ServiceLogo name={s.name} size={30} />
-              <span className="t-card-title flex-1 min-w-0 line-clamp-2 [text-wrap:pretty]">
-                {s.name}
+              <span className="flex flex-col gap-0.5 min-w-0">
+                <span className="t-card-title [text-wrap:pretty]">{s.name}</span>
+                <span className="t-caption leading-snug line-clamp-2 [text-wrap:pretty]">
+                  {s.description}
+                </span>
               </span>
             </button>
           ))}
         </div>
       )}
 
-      {typed && !exact && (
+      {searching && !exact && (
         <button
           type="button"
           onClick={onCustom}
@@ -399,16 +537,14 @@ function ChooseService({
           )}
           data-testid="button-add-custom-service"
         >
-          <ServiceLogo name={typed} size={30} />
+          <span className="w-[30px] h-[30px] flex-none rounded-logo bg-line-soft flex items-center justify-center text-ink-body">
+            <Plus size={16} strokeWidth={2} />
+          </span>
           <span className="flex-1 min-w-0">
             <span className="t-card-title block truncate">Add “{typed}”</span>
             <span className="t-caption">Not in the list — track it by name</span>
           </span>
         </button>
-      )}
-
-      {results.length === 0 && !typed && (
-        <p className="t-caption py-6 text-center">No services to show.</p>
       )}
     </div>
   );
