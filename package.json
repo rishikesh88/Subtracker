@@ -17,7 +17,8 @@
     "test:billing-email": "tsx server/lib/billingEmail.test.ts",
     "test:brand-tokens": "tsx server/lib/brandTokens.test.ts",
     "test:currency": "tsx server/lib/currencyCheck.test.ts",
-    "test:rates": "tsx server/lib/exchangeRates.test.ts"
+    "test:rates": "tsx server/lib/exchangeRates.test.ts",
+    "test:catalogue": "tsx client/src/lib/serviceCatalogue.test.ts"
   },
   "engines": {
     "node": "22.x"

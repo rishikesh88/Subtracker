@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { findService, domainsFromEmail } from "@/lib/serviceCatalogue";
+import { findService, brandDomain, domainsFromEmail } from "@/lib/serviceCatalogue";
 
 /**
  * The one place a logo URL is built.
@@ -28,14 +28,18 @@ function logoUrl(domain: string): string | null {
 /**
  * Every domain worth trying for this subscription, best first.
  *
- * The catalogue's own domain leads because it is curated. After that comes
- * the address the receipt arrived from, which is what gives a logo to
- * everything the catalogue does not list -- Netflix, Swiggy, an insurer --
- * since for a billing email the sender is the brand.
+ * The catalogue's own domain leads because it is curated, then the brands we
+ * know by name but keep out of the picker. Both beat the sending address, and
+ * that order is load-bearing: a YouTube Premium receipt comes from Google's
+ * billing address, so going by the sender alone put Google's mark on it.
+ *
+ * The address the receipt arrived from comes last, and is what gives a logo to
+ * everything no list mentions -- Swiggy, an insurer -- since for a billing
+ * email the sender is usually the brand.
  */
 function candidateUrls(name: string | null | undefined, merchantEmail?: string | null): string[] {
   const service = findService(name);
-  const domains = [service?.domain, ...domainsFromEmail(merchantEmail)]
+  const domains = [service?.domain, brandDomain(name), ...domainsFromEmail(merchantEmail)]
     .filter((d): d is string => Boolean(d));
 
   const seen = new Set<string>();

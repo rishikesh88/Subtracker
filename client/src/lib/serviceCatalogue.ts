@@ -123,6 +123,65 @@ export function findService(name: string | null | undefined): CatalogueService |
 }
 
 /**
+ * Brands we know the domain of but deliberately do not offer in the picker.
+ *
+ * Two different jobs got tangled together. The catalogue above answers "what
+ * can I add by hand", and it is SaaS on purpose. Finding a logo is a separate
+ * question, and it has to cover whatever detection actually finds -- which
+ * includes streaming and consumer accounts nobody wants cluttering the picker.
+ *
+ * It also fixes a wrong logo rather than just a missing one. A YouTube Premium
+ * receipt is sent by Google's billing address, so working the brand out from
+ * the sender put Google's mark on a YouTube subscription. The name is the
+ * better evidence here, and this map is what lets the name win.
+ *
+ * Matched exactly like the catalogue: whole name first, then a prefix at a
+ * word boundary, longest first.
+ */
+const BRAND_DOMAINS: Readonly<Record<string, string>> = Object.freeze({
+  "youtube": "youtube.com",
+  "youtube premium": "youtube.com",
+  "youtube music": "youtube.com",
+  "google one": "one.google.com",
+  "google play": "play.google.com",
+  "netflix": "netflix.com",
+  "spotify": "spotify.com",
+  "apple one": "apple.com",
+  "apple music": "apple.com",
+  "apple tv": "apple.com",
+  "icloud": "icloud.com",
+  "amazon prime": "amazon.com",
+  "prime video": "primevideo.com",
+  "disney+": "disneyplus.com",
+  "hotstar": "hotstar.com",
+  "audible": "audible.com",
+  "linkedin premium": "linkedin.com",
+  "x premium": "x.com",
+  "twitter blue": "x.com",
+});
+
+const BRANDS_BY_LENGTH = Object.keys(BRAND_DOMAINS).sort((a, b) => b.length - a.length);
+
+/**
+ * The domain for a brand we know by name but do not list in the picker.
+ *
+ * Checked after the catalogue and before the sending address, because a name
+ * we recognise is better evidence than whoever happened to send the receipt.
+ */
+export function brandDomain(name: string | null | undefined): string | undefined {
+  if (!name) return undefined;
+  const q = name.trim().toLowerCase();
+  if (!q) return undefined;
+
+  if (BRAND_DOMAINS[q]) return BRAND_DOMAINS[q];
+
+  const hit = BRANDS_BY_LENGTH.find(
+    (b) => q.startsWith(b) && (q.length === b.length || /[\s(:\u2013-]/.test(q[b.length]))
+  );
+  return hit ? BRAND_DOMAINS[hit] : undefined;
+}
+
+/**
  * The brand's domain, taken from the address the receipt came from.
  *
  * This is what gives a logo to everything the catalogue does not list. A

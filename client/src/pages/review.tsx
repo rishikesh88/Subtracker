@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
@@ -8,6 +8,9 @@ interface EmailEvidence {
   id: string;
   subject: string;
   fromName: string;
+  /** The sending address, which is how a brand outside the catalogue finds
+   *  its logo. A suggestion has no merchant recorded against it yet. */
+  fromEmail?: string | null;
   receivedAt: Date | string;
 }
 
@@ -33,6 +36,8 @@ import { cn } from "@/lib/utils";
 import { displayCategory, formatDate, formatCurrency, isUnknownCurrency, FREQUENCY_LABEL, FREQUENCY_SUFFIX } from "@/lib/format";
 import { ChevronLeft, ChevronRight, Check, X, Inbox, FileText, Calendar } from "lucide-react";
 import { ServiceLogo } from "@/components/ServiceLogo";
+import { ReviewCarousel, type ReviewCard } from "@/components/ReviewCarousel";
+import { LayoutList, Layers } from "lucide-react";
 
 /**
  * The attachment evidence is stored as a JSON string and can be malformed or
@@ -57,8 +62,20 @@ export default function ReviewInbox() {
   const userId = user?.id;
   const { toast } = useToast();
   const [selectedSuggestions, setSelectedSuggestions] = useState<string[]>([]);
+  /* One at a time by default. The task is sequential and binary, and the
+     list is kept as the escape hatch for anyone with forty of these who
+     would rather bulk-select than step through. */
+  const [mode, setMode] = useState<'cards' | 'list'>('cards');
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 10;
+
+  /* Page 3 of a ten-a-page list is not page 3 of a hundred-a-page one, so
+     switching view starts from the top rather than somewhere arbitrary. */
+  useEffect(() => { setCurrentPage(1); }, [mode]);
+  /* Stepping through cards has to cover the whole batch in one pass -- being
+     handed ten, deciding on them, then discovering there are seven more behind
+     a pager is the opposite of what a single sequence is for. The list keeps
+     its ten-a-page, which is what a table wants. */
+  const pageSize = mode === 'cards' ? 100 : 10;
   const [processingSuggestions, setProcessingSuggestions] = useState<string[]>([]);
   const [isSyncInProgress, setIsSyncInProgress] = useState(false);
   const [syncProgress, setSyncProgress] = useState({ stage: '', progress: 0, message: '', suggestionsFound: 0 });
@@ -249,6 +266,63 @@ export default function ReviewInbox() {
     }
   };
 
+  /**
+   * The address a suggestion's receipts came from.
+   *
+   * A suggestion has no merchant recorded against it -- that is worked out
+   * when it is approved -- so the first piece of evidence is the only thing
+   * that can give the review screen a logo for a brand no list carries.
+   */
+  const merchantEmailOf = (suggestion: SuggestionWithEvidence): string | null =>
+    suggestion.emailEvidence?.find((e) => e.fromEmail)?.fromEmail ?? null;
+
+  const evidenceLineOf = (suggestion: SuggestionWithEvidence): string | null => {
+    const evidence = suggestion.emailEvidence;
+    if (evidence && evidence.length > 0) {
+      const more = evidence.length - 1;
+      return `"${evidence[0].subject}" · ${formatDate(evidence[0].receivedAt)}${
+        more > 0 ? ` · +${more} more email${more > 1 ? 's' : ''}` : ''
+      }`;
+    }
+    return suggestion.occurrences && suggestion.occurrences > 1
+      ? `${suggestion.occurrences} supporting emails`
+      : null;
+  };
+
+  const reviewCards: ReviewCard[] = useMemo(
+    () =>
+      suggestions.map((suggestion) => ({
+        id: suggestion.id,
+        serviceName: suggestion.serviceName,
+        amount: suggestion.amount,
+        currency: suggestion.currency,
+        frequency: suggestion.frequency,
+        category: suggestion.category,
+        confidence: suggestion.confidence,
+        reasoning:
+          suggestion.reasoning
+          || `This appears to be a ${suggestion.frequency} subscription to ${suggestion.serviceName} based on the email patterns detected.`,
+        nextBillingDate: suggestion.nextBillingDate ?? null,
+        merchantEmail: merchantEmailOf(suggestion),
+        evidenceLine: evidenceLineOf(suggestion),
+        duplicateReason: suggestion.possibleDuplicateOf?.reason ?? null,
+      })),
+    [suggestions]
+  );
+
+  /**
+   * One save for a whole pass through the cards.
+   *
+   * Both calls go out together rather than one after the other, because a
+   * person pressing save has made one decision about the batch, not two.
+   * Either failing shows its own message and leaves the suggestions in place
+   * to try again -- nothing here is lost by retrying.
+   */
+  const handleCarouselSave = (keep: string[], skip: string[]) => {
+    if (keep.length > 0) approveMutation.mutate(keep);
+    if (skip.length > 0) rejectMutation.mutate(skip);
+  };
+
   // Confidence -> the design's status pair (ink on a soft ground), plus a
   // plain label. High reads as "on track" (active), medium as "worth a
   // second look" (review), low as inert (cancelled's neutral grey).
@@ -313,8 +387,30 @@ export default function ReviewInbox() {
           <p className="text-[12.5px] text-muted-foreground mt-1">{subline}</p>
         </div>
 
-        {suggestions.length > 0 && (
+        {suggestions.length > 0 && mode === 'cards' && (
+          <button
+            type="button"
+            className="btn-base btn-ghost"
+            onClick={() => setMode('list')}
+            data-testid="mode-list"
+          >
+            <LayoutList size={15} strokeWidth={2} />
+            Review as a list
+          </button>
+        )}
+
+        {suggestions.length > 0 && mode === 'list' && (
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              className="btn-base btn-ghost"
+              onClick={() => setMode('cards')}
+              data-testid="mode-cards"
+            >
+              <Layers size={15} strokeWidth={2} />
+              One at a time
+            </button>
+            <div className="w-px h-5 bg-line mx-1" />
             <span className="text-[12.5px] text-muted-foreground mr-1">
               {selectedSuggestions.length} of {suggestions.length} selected
             </span>
@@ -373,6 +469,15 @@ export default function ReviewInbox() {
               The last sync matched every charge it found.
             </p>
           </div>
+        ) : mode === 'cards' ? (
+          <ReviewCarousel
+            cards={reviewCards}
+            userCurrency={user?.preferredCurrency || 'INR'}
+            confidenceMeta={confidenceMeta}
+            onSave={handleCarouselSave}
+            isSaving={approveMutation.isPending || rejectMutation.isPending}
+            onSwitchToList={() => setMode('list')}
+          />
         ) : (
           <div className="flex flex-col gap-3">
             {suggestions.map((suggestion) => {
@@ -409,7 +514,7 @@ export default function ReviewInbox() {
                       onCheckedChange={(checked) => handleSuggestionSelect(suggestion.id, checked as boolean)}
                       disabled={isProcessing}
                     />
-                    <ServiceLogo name={suggestion.serviceName} size={34} />
+                    <ServiceLogo name={suggestion.serviceName} merchantEmail={merchantEmailOf(suggestion)} size={34} />
                     <span className="t-card-title flex-1 min-w-0 truncate">{suggestion.serviceName}</span>
                     <span className="t-price flex-none">
                       {formatCurrency(parseFloat(suggestion.amount) || 0, suggestion.currency)}
@@ -522,7 +627,7 @@ export default function ReviewInbox() {
         )}
 
         {/* Pagination */}
-        {totalPages > 1 && (
+        {mode === 'list' && totalPages > 1 && (
           <div className="flex items-center justify-center gap-2">
             <button
               type="button"
