@@ -11,6 +11,7 @@ import {
 } from "@/lib/format";
 import { type Subscription } from "@shared/schema";
 import { ServiceLogo } from "@/components/ServiceLogo";
+import { useMoney } from "@/hooks/useMoney";
 
 interface SubscriptionCardProps {
   subscription: Subscription;
@@ -23,6 +24,8 @@ interface SubscriptionCardProps {
  * dashboard and the subscriptions page so there is exactly one card.
  */
 export function SubscriptionCard({ subscription: sub }: SubscriptionCardProps) {
+  const { display } = useMoney();
+  const money = display(sub.amount, sub.currency);
   const badge = statusBadge(sub.status);
   const bucket = filterBucket(sub.status);
   const frequencyLabel = FREQUENCY_LABEL[sub.frequency] ?? sub.frequency;
@@ -68,9 +71,18 @@ export function SubscriptionCard({ subscription: sub }: SubscriptionCardProps) {
           </div>
           <div className="text-[12px] text-ink-strong mt-0.5">{formatDate(sub.nextBillingDate)}</div>
         </div>
-        <div className="t-price" data-testid={`subscription-amount-${sub.id}`}>
-          {formatCurrency(parseFloat(sub.amount) || 0, sub.currency)}
-          <span className="text-[11.5px] font-medium text-muted-foreground">{frequencySuffix}</span>
+        <div className="text-right">
+          <div className="t-price" data-testid={`subscription-amount-${sub.id}`}>
+            {money.primary}
+            <span className="text-[11.5px] font-medium text-muted-foreground">{frequencySuffix}</span>
+          </div>
+          {/* What the merchant actually charged. Shown only when it differs,
+              so a dollar subscription on a dollar account stays one number. */}
+          {money.secondary && (
+            <div className="text-[10.5px] text-muted-foreground tabular-nums mt-0.5">
+              billed {money.secondary}
+            </div>
+          )}
         </div>
       </div>
     </Link>
