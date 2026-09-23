@@ -1,14 +1,10 @@
-// Static exchange rates for currency conversion
-// Base rates to INR (Indian Rupees)
-const EXCHANGE_RATES: Record<string, number> = {
-  'INR': 1.0,       // Base currency
-  'USD': 83.0,      // 1 USD = 83 INR
-  'EUR': 90.0,      // 1 EUR = 90 INR  
-  'GBP': 105.0,     // 1 GBP = 105 INR
-};
+// Rates live in exchangeRates.ts, which refreshes them from the European
+// Central Bank and keeps a fallback for when that service is unreachable.
+// This file is the arithmetic only.
+import { ratesToInr } from '../lib/exchangeRates';
 
 /**
- * Convert an amount from one currency to another using static exchange rates
+ * Convert an amount from one currency to another at the current rate
  * @param amount - The amount to convert
  * @param fromCurrency - Source currency code (e.g., 'USD')
  * @param toCurrency - Target currency code (e.g., 'INR') 
@@ -29,9 +25,15 @@ export function convertCurrency(
   // Same currency, no conversion needed
   if (from === to) return amount;
   
-  // Get exchange rates, fallback to INR rate if currency not found
-  const fromRate = EXCHANGE_RATES[from] || EXCHANGE_RATES['INR'];
-  const toRate = EXCHANGE_RATES[to] || EXCHANGE_RATES['INR'];
+  // Read the table once, so a refresh landing mid-calculation cannot convert
+  // one side of the sum at yesterday's rate and the other at today's.
+  const rates = ratesToInr();
+
+  // An unknown currency converts as though it were rupees. That is wrong, but
+  // it is the long-standing behaviour and changing it belongs with the work
+  // that decides what an unrecognised currency should do on screen.
+  const fromRate = rates[from] || rates['INR'];
+  const toRate = rates[to] || rates['INR'];
   
   // Convert: amount -> INR -> target currency
   const inrAmount = from === 'INR' ? amount : amount * fromRate;
