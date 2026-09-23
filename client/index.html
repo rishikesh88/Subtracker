@@ -12,7 +12,22 @@
       faces start downloading before the stylesheet parses.
     -->
     <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600&family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <!--
+      Four icons because no one format covers every place the mark shows up.
+      The SVG is what Chrome and Firefox use in the tab. Safari ignores SVG
+      icons entirely, so it falls back to the 32px PNG. iOS composites black
+      behind a transparent icon, so the home-screen and installed-app icons
+      are a solid brand tile with the mark knocked out in white.
+
+      The ?v= on the SVG is deliberate: browsers keep favicons in a long-lived
+      cache keyed on the URL, so a changed mark at an unchanged address can go
+      unnoticed for weeks. Bump it whenever the logo changes.
+    -->
+    <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180">
+    <link rel="manifest" href="/site.webmanifest">
+    <meta name="theme-color" content="#4F46E5">
   </head>
   <body>
     <div id="root"></div>

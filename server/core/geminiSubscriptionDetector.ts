@@ -18,6 +18,7 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
+import { withRetry } from "../lib/retryTransient";
 import { Email, Subscription } from "@shared/schema";
 
 // Reference to blueprint for Gemini integration
@@ -118,10 +119,13 @@ If NONE qualify, respond with: {"approved_ids": []}
 
 NO other text, explanations, or formatting. ONLY the JSON object.`;
 
-        const result = await this.ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: prompt
-        });
+        const result = await withRetry(
+          () => this.ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: prompt
+          }),
+          { label: `Pre-filter chunk ${i + 1}/${chunks.length}` }
+        );
         const rawResponse = (result.text || '').trim();
         
         // Validate candidate IDs for cross-checking
@@ -224,16 +228,54 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
       const chunks = this.chunkEmails(emails, 25);
       const allSuggestions: SubscriptionSuggestion[] = [];
 
+      /*
+       * A chunk that fails must not take the others with it.
+       *
+       * This loop used to sit inside one try, so a single chunk throwing
+       * discarded every chunk before it and skipped every chunk after --
+       * turning one bad second at Gemini into a sync that fetched thousands
+       * of emails and produced nothing. Each chunk now carries its own
+       * failure, and the run finishes with whatever the rest found.
+       *
+       * The calls inside already retry transient failures, so reaching this
+       * handler means a chunk failed every attempt.
+       */
+      const failedChunks: number[] = [];
+
       for (let i = 0; i < chunks.length; i++) {
         console.log(`Processing chunk ${i + 1}/${chunks.length}...`);
-        
-        const chunkSuggestions = await this.analyzeEmailChunk(chunks[i]);
-        allSuggestions.push(...chunkSuggestions);
-        
+
+        try {
+          const chunkSuggestions = await this.analyzeEmailChunk(chunks[i]);
+          allSuggestions.push(...chunkSuggestions);
+        } catch (chunkError) {
+          failedChunks.push(i + 1);
+          console.error(`Chunk ${i + 1}/${chunks.length} failed after retries:`, chunkError);
+        }
+
         // Add small delay between chunks to respect rate limits
         if (i < chunks.length - 1) {
           await this.delay(1000);
         }
+      }
+
+      /*
+       * Every chunk failing is not a run that found nothing -- it is a run
+       * that never happened. Reporting it as a clean zero would be worse than
+       * the crash this replaced, because it looks like an inbox with no
+       * subscriptions in it.
+       */
+      if (failedChunks.length === chunks.length) {
+        throw new Error(
+          `All ${chunks.length} chunks failed. The analysis service did not respond to any of them.`
+        );
+      }
+
+      if (failedChunks.length > 0) {
+        console.warn(
+          `⚠️  Analysed ${chunks.length - failedChunks.length} of ${chunks.length} chunks. ` +
+          `Chunk(s) ${failedChunks.join(', ')} failed and were skipped, so some subscriptions may be missing.`
+        );
       }
 
       // Deduplicate and merge similar subscriptions
@@ -335,7 +377,7 @@ CRITICAL EXAMPLES TO DETECT:
 
 IMPORTANT: Include renewal reminders AND completed transactions. Amount can appear ANYWHERE in the email - extract carefully from subject, body, or snippet.`;
 
-    const response = await this.ai.models.generateContent({
+    const response = await withRetry(() => this.ai.models.generateContent({
       model: "gemini-2.5-flash",
       config: {
         systemInstruction: systemPrompt,
@@ -379,7 +421,7 @@ IMPORTANT: Include renewal reminders AND completed transactions. Amount can appe
         }
       },
       contents: `Analyze these emails for subscription services:\n\n${JSON.stringify(emailContext, null, 2)}`
-    });
+    }), { label: "Subscription analysis" });
 
     const rawJson = response.text;
     

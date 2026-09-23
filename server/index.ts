@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { storage } from "./storage";
 import { setupVite, serveStatic, log } from "./vite";
+import { refreshRates } from "./lib/exchangeRates";
 import fs from "fs";
 import path from "path";
 
@@ -83,6 +84,7 @@ app.use((req, res, next) => {
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
+  const TWELVE_HOURS = 12 * 60 * 60 * 1000;
   const port = parseInt(process.env.PORT || '5000', 10);
   server.listen({
     port,
@@ -106,5 +108,11 @@ app.use((req, res, next) => {
     } catch (error) {
       console.error('Failed to sweep stuck sync jobs:', error);
     }
+
+    // Fill the rate table before the first page asks for a total. This never
+    // rejects -- a failure leaves the fallback in place and says so in the log
+    // -- so it is deliberately not awaited and cannot delay the port opening.
+    void refreshRates();
+    setInterval(() => void refreshRates(), TWELVE_HOURS).unref();
   });
 })();

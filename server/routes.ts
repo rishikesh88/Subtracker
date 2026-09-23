@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { refreshRates, ratesToInr, ratesFetchedAt } from "./lib/exchangeRates";
 import { GmailService } from "./services/gmail";
 import { OutlookService } from "./services/outlook";
 import { emailParser } from "./services/emailParser";
@@ -820,6 +821,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Error generating OAuth URL:", error);
       res.status(500).json({ message: "Failed to generate OAuth URL" });
     }
+  });
+
+  /**
+   * The rate table, so the browser can show one figure in the currency a
+   * person picked and the billed figure underneath it.
+   *
+   * Conversion already happens on the server for dashboard totals. The review
+   * screen needs it per card, before anything is saved, and shipping the four
+   * numbers once beats a round trip per suggestion.
+   *
+   * Not authenticated, because exchange rates are not anyone's data. Cached
+   * for an hour by the browser -- the table itself only moves twice a day.
+   */
+  app.get('/api/exchange-rates', async (_req, res) => {
+    // Never awaited: a stale table is a far better answer than a slow one.
+    void refreshRates();
+    const fetchedAt = ratesFetchedAt();
+    res.set('Cache-Control', 'public, max-age=3600');
+    res.json({
+      base: 'INR',
+      rates: ratesToInr(),
+      fetchedAt: fetchedAt ? fetchedAt.toISOString() : null,
+    });
   });
 
   // Auth routes
@@ -2196,6 +2220,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 id: email.id,
                 subject: email.subject,
                 fromName: email.fromName || email.fromEmail,
+                // The address, not just the display name. A suggestion has no
+                // merchant recorded against it yet -- that is worked out when
+                // it is approved -- so the sending domain is the only thing
+                // that can give the review screen a logo for a brand the
+                // catalogue does not list.
+                fromEmail: email.fromEmail,
                 receivedAt: email.receivedAt
               }));
               return { ...suggestion, emailEvidence };

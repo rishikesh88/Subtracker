@@ -11,6 +11,7 @@ import { isAuthenticated } from "../auth";
 import { setSyncRunner } from "../services/syncRunner";
 import { storeInvoiceAttachment } from "../lib/invoiceAttachment";
 import { verifyCurrency } from "../lib/currencyCheck";
+import { refreshRates } from "../lib/exchangeRates";
 
 // Helper function to get userId from normalized session structure
 function getUserId(req: any): string {
@@ -925,6 +926,11 @@ export function registerGeminiRoutes(app: Express) {
       if (!userId) {
         return { ok: false as const, status: 401, message: "User not authenticated" };
       }
+
+      // A sync is the moment a person is most likely to look at their totals,
+      // so it is a good excuse to top up the rate table. Not awaited and
+      // cannot throw: a rate service being slow must never hold up a scan.
+      void refreshRates();
 
       // Fetch all Gmail and Outlook accounts for this user
       const gmailAccounts = await storage.getGmailAccounts(userId);
