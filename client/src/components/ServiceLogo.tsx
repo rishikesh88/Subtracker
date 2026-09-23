@@ -21,22 +21,23 @@ import { findService, brandDomain, domainsFromEmail } from "@/lib/serviceCatalog
 const BRANDFETCH_CLIENT_ID = import.meta.env.VITE_BRANDFETCH_CLIENT_ID as string | undefined;
 
 /**
- * `fallback=404` is the important parameter here, not the client id.
+ * The one place a logo URL is built.
  *
- * Without it Brandfetch answers a domain it has no logo for by generating a
- * monogram -- a letter on a coloured square -- and serving it with a 200.
- * The browser sees a perfectly good image, `onError` never fires, and that
- * invented mark gets shown as though it were the brand's. That is how an
- * Airtel bill ended up wearing a stranger's logo: not a wrong lookup, an
- * image that should have been a miss.
+ * `fallback=404` was tried here and removed. The hope was that a domain with
+ * no logo would answer with an error so our own letter tile could show. It
+ * changes nothing: the service returns an image for every domain either way.
  *
- * Asking for a 404 instead turns a miss back into a miss, so the next
- * candidate domain is tried and, failing that, our own letter tile shows.
- * A letter we drew is honest; a logo that belongs to someone else is not.
+ * More to the point, it could never have helped. The wrong logos were not
+ * invented monograms -- they were real marks belonging to real companies,
+ * returned for a domain we should not have asked about. airtel.in answers
+ * with another firm's mark, and a Railway receipt sent by Stripe answers
+ * with Stripe's. Nothing in the response can distinguish those from a
+ * correct answer, so the only defence is being careful which domain is
+ * asked about in the first place, which is what candidateUrls now does.
  */
 function logoUrl(domain: string): string | null {
   if (!BRANDFETCH_CLIENT_ID) return null;
-  return `https://cdn.brandfetch.io/${domain}?c=${BRANDFETCH_CLIENT_ID}&fallback=404`;
+  return `https://cdn.brandfetch.io/${domain}?c=${BRANDFETCH_CLIENT_ID}`;
 }
 
 /**
@@ -53,6 +54,7 @@ function logoUrl(domain: string): string | null {
  */
 function candidateUrls(name: string | null | undefined, merchantEmail?: string | null): string[] {
   const service = findService(name);
+
   const domains = [service?.domain, brandDomain(name), ...domainsFromEmail(merchantEmail)]
     .filter((d): d is string => Boolean(d));
 

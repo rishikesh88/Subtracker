@@ -49,5 +49,23 @@ check("a sending domain is offered", domainsFromEmail("billing@swiggy.in"), ["sw
 check("a subdomain offers its parent too", domainsFromEmail("no-reply@mail.acme.com"), ["mail.acme.com", "acme.com"]);
 check("a malformed address offers nothing", domainsFromEmail("not-an-address"), []);
 
+/*
+ * A Railway receipt is sent by Stripe. Taking the brand from the sender put
+ * Stripe's purple mark on a Railway subscription, and nothing caught it
+ * because Stripe has a perfectly good logo that loaded perfectly.
+ */
+check("a payment processor is not the brand", domainsFromEmail("invoice@stripe.com"), []);
+check("nor is PayPal", domainsFromEmail("service@paypal.com"), []);
+check("nor is an Indian gateway", domainsFromEmail("noreply@billdesk.com"), []);
+check("nor is a mail relay", domainsFromEmail("bounce@sendgrid.net"), []);
+check("a real merchant still resolves", domainsFromEmail("billing@netflix.com"), ["netflix.com"]);
+check("a processor's subdomain is dropped with it", domainsFromEmail("x@mail.stripe.com"), ["mail.stripe.com"]);
+
+/*
+ * Checked by eye against the logo service: airtel.in returns an unrelated
+ * company's mark, airtel.com returns Airtel's.
+ */
+check("Airtel uses the domain that has its logo", brandDomain("Airtel Black 1598 Plan"), "airtel.com");
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
