@@ -293,6 +293,16 @@ RECURRING DETECTION (identify ALL patterns):
 - Sender History: Multiple emails from same sender with similar amounts
 - Frequency Patterns: Weekly, monthly, quarterly, yearly billing cycles
 
+CURRENCY (strict - this is the most common source of wrong data):
+- Use the currency symbol or code printed next to the amount in THAT email.
+- "extractedCurrency" is a regex hint for the email it appears on, and only
+  that one. Never carry a currency from one email to another, even when they
+  are in the same batch or from the same merchant.
+- Never infer currency from a tax line, GST, an address, or the country of
+  billing. A US dollar invoice can carry Indian GST and still be USD.
+- If no symbol or code appears anywhere in the email, return "UNKNOWN".
+  Do not guess. The user will be asked to confirm it.
+
 For EACH subscription detected, you MUST provide:
 1. Service name and merchant
 2. Exact billing amount and currency
@@ -309,9 +319,9 @@ Confidence Levels (FLEXIBLE criteria):
 - MEDIUM: Clear amount and service name + Some recurring/renewal indicators
 - LOW: Weak evidence OR unclear amount OR one-time purchase possibility
 
-Focus on:
+Common services include:
 - Indian services (Airtel, Jio, Netflix India, Hotstar, Paytm, PhonePe, Replit)
-- International services with INR billing (Apple, Netflix, Spotify, Adobe)
+- International services (Apple, Netflix, Spotify, Adobe, Anthropic, OpenAI)
 - Hosting/domain services (GoDaddy, Namecheap, web hosting)
 - Apple ecosystem (iCloud+, Apple One, iTunes, App Store subscriptions)
 
@@ -320,6 +330,8 @@ CRITICAL EXAMPLES TO DETECT:
 ✅ "Your Apple One subscription automatically renews on Oct 5 for ₹365/month" → DETECT as Apple One
 ✅ "GoDaddy domain renewal - example.com expires in 7 days - ₹800/year" → DETECT as GoDaddy hosting
 ✅ "Your Netflix subscription has been renewed - ₹649/month" → DETECT as Netflix
+✅ "Confirm your $23.60 payment to Anthropic, PBC" → DETECT as Claude, amount 23.60, currency USD
+   (a "GST - India (18%)" line in that same invoice does NOT make it INR)
 
 IMPORTANT: Include renewal reminders AND completed transactions. Amount can appear ANYWHERE in the email - extract carefully from subject, body, or snippet.`;
 

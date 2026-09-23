@@ -62,7 +62,28 @@ export function formatDate(date: string | Date | null | undefined): string {
 }
 
 /** Currency formatting shared by the metric strip and subscription cards. */
+/**
+ * True when detection could not find a currency printed in the email.
+ *
+ * This is a real answer, not a failure. The alternative is guessing, which is
+ * how a dollar invoice was once shown as rupees. The review screen asks the
+ * user to confirm instead.
+ */
+export function isUnknownCurrency(currency: string | null | undefined): boolean {
+  return (currency ?? "").trim().toUpperCase() === "UNKNOWN";
+}
+
 export function formatCurrency(amount: number, currency: string = "INR"): string {
+  /* An unknown currency prints as a bare number. Falling through to the INR
+     default below would put a rupee sign on an amount nobody has established
+     is in rupees. */
+  if (isUnknownCurrency(currency)) {
+    return new Intl.NumberFormat("en-US", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  }
+
   const validCurrency = currency && currency.length === 3 && currency !== "unknown"
     ? currency.toUpperCase()
     : "INR";

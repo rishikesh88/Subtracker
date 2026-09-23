@@ -30,7 +30,7 @@ interface SuggestionWithEvidence extends SubscriptionSuggestion {
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { displayCategory, formatDate, formatCurrency, FREQUENCY_LABEL, FREQUENCY_SUFFIX } from "@/lib/format";
+import { displayCategory, formatDate, formatCurrency, isUnknownCurrency, FREQUENCY_LABEL, FREQUENCY_SUFFIX } from "@/lib/format";
 import { ChevronLeft, ChevronRight, Check, X, Inbox, FileText, Calendar } from "lucide-react";
 import { ServiceLogo } from "@/components/ServiceLogo";
 
@@ -422,6 +422,14 @@ export default function ReviewInbox() {
                     <span className="badge-cadence">{frequencyLabel}</span>
                     {category && <span className="badge-category">{category}</span>}
                     <span className={cn("badge-status", confidence.cls)}>{confidence.label}</span>
+                    {/* Detection found no currency printed in the email and
+                        refused to guess one. Worth a glance before approving,
+                        because the amount is right and only the unit is open. */}
+                    {isUnknownCurrency(suggestion.currency) && (
+                      <span className="badge-status status-trial" data-testid={`currency-unknown-${suggestion.id}`}>
+                        Check currency
+                      </span>
+                    )}
                     {suggestion.possibleDuplicateOf && (
                       <span
                         className="badge-status status-review"
