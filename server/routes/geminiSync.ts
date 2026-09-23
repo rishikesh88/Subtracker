@@ -10,6 +10,7 @@ import { ensureFutureBillingDate } from "../utils/billingDate";
 import { isAuthenticated } from "../auth";
 import { setSyncRunner } from "../services/syncRunner";
 import { storeInvoiceAttachment } from "../lib/invoiceAttachment";
+import { verifyCurrency } from "../lib/currencyCheck";
 
 // Helper function to get userId from normalized session structure
 function getUserId(req: any): string {
@@ -29,6 +30,33 @@ interface LLMSuggestionSession {
 const suggestionSessions = new Map<string, LLMSuggestionSession>();
 
 // Helper function to safely parse dates from Gemini responses
+/**
+ * The currency for a suggestion, checked against the emails it came from.
+ *
+ * The model is asked for the currency printed beside the amount, but it has
+ * been wrong in a way worth guarding: on a Claude Pro invoice it read
+ * "$23.60", saw an Indian GST line, and reported INR -- borrowing the
+ * currency from a different email in the same batch.
+ *
+ * Whether a body contains "$23.60" is a regex, so it is checked here rather
+ * than trusted. The email only overrides the model when it is unambiguous;
+ * see `verifyCurrency`.
+ *
+ * "UNKNOWN" is a real answer and is kept. The review screen asks the user to
+ * confirm it rather than the pipeline inventing a currency.
+ */
+function resolveCurrency(suggestion: any, evidence: any[]): string {
+  const text = evidence
+    .map((email) => [email?.subject, email?.content].filter(Boolean).join('\n'))
+    .join('\n\n');
+
+  const verdict = verifyCurrency(text, Number(suggestion.amount), suggestion.currency);
+  if (verdict.corrected) {
+    console.log(`💱 ${suggestion.serviceName}: ${verdict.reason}`);
+  }
+  return verdict.currency;
+}
+
 function parseValidDate(dateValue: any): Date | null {
   if (!dateValue) return null;
   
@@ -449,6 +477,13 @@ export function registerGeminiRoutes(app: Express) {
           .slice(0, 5);
       };
       
+      /* Matched once per suggestion, then read twice -- the currency check and
+         evidenceEmailIds below both want the same emails. */
+      const evidenceFor = (suggestion: any) => {
+        const ids = new Set(findMatchingEmails(suggestion, savedEmails));
+        return savedEmails.filter((email) => ids.has(email.gmailId));
+      };
+
       const suggestionInserts = geminiResults.subscriptions.map(suggestion => ({
         userId,
         gmailAccountId: gmailAccount.id,
@@ -456,13 +491,13 @@ export function registerGeminiRoutes(app: Express) {
         serviceKey: generateServiceKey(suggestion.serviceName, suggestion.frequency),
         merchantName: suggestion.merchantName || null,
         amount: suggestion.amount.toString(),
-        currency: suggestion.currency || 'INR',
+        currency: resolveCurrency(suggestion, evidenceFor(suggestion)),
         frequency: suggestion.frequency,
         category: suggestion.category || null,
         confidence: suggestion.confidence,
         confidenceScore: suggestion.confidence === 'high' ? '0.85' : suggestion.confidence === 'medium' ? '0.65' : '0.45',
         reasoning: suggestion.reasoning || null,
-        evidenceEmailIds: findMatchingEmails(suggestion, savedEmails),
+        evidenceEmailIds: evidenceFor(suggestion).map((email) => email.gmailId),
         occurrences: 1,
         recurrenceType: suggestion.frequency,
         recurrenceScore: suggestion.confidence === 'high' ? 90 : suggestion.confidence === 'medium' ? 70 : 50,
@@ -792,6 +827,13 @@ export function registerGeminiRoutes(app: Express) {
           .slice(0, 5);
       };
       
+      /* Matched once per suggestion, then read twice -- the currency check and
+         evidenceEmailIds below both want the same emails. */
+      const evidenceFor = (suggestion: any) => {
+        const ids = new Set(findMatchingEmails(suggestion, savedEmails));
+        return savedEmails.filter((email) => ids.has(email.gmailId));
+      };
+
       const suggestionInserts = geminiResults.subscriptions.map(suggestion => ({
         userId,
         emailProvider: 'outlook' as const,
@@ -800,13 +842,13 @@ export function registerGeminiRoutes(app: Express) {
         serviceKey: generateServiceKey(suggestion.serviceName, suggestion.frequency),
         merchantName: suggestion.merchantName || null,
         amount: suggestion.amount.toString(),
-        currency: suggestion.currency || 'INR',
+        currency: resolveCurrency(suggestion, evidenceFor(suggestion)),
         frequency: suggestion.frequency,
         category: suggestion.category || null,
         confidence: suggestion.confidence,
         confidenceScore: suggestion.confidence === 'high' ? '0.85' : suggestion.confidence === 'medium' ? '0.65' : '0.45',
         reasoning: suggestion.reasoning || null,
-        evidenceEmailIds: findMatchingEmails(suggestion, savedEmails),
+        evidenceEmailIds: evidenceFor(suggestion).map((email) => email.gmailId),
         occurrences: 1,
         recurrenceType: suggestion.frequency,
         recurrenceScore: suggestion.confidence === 'high' ? 90 : suggestion.confidence === 'medium' ? 70 : 50,
