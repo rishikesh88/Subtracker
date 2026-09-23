@@ -62,10 +62,10 @@ export default function ReviewInbox() {
   const userId = user?.id;
   const { toast } = useToast();
   const [selectedSuggestions, setSelectedSuggestions] = useState<string[]>([]);
-  /* One at a time by default. The task is sequential and binary, and the
-     list is kept as the escape hatch for anyone with forty of these who
-     would rather bulk-select than step through. */
-  const [mode, setMode] = useState<'cards' | 'list'>('cards');
+  /* The list is the default. Stepping through one card at a time is built
+     and reachable from the header, but it is a proposal rather than a
+     decision -- it ships as the default only once it has been looked at. */
+  const [mode, setMode] = useState<'cards' | 'list'>('list');
   const [currentPage, setCurrentPage] = useState(1);
 
   /* Page 3 of a ten-a-page list is not page 3 of a hundred-a-page one, so
