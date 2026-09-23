@@ -544,16 +544,11 @@ export default function SubscriptionDetail({
                 onClick={() => previewKind(invoice) !== "none" && setPreviewInvoice(invoice)}
                 role={previewKind(invoice) !== "none" ? "button" : undefined}
               >
-                {invoice.fileUrl ? (
-                  <FileText size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
-                ) : (
-                  <Mail size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
-                )}
+                <FileText size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
                 <div className="flex-1 min-w-0">
                   <p className="text-[13px] text-ink truncate">{invoice.fileName}</p>
                   <p className="text-[11.5px] text-muted-foreground mt-0.5">
                     {formatDate(invoice.uploadedAt)}
-                    {!invoice.fileUrl && " · From the email — no file attached"}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 flex-none">
