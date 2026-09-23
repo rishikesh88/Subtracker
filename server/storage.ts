@@ -1,6 +1,6 @@
 import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, type SyncJob, users, syncJobs, subscriptions, emails, screenedMessages, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
-import { eq, and, desc, asc, count, sql, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { eq, and, desc, asc, count, sql, inArray, isNotNull, isNull, ne } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { randomUUID } from "crypto";
 import { convertCurrency } from "./utils/currencyConverter";
@@ -413,6 +413,147 @@ export class DatabaseStorage implements IStorage {
       console.error('Error backfilling merchant emails:', error);
       return 0;
     }
+  }
+
+  /**
+   * File the invoices a subscription actually has, and nothing else.
+   *
+   * An invoice is a document the merchant issued. If there is no document
+   * there is no invoice -- not a row standing in for one, not a rendering of
+   * the email body, not a reminder. An archive that lists things it cannot
+   * produce is worse than an empty one, because it looks full.
+   *
+   * Two things were losing real files before this.
+   *
+   * The search was limited to a suggestion's evidence emails, of which there
+   * are at most five, chosen by whether the subject or sender contains the
+   * whole service name. "Auto Secure Private Car Package Policy" appears in
+   * no subject line, so that subscription matched nothing and its policy
+   * documents -- uploaded during the sync, sitting in object storage -- were
+   * never reachable. The search now starts from the emails that carry a
+   * stored file, which is a far smaller set, and asks which subscription each
+   * belongs to.
+   *
+   * And every evidence email without a file used to produce a row anyway.
+   * Those rows are gone.
+   */
+  private async createInvoicesFromAttachments(
+    userId: string,
+    subscription: { id: string; serviceName: string; amount: string; merchantName?: string | null },
+    evidenceEmailIds?: string[] | null,
+  ): Promise<{ created: number; skipped: number; emailsWithFiles: number }> {
+    const evidence = new Set(evidenceEmailIds ?? []);
+
+    // Only emails that actually carry something. Across a 30-day sync this is
+    // a handful of rows out of thousands, so the whole set is cheap to read.
+    const withFiles = await this.db
+      .select({
+        id: emails.id,
+        gmailId: emails.gmailId,
+        subject: emails.subject,
+        fromEmail: emails.fromEmail,
+        fromName: emails.fromName,
+        receivedAt: emails.receivedAt,
+        subscriptionId: emails.subscriptionId,
+        attachmentData: emails.attachmentData,
+        extractedAmount: emails.extractedAmount,
+      })
+      .from(emails)
+      .where(and(eq(emails.userId, userId), isNotNull(emails.attachmentData)))
+      .orderBy(desc(emails.receivedAt))
+      .limit(500);
+
+    const tokens = brandTokens(subscription.merchantName ?? null, subscription.serviceName);
+
+    /** Does this email belong to this subscription? */
+    const belongs = (email: typeof withFiles[number]): boolean => {
+      if (email.subscriptionId === subscription.id) return true;
+      if (email.gmailId && evidence.has(email.gmailId)) return true;
+      if (tokens.length === 0) return false;
+
+      // The sender's domain is the brand for a billing email, which is what
+      // reaches a merchant whose name never appears in a subject line.
+      const address = (email.fromEmail ?? '').toLowerCase();
+      const domain = address.slice(address.lastIndexOf('@') + 1).replace(/[^a-z0-9]/g, '');
+      if (domain && tokens.some((token) => domain.includes(token))) return true;
+
+      const sender = (email.fromName ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      return Boolean(sender) && tokens.some((token) => sender.includes(token));
+    };
+
+    let created = 0;
+    let skipped = 0;
+    let emailsWithFiles = 0;
+
+    for (const email of withFiles) {
+      if (!belongs(email)) continue;
+
+      let attachments: any[] = [];
+      try {
+        attachments = JSON.parse(email.attachmentData || '{}').attachments || [];
+      } catch {
+        console.error(`Could not read the attachment list on email ${email.id}`);
+        continue;
+      }
+
+      const stored = attachments.filter((a) => a?.objectStoragePath);
+      if (stored.length === 0) continue;
+      emailsWithFiles++;
+
+      /*
+       * Still checked, for the same reason it was written: a merchant that
+       * also sells one-off things attaches an invoice to every order, and a
+       * receipt for last Tuesday's takeaway filed under a membership makes
+       * the whole archive untrustworthy.
+       *
+       * Judged knowing a document is attached, which is enough on its own for
+       * a subject that reads as neither a bill nor a one-off.
+       */
+      const verdict = looksLikeBill(email, {
+        serviceName: subscription.serviceName,
+        amount: subscription.amount,
+        hasStoredDocument: true,
+      });
+      if (!verdict.isBill) {
+        console.log(`🚫 Has a file but is not a bill (${verdict.reason}): "${email.subject}"`);
+        continue;
+      }
+
+      for (const attachment of stored) {
+        const existing = await this.db
+          .select({ id: invoices.id })
+          .from(invoices)
+          .where(
+            and(
+              eq(invoices.subscriptionId, subscription.id),
+              eq(invoices.fileUrl, attachment.objectStoragePath),
+            ),
+          )
+          .limit(1);
+
+        if (existing.length > 0) {
+          skipped++;
+          continue;
+        }
+
+        // Inserted directly rather than through createInvoice, which has no
+        // uploadedAt: the archive is read by the date on the receipt, not the
+        // moment the sync happened to run.
+        await this.db.insert(invoices).values({
+          subscriptionId: subscription.id,
+          userId,
+          fileName: attachment.filename,
+          fileType: attachment.mimeType,
+          fileSize: attachment.size,
+          fileUrl: attachment.objectStoragePath,
+          source: 'gmail',
+          uploadedAt: email.receivedAt ? new Date(email.receivedAt) : new Date(),
+        });
+        created++;
+      }
+    }
+
+    return { created, skipped, emailsWithFiles };
   }
 
   async getSubscriptionSenders(userId: string): Promise<Map<string, string>> {
@@ -1339,191 +1480,16 @@ export class DatabaseStorage implements IStorage {
               )
             );
 
-          // Create invoices from attachments that were already uploaded during sync
-          console.log(`📎 Creating invoices for subscription: ${createdSubscription.serviceName}`);
-          console.log(`📧 Evidence emails: ${suggestion.evidenceEmailIds.length}`);
           try {
-            // Fetch the evidence emails. Subject and receivedAt are read too,
-            // because a receipt with nothing attached still becomes an invoice
-            // row — it just carries no file.
-            const evidenceEmails = await this.db
-              .select({
-                gmailId: emails.gmailId,
-                subject: emails.subject,
-                receivedAt: emails.receivedAt,
-                attachmentData: emails.attachmentData,
-                // Corroborates a bill when the subject alone is ambiguous.
-                extractedAmount: emails.extractedAmount
-              })
-              .from(emails)
-              .where(
-                and(
-                  inArray(emails.gmailId, suggestion.evidenceEmailIds),
-                  eq(emails.userId, userId)
-                )
-              );
-
-            console.log(`📎 Found ${evidenceEmails.length} evidence emails`);
-
-            // One pass per evidence email. An email with a stored receipt file
-            // produces an invoice pointing at that file; an email without one
-            // produces an invoice with no file rather than nothing at all.
-            let createdCount = 0;
-            let filelessCount = 0;
-            let skippedCount = 0;
-
-            let notABillCount = 0;
-
-            for (const evidenceEmail of evidenceEmails) {
-              /*
-               * Evidence is matched on the merchant's name, which for a
-               * merchant that also sells one-off things pulls in far more
-               * than the subscription: a Swiggy One membership arrives
-               * alongside every takeaway order, and each of those was
-               * becoming an invoice. Evidence for the suggestion is one
-               * thing; a bill worth filing is another.
-               */
-              const verdict = looksLikeBill(evidenceEmail, {
-                serviceName: createdSubscription.serviceName,
-                amount: createdSubscription.amount,
-              });
-              if (!verdict.isBill) {
-                console.log(`🚫 Not an invoice (${verdict.reason}): "${evidenceEmail.subject}"`);
-                notABillCount++;
-                continue;
-              }
-
-              // Set by the attachment loop below. If it is still false when the
-              // email is done, the receipt was in the email body rather than a
-              // file, and gets a fileless invoice row instead.
-              let emailProducedAnInvoice = false;
-
-              try {
-                const attachmentDataParsed = JSON.parse(evidenceEmail.attachmentData || '{}');
-                const attachmentsList = attachmentDataParsed.attachments || [];
-
-                for (const attachment of attachmentsList) {
-                  // Only process attachments that were successfully uploaded during sync
-                  if (!attachment.objectStoragePath) {
-                    console.log(`⏭️  Skipping attachment without object storage path: ${attachment.filename}`);
-                    continue;
-                  }
-
-                  // Check for existing invoices to prevent duplicates
-                  const existingInvoice = await this.db
-                    .select()
-                    .from(invoices)
-                    .where(
-                      and(
-                        eq(invoices.subscriptionId, createdSubscription.id),
-                        eq(invoices.fileUrl, attachment.objectStoragePath)
-                      )
-                    )
-                    .limit(1);
-
-                  if (existingInvoice.length > 0) {
-                    // Still counts as this email having produced an invoice, or
-                    // re-approving would add a fileless row beside the file one.
-                    emailProducedAnInvoice = true;
-                    skippedCount++;
-                    continue;
-                  }
-
-                  // Create invoice record using the already-uploaded file
-                  await this.createInvoice({
-                    subscriptionId: createdSubscription.id,
-                    userId: userId,
-                    fileName: attachment.filename,
-                    fileType: attachment.mimeType,
-                    fileSize: attachment.size,
-                    fileUrl: attachment.objectStoragePath,
-                    source: 'gmail'
-                  });
-                  createdCount++;
-                  emailProducedAnInvoice = true;
-                  console.log(`✅ Created invoice from synced attachment: ${attachment.filename}`);
-                }
-              } catch (parseError) {
-                console.error('Error parsing attachment data:', parseError);
-              }
-
-              if (emailProducedAnInvoice) continue;
-
-              // Nothing was stored for this email, either because it had no
-              // attachment at all or because none of them was a receipt file.
-              // Most services send the receipt as the email body, so this is the
-              // common case, not the exception.
-              //
-              // The row is recorded with NO FILE: fileUrl stays empty and no
-              // document is generated from the email. Inventing a PDF would put
-              // a file in the archive that the merchant never issued, which is
-              // worse than an honest blank.
-              //
-              // fileUrl is NOT NULL in the schema, so an empty string is the
-              // "no file" marker. Every deletion path already skips falsy
-              // fileUrl values, so nothing tries to remove a file that is not
-              // there.
-              try {
-                const receiptDate = evidenceEmail.receivedAt
-                  ? new Date(evidenceEmail.receivedAt)
-                  : new Date();
-
-                // uploadedAt carries the date of the receipt itself rather than
-                // the moment the sync ran, because that is the date the archive
-                // shows and the only one the user cares about.
-                const alreadyRecorded = await this.db
-                  .select({ id: invoices.id })
-                  .from(invoices)
-                  .where(
-                    and(
-                      eq(invoices.subscriptionId, createdSubscription.id),
-                      eq(invoices.fileUrl, ''),
-                      eq(invoices.uploadedAt, receiptDate)
-                    )
-                  )
-                  .limit(1);
-
-                if (alreadyRecorded.length > 0) {
-                  skippedCount++;
-                  continue;
-                }
-
-                const subject = (evidenceEmail.subject || '').trim();
-                const fileName = subject
-                  ? (subject.length > 120 ? `${subject.slice(0, 117)}…` : subject)
-                  : `${createdSubscription.serviceName} receipt`;
-
-                await this.db.insert(invoices).values({
-                  subscriptionId: createdSubscription.id,
-                  userId,
-                  fileName,
-                  fileType: 'email',
-                  fileSize: 0,
-                  fileUrl: '',
-                  source: 'gmail',
-                  uploadedAt: receiptDate
-                });
-
-                filelessCount++;
-                console.log(`✅ Recorded receipt with no attached file: ${fileName}`);
-              } catch (filelessError) {
-                console.error('Error recording a receipt with no file:', filelessError);
-              }
-            }
-
-            if (createdCount > 0) {
-              console.log(`✅ Created ${createdCount} invoice(s) with a file for subscription: ${createdSubscription.serviceName}`);
-            }
-            if (filelessCount > 0) {
-              console.log(`✅ Recorded ${filelessCount} receipt(s) with no attached file for subscription: ${createdSubscription.serviceName}`);
-            }
-            if (skippedCount > 0) {
-              console.log(`⏭️  Skipped ${skippedCount} duplicate invoice(s)`);
-            }
-            if (createdCount === 0 && filelessCount === 0 && skippedCount === 0) {
-              // Says why, so an empty result is not read as a failure.
-              console.log(`ℹ️  No invoices for ${createdSubscription.serviceName}: of its ${evidenceEmails.length} evidence email(s), ${notABillCount} did not look like a bill`);
-            }
+            const made = await this.createInvoicesFromAttachments(
+              userId,
+              createdSubscription,
+              suggestion.evidenceEmailIds,
+            );
+            console.log(
+              `📎 ${createdSubscription.serviceName}: ${made.created} invoice(s) filed, ` +
+              `${made.skipped} already present, from ${made.emailsWithFiles} email(s) carrying a file`
+            );
           } catch (invoiceError) {
             // Don't fail the entire approval if invoice creation fails
             console.error('⚠️  Error creating invoices (non-fatal):', invoiceError);
@@ -1683,10 +1649,20 @@ export class DatabaseStorage implements IStorage {
   // Invoice methods
   async getInvoices(subscriptionId: string): Promise<Invoice[]> {
     try {
+      /*
+       * Only rows with a file behind them.
+       *
+       * An earlier version recorded a row for every receipt email, with no
+       * document attached, so that a subscription whose merchant sends
+       * receipts in the body did not come back empty. That was the wrong
+       * trade: an archive that lists things it cannot produce looks full and
+       * is not. Those rows are filtered here rather than deleted, so nothing
+       * of anyone's is destroyed by a deploy -- they simply stop showing.
+       */
       const result = await this.db
         .select()
         .from(invoices)
-        .where(eq(invoices.subscriptionId, subscriptionId))
+        .where(and(eq(invoices.subscriptionId, subscriptionId), ne(invoices.fileUrl, '')))
         .orderBy(desc(invoices.uploadedAt));
       return result;
     } catch (error) {

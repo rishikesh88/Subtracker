@@ -37,6 +37,7 @@ import { displayCategory, formatDate, formatCurrency, isUnknownCurrency, FREQUEN
 import { ChevronLeft, ChevronRight, Check, X, Inbox, FileText, Calendar } from "lucide-react";
 import { ServiceLogo } from "@/components/ServiceLogo";
 import { ReviewCarousel, type ReviewCard } from "@/components/ReviewCarousel";
+import { useMoney } from "@/hooks/useMoney";
 import { LayoutList, Layers } from "lucide-react";
 
 /**
@@ -61,11 +62,12 @@ export default function ReviewInbox() {
   const { user } = useAuth();
   const userId = user?.id;
   const { toast } = useToast();
+  const { display } = useMoney();
   const [selectedSuggestions, setSelectedSuggestions] = useState<string[]>([]);
-  /* One at a time by default. The task is sequential and binary, and the
-     list is kept as the escape hatch for anyone with forty of these who
-     would rather bulk-select than step through. */
-  const [mode, setMode] = useState<'cards' | 'list'>('cards');
+  /* The list is the default. Stepping through one card at a time is built
+     and reachable from the header, but it is a proposal rather than a
+     decision -- it ships as the default only once it has been looked at. */
+  const [mode, setMode] = useState<'cards' | 'list'>('list');
   const [currentPage, setCurrentPage] = useState(1);
 
   /* Page 3 of a ten-a-page list is not page 3 of a hundred-a-page one, so
@@ -472,7 +474,6 @@ export default function ReviewInbox() {
         ) : mode === 'cards' ? (
           <ReviewCarousel
             cards={reviewCards}
-            userCurrency={user?.preferredCurrency || 'INR'}
             confidenceMeta={confidenceMeta}
             onSave={handleCarouselSave}
             isSaving={approveMutation.isPending || rejectMutation.isPending}
@@ -488,6 +489,7 @@ export default function ReviewInbox() {
               const confidence = confidenceMeta(suggestion.confidence);
               const frequencyLabel = FREQUENCY_LABEL[suggestion.frequency] ?? suggestion.frequency;
               const frequencySuffix = FREQUENCY_SUFFIX[suggestion.frequency] ?? "";
+              const money = display(suggestion.amount, suggestion.currency);
               const reasoningText = suggestion.reasoning
                 || `This appears to be a ${suggestion.frequency} subscription to ${suggestion.serviceName} based on the email patterns detected.`;
               const evidenceLine = suggestion.emailEvidence && suggestion.emailEvidence.length > 0
@@ -516,9 +518,14 @@ export default function ReviewInbox() {
                     />
                     <ServiceLogo name={suggestion.serviceName} merchantEmail={merchantEmailOf(suggestion)} size={34} />
                     <span className="t-card-title flex-1 min-w-0 truncate">{suggestion.serviceName}</span>
-                    <span className="t-price flex-none">
-                      {formatCurrency(parseFloat(suggestion.amount) || 0, suggestion.currency)}
+                    <span className="t-price flex-none text-right">
+                      {money.primary}
                       <span className="text-[11.5px] font-medium text-muted-foreground">{frequencySuffix}</span>
+                      {money.secondary && (
+                        <span className="block text-[10.5px] font-medium text-muted-foreground tabular-nums">
+                          billed {money.secondary}
+                        </span>
+                      )}
                     </span>
                   </div>
 

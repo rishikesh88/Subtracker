@@ -21,6 +21,7 @@ import { ObjectUploader } from "@/components/ObjectUploader";
 import { InvoicePreview, previewKind, downloadUrl } from "@/components/InvoicePreview";
 import { cn } from "@/lib/utils";
 import { displayCategory, statusBadge, formatDate, formatCurrency, FREQUENCY_LABEL } from "@/lib/format";
+import { useMoney } from "@/hooks/useMoney";
 import { ServiceLogo } from "@/components/ServiceLogo";
 
 /**
@@ -42,6 +43,7 @@ export default function SubscriptionDetail({
   const [, params] = useRoute("/subscriptions/:id");
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { display } = useMoney();
   const [isEditMode, setIsEditMode] = useState(false);
   const [formData, setFormData] = useState<Partial<Subscription>>({});
   /* Held apart from formData because <input type="date"> speaks YYYY-MM-DD
@@ -271,6 +273,8 @@ export default function SubscriptionDetail({
 
   const amount = parseFloat(subscription.amount) || 0;
   const monthlyEquivalent = monthlyEquivalentAmount(amount, subscription.frequency);
+  const money = display(amount, subscription.currency);
+  const monthlyMoney = monthlyEquivalent === null ? null : display(monthlyEquivalent, subscription.currency);
   const nextBillingDate = parseValidDate(subscription.nextBillingDate);
   const billingCycle = billingCycleLabel(subscription.frequency, frequencyLabel, nextBillingDate);
   const startedDate = earliestKnownDate(subscription, invoices);
@@ -319,10 +323,17 @@ export default function SubscriptionDetail({
         </div>
         <div className="flex-1 min-w-[140px] border-l border-line-soft" style={{ padding: "13px 16px" }}>
           <div className="t-label">Amount</div>
-          <div className="t-price mt-1">{formatCurrency(amount, subscription.currency)}</div>
-          {monthlyEquivalent !== null && (
+          <div className="t-price mt-1">{money.primary}</div>
+          {/* The charge as the merchant issued it, when that is a different
+              currency from the one this account is read in. */}
+          {money.secondary && (
+            <div className="text-[11px] text-muted-foreground mt-0.5 tabular-nums">
+              billed {money.secondary}
+            </div>
+          )}
+          {monthlyMoney && (
             <div className="text-[11px] text-muted-foreground mt-0.5">
-              {formatCurrency(monthlyEquivalent, subscription.currency)} / month equivalent
+              {monthlyMoney.primary} / month equivalent
             </div>
           )}
         </div>
@@ -533,16 +544,11 @@ export default function SubscriptionDetail({
                 onClick={() => previewKind(invoice) !== "none" && setPreviewInvoice(invoice)}
                 role={previewKind(invoice) !== "none" ? "button" : undefined}
               >
-                {invoice.fileUrl ? (
-                  <FileText size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
-                ) : (
-                  <Mail size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
-                )}
+                <FileText size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
                 <div className="flex-1 min-w-0">
                   <p className="text-[13px] text-ink truncate">{invoice.fileName}</p>
                   <p className="text-[11.5px] text-muted-foreground mt-0.5">
                     {formatDate(invoice.uploadedAt)}
-                    {!invoice.fileUrl && " · From the email — no file attached"}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 flex-none">

@@ -70,5 +70,34 @@ check("no subscription facts at all still works", bill("Your invoice is ready"))
 check("case is ignored", bill("YOUR INVOICE IS READY"));
 check("a zero subscription amount never matches", !bill("A note", { amount: "0" }, 0));
 
+
+/*
+ * An attached document is evidence in its own right.
+ *
+ * An insurance policy arrives with its PDF and a subject that is just the
+ * policy's name -- no "invoice", no "payment", no amount in the subject. That
+ * was being dropped while the document sat in object storage, which is the
+ * bug this answers.
+ */
+const policy = { serviceName: "Auto Secure Private Car Package Policy", amount: "15035" };
+
+check("a bare subject with a document attached is kept",
+  looksLikeBill({ subject: "Tata AIG - your documents" }, { ...policy, hasStoredDocument: true }).isBill);
+check("the same subject with no document is still dropped",
+  !looksLikeBill({ subject: "Tata AIG - your documents" }, policy).isBill);
+
+/* The one-off guard is not weakened by a document. Food delivery and
+   ticketing attach an invoice to every single order. */
+check("a food order with an invoice attached is still dropped",
+  !looksLikeBill({ subject: "Your Swiggy order invoice" },
+    { serviceName: "Swiggy One", amount: "99", hasStoredDocument: true }).isBill);
+check("a booking confirmation with a document is still dropped",
+  !looksLikeBill({ subject: "Your booking is confirmed" },
+    { serviceName: "Some Membership", amount: "500", hasStoredDocument: true }).isBill);
+
+/* Billing language still wins on its own, document or not. */
+check("billing language alone is still enough",
+  looksLikeBill({ subject: "Your invoice is ready" }, policy).isBill);
+
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

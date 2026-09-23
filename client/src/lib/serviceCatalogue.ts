@@ -158,6 +158,16 @@ const BRAND_DOMAINS: Readonly<Record<string, string>> = Object.freeze({
   "linkedin premium": "linkedin.com",
   "x premium": "x.com",
   "twitter blue": "x.com",
+  /* Indian telecoms, which bill monthly and show up in every inbox here.
+     Airtel resolved to a letter tile because its receipts come from
+     ebill@airtel.com and the mark lives on the .in domain. */
+  "airtel": "airtel.in",
+  "airtel black": "airtel.in",
+  "jio": "jio.com",
+  "vi": "myvi.in",
+  "vodafone idea": "myvi.in",
+  "tata play": "tataplay.com",
+  "tata aig": "tataaig.com",
 });
 
 const BRANDS_BY_LENGTH = Object.keys(BRAND_DOMAINS).sort((a, b) => b.length - a.length);

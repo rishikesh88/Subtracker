@@ -5,13 +5,11 @@ import { Check, X, ChevronLeft, ChevronRight, ChevronDown, RotateCcw } from "luc
 
 import { Button } from "@/components/ui/button";
 import { ServiceLogo } from "@/components/ServiceLogo";
-import { useExchangeRates } from "@/hooks/useExchangeRates";
+import { useMoney } from "@/hooks/useMoney";
 import { cn } from "@/lib/utils";
 import {
   displayCategory,
   formatDate,
-  formatCurrency,
-  isUnknownCurrency,
   FREQUENCY_LABEL,
   FREQUENCY_SUFFIX,
 } from "@/lib/format";
@@ -35,8 +33,6 @@ export interface ReviewCard {
 
 interface ReviewCarouselProps {
   cards: ReviewCard[];
-  /** The currency this person picked, which is what every amount leads with. */
-  userCurrency: string;
   confidenceMeta: (confidence: string) => { label: string; cls: string };
   /** Called once, with everything decided, when they choose to save. */
   onSave: (keep: string[], skip: string[]) => void;
@@ -61,7 +57,6 @@ interface ReviewCarouselProps {
  */
 export function ReviewCarousel({
   cards,
-  userCurrency,
   confidenceMeta,
   onSave,
   isSaving,
@@ -72,7 +67,7 @@ export function ReviewCarousel({
   const [decisions, setDecisions] = useState<Record<string, Decision>>({});
   const [showReasoning, setShowReasoning] = useState(false);
   const reduceMotion = useReducedMotion();
-  const { convert } = useExchangeRates();
+  const { display } = useMoney();
 
   useEffect(() => {
     if (!embla) return;
@@ -181,12 +176,8 @@ export function ReviewCarousel({
             const category = displayCategory(card.category);
             const frequencyLabel = FREQUENCY_LABEL[card.frequency] ?? card.frequency;
             const frequencySuffix = FREQUENCY_SUFFIX[card.frequency] ?? "";
-            const billed = parseFloat(card.amount) || 0;
-            const unknownCurrency = isUnknownCurrency(card.currency);
-            const converted = unknownCurrency ? null : convert(billed, card.currency, userCurrency);
-            // Only worth showing twice when the two differ. A dollar
-            // subscription for someone who bills in dollars is one number.
-            const showOriginal = converted !== null && card.currency.toUpperCase() !== userCurrency.toUpperCase();
+            const money = display(card.amount, card.currency);
+            const unknownCurrency = money.unknownCurrency;
             const isCurrent = cards[index]?.id === card.id;
 
             return (
@@ -236,14 +227,12 @@ export function ReviewCarousel({
                       actually billed underneath it. */}
                   <div>
                     <p className="t-price text-[26px] leading-none tabular-nums">
-                      {converted !== null
-                        ? formatCurrency(converted, userCurrency)
-                        : formatCurrency(billed, card.currency)}
+                      {money.primary}
                       <span className="text-[13px] font-medium text-muted-foreground">{frequencySuffix}</span>
                     </p>
-                    {showOriginal && (
+                    {money.secondary && (
                       <p className="mt-1 text-[11.5px] text-muted-foreground tabular-nums">
-                        billed {formatCurrency(billed, card.currency)}
+                        billed {money.secondary}
                       </p>
                     )}
                     {unknownCurrency && (

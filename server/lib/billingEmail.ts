@@ -52,6 +52,20 @@ export interface SubscriptionFacts {
   serviceName?: string | null;
   /** The subscription's own amount, used as a corroborating signal. */
   amount?: string | number | null;
+  /**
+   * This email carries a document the merchant actually attached.
+   *
+   * That is strong evidence on its own. A merchant that attaches a PDF to a
+   * mail from its billing address has issued something, and demanding the
+   * subject ALSO say "invoice" threw away real documents -- an insurance
+   * policy whose subject is just the policy name was being dropped while its
+   * PDF sat in storage.
+   *
+   * It does not override the one-off check. Food delivery and ticketing
+   * attach invoices to every order, and those are exactly what must not be
+   * filed under a subscription.
+   */
+  hasStoredDocument?: boolean;
 }
 
 function has(haystack: string, terms: string[]): string | null {
@@ -112,6 +126,12 @@ export function looksLikeBill(
 
   if (amountMatches(email, subscription)) {
     return { isBill: true, reason: "amount matches the subscription" };
+  }
+
+  // Nothing in the subject says "bill", but the merchant attached a document
+  // and the subject did not read as a one-off. The document is the evidence.
+  if (subscription.hasStoredDocument) {
+    return { isBill: true, reason: "carries a document the merchant attached" };
   }
 
   return { isBill: false, reason: "no billing language, name or amount" };
