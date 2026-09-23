@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { COUNTRIES, currencyForCountry } from "@/lib/currencies";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -9,31 +10,6 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { Building2, User, MapPin } from "lucide-react";
 
-const COUNTRY_CURRENCY_MAP: Record<string, string> = {
-  US: "USD",
-  GB: "GBP",
-  EU: "EUR",
-  IN: "INR",
-  CA: "CAD",
-  AU: "AUD",
-  JP: "JPY",
-  CN: "CNY",
-  SG: "SGD",
-  AE: "AED",
-};
-
-const COUNTRIES = [
-  { code: "US", name: "United States" },
-  { code: "GB", name: "United Kingdom" },
-  { code: "EU", name: "European Union" },
-  { code: "IN", name: "India" },
-  { code: "CA", name: "Canada" },
-  { code: "AU", name: "Australia" },
-  { code: "JP", name: "Japan" },
-  { code: "CN", name: "China" },
-  { code: "SG", name: "Singapore" },
-  { code: "AE", name: "United Arab Emirates" },
-];
 
 const orgSetupSchema = z.object({
   organizationName: z.string().min(1, "Organization name is required"),
@@ -63,7 +39,7 @@ export default function OrgSetup() {
       console.log('[Event: org_setup_submitted]', { organizationName: data.organizationName, countryCode: data.countryCode });
 
       // Map country to currency
-      const preferredCurrency = COUNTRY_CURRENCY_MAP[data.countryCode] || "USD";
+      const preferredCurrency = currencyForCountry(data.countryCode);
 
       // Save organization data
       await apiRequest("POST", "/api/onboarding/org-setup", {
@@ -157,7 +133,7 @@ export default function OrgSetup() {
                         data-testid={`option-country-${country.code}`}
                         className="rounded-[6px] text-[13px] focus:bg-line-soft focus:text-ink"
                       >
-                        {country.name} ({COUNTRY_CURRENCY_MAP[country.code]})
+                        {country.name} ({country.currency})
                       </SelectItem>
                     ))}
                   </SelectContent>

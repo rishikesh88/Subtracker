@@ -69,6 +69,10 @@ function amountsMatch(
 
   try {
     const rightInLeft = convertCurrency(right, b.currency || 'INR', a.currency || 'INR');
+    // No rate between these two, so the amounts cannot be compared. Not a
+    // match rather than a guess: amount is only ever a supporting signal
+    // here, and a wrong one would merge two genuinely separate subscriptions.
+    if (rightInLeft === null) return false;
     const larger = Math.max(left, rightInLeft);
     return Math.abs(left - rightInLeft) <= larger * AMOUNT_TOLERANCE;
   } catch {

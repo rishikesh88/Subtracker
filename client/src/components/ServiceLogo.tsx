@@ -20,6 +20,21 @@ import { findService, brandDomain, domainsFromEmail } from "@/lib/serviceCatalog
  */
 const BRANDFETCH_CLIENT_ID = import.meta.env.VITE_BRANDFETCH_CLIENT_ID as string | undefined;
 
+/**
+ * The one place a logo URL is built.
+ *
+ * `fallback=404` was tried here and removed. The hope was that a domain with
+ * no logo would answer with an error so our own letter tile could show. It
+ * changes nothing: the service returns an image for every domain either way.
+ *
+ * More to the point, it could never have helped. The wrong logos were not
+ * invented monograms -- they were real marks belonging to real companies,
+ * returned for a domain we should not have asked about. airtel.in answers
+ * with another firm's mark, and a Railway receipt sent by Stripe answers
+ * with Stripe's. Nothing in the response can distinguish those from a
+ * correct answer, so the only defence is being careful which domain is
+ * asked about in the first place, which is what candidateUrls now does.
+ */
 function logoUrl(domain: string): string | null {
   if (!BRANDFETCH_CLIENT_ID) return null;
   return `https://cdn.brandfetch.io/${domain}?c=${BRANDFETCH_CLIENT_ID}`;
@@ -39,6 +54,7 @@ function logoUrl(domain: string): string | null {
  */
 function candidateUrls(name: string | null | undefined, merchantEmail?: string | null): string[] {
   const service = findService(name);
+
   const domains = [service?.domain, brandDomain(name), ...domainsFromEmail(merchantEmail)]
     .filter((d): d is string => Boolean(d));
 

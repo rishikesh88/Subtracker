@@ -4,8 +4,7 @@
  * Every amount is stored in the currency it was billed in -- that is the fact
  * on the receipt and it never changes. Conversion happens when a total is
  * read, not when a subscription is found, because "what this costs me" is a
- * question about today's rate. Stamping a rate on at sync time would freeze a
- * dollar subscription at whatever the rate was the week we first saw it.
+ * question about today's rate.
  *
  * Nothing here is allowed to fail a sync. A rate service having a bad minute
  * is a far smaller problem than an inbox scan that does not finish, so every
@@ -14,14 +13,24 @@
 import { log } from "../vite";
 
 /**
+ * Every currency onboarding offers. This list and the country picker have to
+ * agree: a currency someone can choose but that has no rate is worse than one
+ * that is not offered, because the totals still render and are simply wrong.
+ */
+export const SUPPORTED_CURRENCIES = [
+  "INR", "USD", "EUR", "GBP", "AED", "CAD", "AUD", "JPY", "CNY", "SGD",
+] as const;
+
+const WANTED = SUPPORTED_CURRENCIES.filter((c) => c !== "INR");
+
+/**
  * Units of INR for one unit of the currency. INR is the pivot only because it
- * is what the converter already used; nothing depends on it being the user's
- * currency.
+ * is what the converter already used.
  *
- * These are the last resort, behind the live fetch and behind the last good
- * fetch of this process. They were accurate in late 2023 and are now several
- * percent out, which is why using them logs a warning rather than passing
- * quietly.
+ * The last resort, behind the live fetch and the last good fetch of this
+ * process. Only the four this app shipped with are here; a currency missing
+ * from this table simply cannot be converted until a fetch lands, which is
+ * the honest answer rather than a made-up number.
  */
 const BASELINE_TO_INR: Readonly<Record<string, number>> = Object.freeze({
   INR: 1.0,
@@ -29,9 +38,6 @@ const BASELINE_TO_INR: Readonly<Record<string, number>> = Object.freeze({
   EUR: 90.0,
   GBP: 105.0,
 });
-
-/** The currencies a person can pick, so the ones worth asking for. */
-const WANTED = ["USD", "EUR", "GBP"] as const;
 
 const TWELVE_HOURS = 12 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 8000;
@@ -42,10 +48,13 @@ let inFlight: Promise<void> | null = null;
 let warnedAboutBaseline = false;
 
 /**
- * European Central Bank reference rates, republished free and without a key.
- * One call returns every currency we offer.
+ * open.er-api.com, free and without a key, covering about 160 currencies.
+ *
+ * The European Central Bank was the first choice and had to be dropped: it
+ * does not publish a dirham, so an account set to AED could never be
+ * converted, which is exactly the bug this endpoint exists to fix.
  */
-const ENDPOINT = `https://api.frankfurter.app/latest?base=INR&symbols=${WANTED.join(",")}`;
+const ENDPOINT = "https://open.er-api.com/v6/latest/INR";
 
 /**
  * Turn a response body into a rate table, or return null.
@@ -54,26 +63,42 @@ const ENDPOINT = `https://api.frankfurter.app/latest?base=INR&symbols=${WANTED.j
  * accepting a malformed body is silently wrong money on every screen, so
  * anything unexpected is treated as a failed fetch and the old table stands.
  */
-function parseRates(body: unknown): Record<string, number> | null {
+export function parseRates(body: unknown): Record<string, number> | null {
   if (!body || typeof body !== "object") return null;
-  const payload = body as { base?: unknown; rates?: unknown };
+  const payload = body as { result?: unknown; base_code?: unknown; rates?: unknown };
 
-  // base=INR means `rates` holds how much of each currency one rupee buys.
-  if (payload.base !== "INR") return null;
+  if (payload.result !== undefined && payload.result !== "success") return null;
+  if (payload.base_code !== "INR") return null;
   if (!payload.rates || typeof payload.rates !== "object") return null;
 
   const perRupee = payload.rates as Record<string, unknown>;
-  const next: Record<string, number> = { INR: 1.0 };
 
+  /*
+   * One anchor, checked before anything else: a rupee buys a small fraction
+   * of a dollar. If USD comes back near or above 1 the table is inverted, and
+   * inverting it again would price a dollar at about a paisa and make every
+   * total on every screen collapse.
+   *
+   * It cannot be a blanket "every rate is below 1" check, because a rupee
+   * buys roughly 1.8 yen. Only the dollar is a safe anchor.
+   */
+  const usd = perRupee.USD;
+  if (typeof usd !== "number" || !Number.isFinite(usd) || usd <= 0.0001 || usd >= 0.5) {
+    return null;
+  }
+
+  const next: Record<string, number> = { INR: 1.0 };
   for (const code of WANTED) {
     const value = perRupee[code];
-    // A rupee is worth a fraction of any of these, so anything at or above 1
-    // means we have misread the direction and must not use it.
-    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value >= 1) {
-      return null;
-    }
+    // A currency the service does not carry is left out rather than guessed.
+    // Missing is a state the converter handles; wrong is not.
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) continue;
     next[code] = 1 / value;
   }
+
+  // A table that lost most of what was asked for is a bad response, not a
+  // partial one.
+  if (Object.keys(next).length < WANTED.length / 2) return null;
 
   return next;
 }
@@ -98,7 +123,13 @@ async function fetchRates(): Promise<void> {
     rates = parsed;
     fetchedAt = Date.now();
     warnedAboutBaseline = false;
-    log(`[rates] refreshed: ${WANTED.map((c) => `${c} ${parsed[c].toFixed(2)}`).join(", ")} INR`);
+
+    const missing = WANTED.filter((c) => !parsed[c]);
+    log(
+      `[rates] refreshed: ${Object.keys(parsed).length} currencies, ` +
+      `USD ${parsed.USD?.toFixed(2)} AED ${parsed.AED?.toFixed(2)} INR` +
+      (missing.length ? ` — not carried: ${missing.join(", ")}` : "")
+    );
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     log(`[rates] refresh failed (${reason}), keeping existing rates`);
@@ -123,11 +154,11 @@ export function refreshRates(): Promise<void> {
   return inFlight;
 }
 
-/** The current table. Always usable, never empty. */
+/** The current table. Always usable, never empty, but not always complete. */
 export function ratesToInr(): Record<string, number> {
   if (fetchedAt === null && !warnedAboutBaseline) {
     warnedAboutBaseline = true;
-    log("[rates] no live rates yet, converting with the 2023 baseline");
+    log("[rates] no live rates yet, only INR/USD/EUR/GBP can be converted");
   }
   return rates;
 }

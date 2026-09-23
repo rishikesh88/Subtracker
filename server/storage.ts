@@ -79,6 +79,9 @@ export interface IStorage {
     avgPerService: number;
     newThisMonth: number;
     changePercent: number;
+    /* Currency codes held by active subscriptions that no rate could reach,
+       so they are missing from totalMonthly. Empty in the normal case. */
+    unconvertedCurrencies: string[];
   }>;
   
   // Invoice methods
@@ -1557,6 +1560,7 @@ export class DatabaseStorage implements IStorage {
     avgPerService: number;
     newThisMonth: number;
     changePercent: number;
+    unconvertedCurrencies: string[];
   }> {
     try {
       const [userSubscriptions, emailCount] = await Promise.all([
@@ -1573,6 +1577,10 @@ export class DatabaseStorage implements IStorage {
         sub.detectedAt && new Date(sub.detectedAt) >= thirtyDaysAgo
       ).length;
       
+      /* Currencies that could not be converted into the one this account is
+         read in, so the caller can say the total is missing something. */
+      const unconvertible = new Set<string>();
+
       // Calculate current month's total
       const totalMonthly = activeSubscriptions.reduce((sum, sub) => {
         const amountNum = Number(sub.amount);
@@ -1583,9 +1591,18 @@ export class DatabaseStorage implements IStorage {
           return sum;
         }
         
-        // Convert to preferred currency first
+        /*
+         * No rate between this subscription's currency and the one the
+         * account is read in. It is left out of the total and counted, so
+         * the dashboard can say the total is short rather than presenting an
+         * incomplete figure as a complete one.
+         */
         const convertedAmount = convertCurrency(amountNum, sub.currency, preferredCurrency);
-        
+        if (convertedAmount === null) {
+          unconvertible.add(sub.currency || 'UNKNOWN');
+          return sum;
+        }
+
         switch (sub.frequency) {
           case 'yearly':
             return sum + (convertedAmount / 12); // Convert yearly to monthly
@@ -1609,7 +1626,8 @@ export class DatabaseStorage implements IStorage {
         if (!Number.isFinite(amountNum) || amountNum <= 0) return sum;
         
         const convertedAmount = convertCurrency(amountNum, sub.currency, preferredCurrency);
-        
+        if (convertedAmount === null) return sum;
+
         switch (sub.frequency) {
           case 'yearly':
             return sum + (convertedAmount / 12);
@@ -1638,7 +1656,8 @@ export class DatabaseStorage implements IStorage {
         emailsAnalyzed,
         avgPerService: Math.round(avgPerService * 100) / 100,
         newThisMonth,
-        changePercent
+        changePercent,
+        unconvertedCurrencies: Array.from(unconvertible),
       };
     } catch (error) {
       console.error('Error getting subscription stats:', error);

@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { CURRENCIES } from "@/lib/currencies";
 import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import {
@@ -33,12 +34,6 @@ import { SubscriptionCard } from "@/components/SubscriptionCard";
 import { type Subscription } from "@shared/schema";
 
 // Supported currencies
-const supportedCurrencies = [
-  { code: 'INR', name: 'Indian Rupee', symbol: '₹' },
-  { code: 'USD', name: 'US Dollar', symbol: '$' },
-  { code: 'EUR', name: 'Euro', symbol: '€' },
-  { code: 'GBP', name: 'British Pound', symbol: '£' }
-];
 
 // "synced 2 hours ago" -- purely a display formatter for the sync
 // timestamp the page already has (user.lastSync).
@@ -252,7 +247,7 @@ export default function Dashboard() {
       return response.json();
     },
     onSuccess: (data) => {
-      const currency = supportedCurrencies.find(c => c.code === data.preferredCurrency);
+      const currency = CURRENCIES.find(c => c.code === data.preferredCurrency);
       toast({
         title: "Currency Updated",
         description: `Your preferred currency is now ${currency?.symbol || ''}${data.preferredCurrency}`,
@@ -595,7 +590,7 @@ export default function Dashboard() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent data-testid="currency-dropdown">
-                    {supportedCurrencies.map((currency) => (
+                    {CURRENCIES.map((currency) => (
                       <SelectItem
                         key={currency.code}
                         value={currency.code}

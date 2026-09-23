@@ -161,8 +161,11 @@ const BRAND_DOMAINS: Readonly<Record<string, string>> = Object.freeze({
   /* Indian telecoms, which bill monthly and show up in every inbox here.
      Airtel resolved to a letter tile because its receipts come from
      ebill@airtel.com and the mark lives on the .in domain. */
-  "airtel": "airtel.in",
-  "airtel black": "airtel.in",
+  /* airtel.com, not airtel.in. Checked against the logo service: the .in
+     domain comes back with an unrelated company's mark, which is how an
+     Airtel bill ended up wearing a stranger's logo. */
+  "airtel": "airtel.com",
+  "airtel black": "airtel.com",
   "jio": "jio.com",
   "vi": "myvi.in",
   "vodafone idea": "myvi.in",
@@ -192,12 +195,39 @@ export function brandDomain(name: string | null | undefined): string | undefined
 }
 
 /**
+ * Companies that send other companies' mail.
+ *
+ * A Railway receipt is sent by Stripe, so taking the brand from the sender
+ * put Stripe's purple mark on a Railway subscription. These firms all have
+ * real logos, so nothing detects the mistake -- the wrong logo loads
+ * perfectly. They are billing processors, invoicing tools and mail relays:
+ * seeing one in a From address tells you who took the payment, never who was
+ * paid.
+ */
+const NOT_THE_BRAND = new Set([
+  // Payments and billing
+  "stripe.com", "paypal.com", "razorpay.com", "payu.in", "billdesk.com",
+  "ccavenue.com", "braintreepayments.com", "paddle.com", "chargebee.com",
+  "recurly.com", "fastspring.com", "2checkout.com", "squareup.com",
+  "gocardless.com", "adyen.com", "worldpay.com", "instamojo.com",
+  "cashfree.com", "phonepe.com", "paytm.com",
+  // Mail relays and marketing senders
+  "sendgrid.net", "mailgun.org", "mailchimp.com", "amazonses.com",
+  "sparkpostmail.com", "postmarkapp.com", "mandrillapp.com",
+  "customeriomail.com", "intercom-mail.com", "sendinblue.com",
+  // Accounting and invoicing
+  "zohomail.com", "invoicely.com", "freshbooks.com", "waveapps.com",
+]);
+
+/**
  * The brand's domain, taken from the address the receipt came from.
  *
- * This is what gives a logo to everything the catalogue does not list. A
- * subscription detected in email carries the sender's address, and for a
- * billing email that sender is the brand -- so `billing@netflix.com` is
- * Netflix's domain without Netflix needing to be in any list.
+ * This is what gives a logo to everything no list carries. A subscription
+ * detected in email carries the sender's address, and for a billing email
+ * the sender is usually the brand -- so `billing@netflix.com` is Netflix's
+ * domain without Netflix needing to be in any list.
+ *
+ * "Usually" is doing real work there, which is why NOT_THE_BRAND exists.
  *
  * Returns the host, and the host minus its first label when there are three
  * or more, so `mail.netflix.com` offers `netflix.com` as a second try. Both
@@ -212,7 +242,8 @@ export function domainsFromEmail(email: string | null | undefined): string[] {
   const labels = host.split(".");
   if (labels.length < 2 || labels.some((l) => !l)) return [];
 
-  return labels.length >= 3 ? [host, labels.slice(1).join(".")] : [host];
+  const candidates = labels.length >= 3 ? [host, labels.slice(1).join(".")] : [host];
+  return candidates.filter((d) => !NOT_THE_BRAND.has(d));
 }
 
 /**
