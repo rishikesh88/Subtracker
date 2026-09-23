@@ -20,9 +20,23 @@ import { findService, brandDomain, domainsFromEmail } from "@/lib/serviceCatalog
  */
 const BRANDFETCH_CLIENT_ID = import.meta.env.VITE_BRANDFETCH_CLIENT_ID as string | undefined;
 
+/**
+ * `fallback=404` is the important parameter here, not the client id.
+ *
+ * Without it Brandfetch answers a domain it has no logo for by generating a
+ * monogram -- a letter on a coloured square -- and serving it with a 200.
+ * The browser sees a perfectly good image, `onError` never fires, and that
+ * invented mark gets shown as though it were the brand's. That is how an
+ * Airtel bill ended up wearing a stranger's logo: not a wrong lookup, an
+ * image that should have been a miss.
+ *
+ * Asking for a 404 instead turns a miss back into a miss, so the next
+ * candidate domain is tried and, failing that, our own letter tile shows.
+ * A letter we drew is honest; a logo that belongs to someone else is not.
+ */
 function logoUrl(domain: string): string | null {
   if (!BRANDFETCH_CLIENT_ID) return null;
-  return `https://cdn.brandfetch.io/${domain}?c=${BRANDFETCH_CLIENT_ID}`;
+  return `https://cdn.brandfetch.io/${domain}?c=${BRANDFETCH_CLIENT_ID}&fallback=404`;
 }
 
 /**

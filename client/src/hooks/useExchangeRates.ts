@@ -18,7 +18,13 @@ interface RateTable {
 
 const ONE_HOUR = 60 * 60 * 1000;
 
-/** Units of INR per unit of currency, matching the server's fallback table. */
+/**
+ * Units of INR per unit of currency, matching the server's fallback table.
+ *
+ * Only the four this app shipped with. A currency missing here converts to
+ * null rather than to a guess, which is what stops a dirham total being a
+ * rupee total with the letters changed.
+ */
 const FALLBACK: Record<string, number> = { INR: 1, USD: 83, EUR: 90, GBP: 105 };
 
 export function useExchangeRates() {
