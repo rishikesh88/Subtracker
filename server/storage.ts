@@ -5,6 +5,7 @@ import { neon } from '@neondatabase/serverless';
 import { randomUUID } from "crypto";
 import { convertCurrency } from "./utils/currencyConverter";
 import { brandTokens } from "./lib/brandTokens";
+import { merchantSender } from "./lib/evidence";
 import { advanceOnePeriod, ensureFutureBillingDate } from "./utils/billingDate";
 import { findDuplicateHint } from "./utils/duplicateHints";
 import { invoiceExtractor } from "./services/invoiceExtractor";
@@ -366,6 +367,7 @@ export class DatabaseStorage implements IStorage {
   private async senderOfEvidence(
     userId: string,
     evidenceEmailIds: string[] | null | undefined,
+    names: { merchantName?: string | null; serviceName?: string | null } = {},
   ): Promise<string | null> {
     if (!evidenceEmailIds || evidenceEmailIds.length === 0) return null;
     try {
@@ -373,9 +375,11 @@ export class DatabaseStorage implements IStorage {
         .select({ fromEmail: emails.fromEmail })
         .from(emails)
         .where(and(eq(emails.userId, userId), inArray(emails.gmailId, evidenceEmailIds)))
-        .orderBy(desc(emails.receivedAt))
-        .limit(1);
-      return rows[0]?.fromEmail ?? null;
+        .orderBy(desc(emails.receivedAt));
+      /* Not simply the newest sender: for Claude Pro that was the card
+         issuer's transaction alert, and the subscription wore Federal Bank's
+         logo. The brand's own sender wins; banks and processors never do. */
+      return merchantSender(rows.map((r: { fromEmail: string | null }) => r.fromEmail), names);
     } catch (error) {
       console.error('Error resolving sender of evidence:', error);
       return null;
@@ -1476,7 +1480,10 @@ export class DatabaseStorage implements IStorage {
           /* The sender of the evidence is the vendor, and this is the moment
              we know it. Writing it here means the dashboard reads a column
              instead of recomputing the same answer on every page load. */
-          merchantEmail: await this.senderOfEvidence(userId, suggestion.evidenceEmailIds),
+          merchantEmail: await this.senderOfEvidence(userId, suggestion.evidenceEmailIds, {
+            merchantName: suggestion.merchantName,
+            serviceName: suggestion.serviceName,
+          }),
         };
         
         // Asked with exactly the arguments createSubscription uses, so the

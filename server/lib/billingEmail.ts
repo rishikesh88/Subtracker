@@ -24,6 +24,10 @@ const BILLING_TERMS = [
   "subscription", "membership", "renew", "renewal", "renewed",
   "plan", "auto-pay", "autopay", "mandate", "recurring",
   "statement", "premium", "policy",
+  // A card issuer's alert for the charge: "INR 2,255.68 spent on your card",
+  // "Transaction alert". Evidence that a charge happened, even though the
+  // merchant's name is not what sent it.
+  "spent", "transaction",
 ];
 
 /**

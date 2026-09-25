@@ -12,6 +12,7 @@ import { setSyncRunner } from "../services/syncRunner";
 import { storeInvoiceAttachment } from "../lib/invoiceAttachment";
 import { verifyCurrency } from "../lib/currencyCheck";
 import { refreshRates } from "../lib/exchangeRates";
+import { pickEvidence } from "../lib/evidence";
 
 // Helper function to get userId from normalized session structure
 function getUserId(req: any): string {
@@ -46,6 +47,49 @@ const suggestionSessions = new Map<string, LLMSuggestionSession>();
  * "UNKNOWN" is a real answer and is kept. The review screen asks the user to
  * confirm it rather than the pipeline inventing a currency.
  */
+/**
+ * Each suggestion's evidence, chosen once, and its confidence brought into
+ * line with it.
+ *
+ * The detector's named emails are used when they read like bills; otherwise
+ * the brand is searched for, skipping emails the detector gave to another
+ * suggestion. A suggestion left with no relevant email at all is still shown
+ * -- the detector may know something the kept emails do not -- but never at
+ * more than low confidence, and the review card says why.
+ *
+ * One line per suggestion goes to the log, so a missing piece of evidence can
+ * be traced to where it was lost.
+ */
+function resolveEvidence(suggestions: any[], savedEmails: any[]): Map<any, any[]> {
+  const claimedBy = new Map<string, any>();
+  for (const suggestion of suggestions) {
+    for (const id of suggestion.evidenceEmailIds ?? []) {
+      if (!claimedBy.has(id)) claimedBy.set(id, suggestion);
+    }
+  }
+
+  const result = new Map<any, any[]>();
+  for (const suggestion of suggestions) {
+    const claimedByOthers = new Set(
+      Array.from(claimedBy.entries())
+        .filter(([, owner]) => owner !== suggestion)
+        .map(([id]) => id),
+    );
+    const pick = pickEvidence(suggestion, savedEmails, claimedByOthers);
+    result.set(suggestion, pick.emails);
+
+    if (pick.emails.length === 0 && suggestion.confidence !== 'low') {
+      suggestion.confidence = 'low';
+    }
+    console.log(
+      `   🧾 ${suggestion.serviceName}: ${pick.named} named by detector, ` +
+      `${pick.found} found by search, ${pick.emails.length} kept (${pick.source})` +
+      (pick.emails.length === 0 ? ' -> low confidence, no relevant email' : '')
+    );
+  }
+  return result;
+}
+
 function resolveCurrency(suggestion: any, evidence: any[]): string {
   const text = evidence
     .map((email) => [email?.subject, email?.content].filter(Boolean).join('\n'))
@@ -456,45 +500,13 @@ export function registerGeminiRoutes(app: Express) {
       // Step 6: Save suggestions to database
       console.log(`💾 Saving ${geminiResults.subscriptions.length} suggestions...`);
       
-      const findMatchingEmails = (suggestion: any, emails: any[]): string[] => {
-        const searchTerms = [
-          suggestion.serviceName?.toLowerCase(),
-          suggestion.merchantName?.toLowerCase()
-        ].filter(Boolean);
-        
-        if (searchTerms.length === 0) return [];
-        
-        return emails
-          .filter(email => {
-            const emailText = [
-              email.subject?.toLowerCase(),
-              email.fromEmail?.toLowerCase(),
-              email.fromName?.toLowerCase()
-            ].join(' ');
-            
-            return searchTerms.some(term => emailText.includes(term));
-          })
-          .map(email => email.gmailId)
-          .slice(0, 5);
-      };
       
       /* Matched once per suggestion, then read twice -- the currency check and
          evidenceEmailIds below both want the same emails. */
-      /*
-       * The emails the detector itself says it found this subscription in.
-       * Only when it names none does the name search below stand in, and then
-       * on the service's name alone -- matching on the merchant ("Apple") is
-       * what filed every Apple email under both Apple One and iCloud+.
-       */
-      const evidenceFor = (suggestion: any) => {
-        const named: string[] = Array.isArray(suggestion.evidenceEmailIds) ? suggestion.evidenceEmailIds : [];
-        const ids = new Set(
-          named.length > 0
-            ? named
-            : findMatchingEmails({ serviceName: suggestion.serviceName }, savedEmails)
-        );
-        return savedEmails.filter((email) => ids.has(email.gmailId));
-      };
+      // Chosen once per suggestion, then read by the currency check and by
+      // evidenceEmailIds below.
+      const evidenceBySuggestion = resolveEvidence(geminiResults.subscriptions, savedEmails);
+      const evidenceFor = (suggestion: any) => evidenceBySuggestion.get(suggestion) ?? [];
 
       const suggestionInserts = geminiResults.subscriptions.map(suggestion => ({
         userId,
@@ -817,45 +829,13 @@ export function registerGeminiRoutes(app: Express) {
       // Step 6: Save suggestions to database with provider tags
       console.log(`💾 Saving ${geminiResults.subscriptions.length} suggestions...`);
       
-      const findMatchingEmails = (suggestion: any, emails: any[]): string[] => {
-        const searchTerms = [
-          suggestion.serviceName?.toLowerCase(),
-          suggestion.merchantName?.toLowerCase()
-        ].filter(Boolean);
-        
-        if (searchTerms.length === 0) return [];
-        
-        return emails
-          .filter(email => {
-            const emailText = [
-              email.subject?.toLowerCase(),
-              email.fromEmail?.toLowerCase(),
-              email.fromName?.toLowerCase()
-            ].join(' ');
-            
-            return searchTerms.some(term => emailText.includes(term));
-          })
-          .map(email => email.gmailId)
-          .slice(0, 5);
-      };
       
       /* Matched once per suggestion, then read twice -- the currency check and
          evidenceEmailIds below both want the same emails. */
-      /*
-       * The emails the detector itself says it found this subscription in.
-       * Only when it names none does the name search below stand in, and then
-       * on the service's name alone -- matching on the merchant ("Apple") is
-       * what filed every Apple email under both Apple One and iCloud+.
-       */
-      const evidenceFor = (suggestion: any) => {
-        const named: string[] = Array.isArray(suggestion.evidenceEmailIds) ? suggestion.evidenceEmailIds : [];
-        const ids = new Set(
-          named.length > 0
-            ? named
-            : findMatchingEmails({ serviceName: suggestion.serviceName }, savedEmails)
-        );
-        return savedEmails.filter((email) => ids.has(email.gmailId));
-      };
+      // Chosen once per suggestion, then read by the currency check and by
+      // evidenceEmailIds below.
+      const evidenceBySuggestion = resolveEvidence(geminiResults.subscriptions, savedEmails);
+      const evidenceFor = (suggestion: any) => evidenceBySuggestion.get(suggestion) ?? [];
 
       const suggestionInserts = geminiResults.subscriptions.map(suggestion => ({
         userId,

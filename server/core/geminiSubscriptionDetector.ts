@@ -19,6 +19,7 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { withRetry } from "../lib/retryTransient";
+import { parseEvidenceRef } from "../lib/evidence";
 import { Email, Subscription } from "@shared/schema";
 
 // Reference to blueprint for Gemini integration
@@ -130,13 +131,30 @@ If NONE qualify, respond with: {"approved_ids": []}
 
 NO other text, explanations, or formatting. ONLY the JSON object.`;
 
-        const result = await withRetry(
-          () => this.ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt
-          }),
-          { label: `Pre-filter chunk ${i + 1}/${chunks.length}` }
-        );
+        /*
+         * A chunk that fails every retry lets through its own candidates and
+         * no one else's. This call used to sit directly in the outer try, so
+         * one chunk failing jumped straight to the catch-all below and passed
+         * EVERY candidate -- a failed chunk of 200 sent all 716 to deep
+         * analysis, loading the service hardest at the moment it had just
+         * shown it was struggling, and throwing away the chunks it had
+         * already screened.
+         */
+        let result;
+        try {
+          result = await withRetry(
+            () => this.ai.models.generateContent({
+              model: "gemini-2.5-flash",
+              contents: prompt
+            }),
+            { label: `Pre-filter chunk ${i + 1}/${chunks.length}` }
+          );
+        } catch (chunkError) {
+          console.error(`  Chunk ${i + 1}: pre-filter failed after retries, passing its ${chunk.length} candidates through:`, chunkError);
+          approvedIds.push(...chunk.map(c => c.id));
+          if (onProgress) onProgress(((i + 1) / chunks.length) * 100);
+          continue;
+        }
         const rawResponse = (result.text || '').trim();
         
         // Validate candidate IDs for cross-checking
@@ -460,13 +478,14 @@ IMPORTANT: Include renewal reminders AND completed transactions. Amount can appe
 
     try {
       const result = JSON.parse(rawJson);
-      const byRef = new Map(emails.map((email, index) => [`E${index + 1}`, email.gmailId]));
       return (result.subscriptions || []).map((suggestion: any) => {
         const refs: unknown[] = Array.isArray(suggestion.evidenceRefs) ? suggestion.evidenceRefs : [];
-        // A ref the model invented, or one from another chunk, maps to
-        // nothing and is dropped rather than guessed at.
+        // Read tolerantly ("E3", "[E3]", "e03", "3"), then mapped to this
+        // chunk's emails by position. A ref that points past the chunk maps
+        // to nothing and is dropped rather than guessed at.
         const ids = refs
-          .map((ref) => byRef.get(String(ref).trim().toUpperCase()))
+          .map((ref) => parseEvidenceRef(ref))
+          .map((position) => (position ? emails[position - 1]?.gmailId : undefined))
           .filter((id): id is string => typeof id === 'string' && id.length > 0);
         const { evidenceRefs, ...rest } = suggestion;
         return { ...rest, evidenceEmailIds: Array.from(new Set(ids)) };
