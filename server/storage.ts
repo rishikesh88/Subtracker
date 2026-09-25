@@ -1,6 +1,6 @@
 import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, type SyncJob, users, syncJobs, subscriptions, emails, screenedMessages, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
-import { eq, and, desc, asc, count, sql, inArray, isNotNull, isNull, ne } from 'drizzle-orm';
+import { eq, and, desc, asc, count, sql, inArray, isNotNull, isNull, ne, gte } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
 import { randomUUID } from "crypto";
 import { convertCurrency } from "./utils/currencyConverter";
@@ -53,6 +53,8 @@ export interface IStorage {
   startSyncJob(userId: string, triggerSource: string): Promise<{ outcome: 'claimed'; job: SyncJob } | { outcome: 'conflict' } | { outcome: 'unavailable' }>;
   finishSyncJob(jobId: string, status: 'succeeded' | 'failed', details?: { error?: string | null; emailsProcessed?: number; suggestionsGenerated?: number }): Promise<void>;
   sweepStuckSyncJobs(): Promise<number>;
+  getRunningSyncJob(userId: string): Promise<SyncJob | undefined>;
+  getPendingSuggestionsSince(userId: string, since: Date): Promise<SubscriptionSuggestion[]>;
   getScreenedMessageIds(userId: string, provider?: string): Promise<Set<string>>;
   recordScreenedMessages(userId: string, messageIds: string[], provider?: string): Promise<number>;
   clearScreenedMessages(userId: string): Promise<{ cleared: number }>;
@@ -980,6 +982,34 @@ export class DatabaseStorage implements IStorage {
    * This assumes a single instance: with several replicas serving one database
    * it would kill jobs that are legitimately running elsewhere.
    */
+  /**
+   * The sync this user has running, if any. The job row is written when a
+   * sync starts and closed when it ends, so -- unlike anything held in the
+   * browser -- it survives a refresh, a closed tab and a new login.
+   */
+  /** What one sync found and nobody has decided yet: the summary email's list. */
+  async getPendingSuggestionsSince(userId: string, since: Date): Promise<SubscriptionSuggestion[]> {
+    return this.db
+      .select()
+      .from(subscriptionSuggestions)
+      .where(
+        and(
+          eq(subscriptionSuggestions.userId, userId),
+          eq(subscriptionSuggestions.status, 'pending'),
+          gte(subscriptionSuggestions.detectedAt, since),
+        ),
+      );
+  }
+
+  async getRunningSyncJob(userId: string): Promise<SyncJob | undefined> {
+    const rows = await this.db
+      .select()
+      .from(syncJobs)
+      .where(and(eq(syncJobs.userId, userId), eq(syncJobs.status, 'running')))
+      .limit(1);
+    return rows[0];
+  }
+
   async sweepStuckSyncJobs(): Promise<number> {
     try {
       const swept = await this.db

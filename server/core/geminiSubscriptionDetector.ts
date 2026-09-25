@@ -240,7 +240,15 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
     }
   }
 
-  async analyzeEmailsForSubscriptions(emails: Email[]): Promise<GeminiAnalysisResult> {
+  async analyzeEmailsForSubscriptions(
+    emails: Email[],
+    /**
+     * Called after each chunk, so the sync modal can say "checked 300 of 716"
+     * and how many subscriptions are in hand -- this is the longest stage of a
+     * sync, and it used to report only its start and its end.
+     */
+    onProgress?: (progress: { checked: number; total: number; found: number; foundNames: string[] }) => void,
+  ): Promise<GeminiAnalysisResult> {
     if (!emails.length) {
       return {
         subscriptions: [],
@@ -280,6 +288,22 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
         } catch (chunkError) {
           failedChunks.push(i + 1);
           console.error(`Chunk ${i + 1}/${chunks.length} failed after retries:`, chunkError);
+        }
+
+        if (onProgress) {
+          // Deduplicated as the final list will be, so the running count does
+          // not climb past what the review inbox ends up showing.
+          const soFar = this.deduplicateSubscriptions(allSuggestions);
+          try {
+            onProgress({
+              checked: Math.min((i + 1) * 25, emails.length),
+              total: emails.length,
+              found: soFar.length,
+              foundNames: soFar.slice(0, 4).map((x) => x.serviceName),
+            });
+          } catch {
+            // Reporting progress must never break the analysis.
+          }
         }
 
         // Add small delay between chunks to respect rate limits
