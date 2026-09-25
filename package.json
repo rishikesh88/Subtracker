@@ -20,7 +20,8 @@
     "test:rates": "tsx server/lib/exchangeRates.test.ts",
     "test:catalogue": "tsx client/src/lib/serviceCatalogue.test.ts",
     "test:retry": "tsx server/lib/retryTransient.test.ts",
-    "test:currencies": "tsx client/src/lib/currencies.test.ts"
+    "test:currencies": "tsx client/src/lib/currencies.test.ts",
+    "test:evidence": "tsx server/lib/evidence.test.ts"
   },
   "engines": {
     "node": "22.x"

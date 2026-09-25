@@ -19,6 +19,7 @@
 
 import { GoogleGenAI } from "@google/genai";
 import { withRetry } from "../lib/retryTransient";
+import { parseEvidenceRef } from "../lib/evidence";
 import { Email, Subscription } from "@shared/schema";
 
 // Reference to blueprint for Gemini integration
@@ -477,13 +478,14 @@ IMPORTANT: Include renewal reminders AND completed transactions. Amount can appe
 
     try {
       const result = JSON.parse(rawJson);
-      const byRef = new Map(emails.map((email, index) => [`E${index + 1}`, email.gmailId]));
       return (result.subscriptions || []).map((suggestion: any) => {
         const refs: unknown[] = Array.isArray(suggestion.evidenceRefs) ? suggestion.evidenceRefs : [];
-        // A ref the model invented, or one from another chunk, maps to
-        // nothing and is dropped rather than guessed at.
+        // Read tolerantly ("E3", "[E3]", "e03", "3"), then mapped to this
+        // chunk's emails by position. A ref that points past the chunk maps
+        // to nothing and is dropped rather than guessed at.
         const ids = refs
-          .map((ref) => byRef.get(String(ref).trim().toUpperCase()))
+          .map((ref) => parseEvidenceRef(ref))
+          .map((position) => (position ? emails[position - 1]?.gmailId : undefined))
           .filter((id): id is string => typeof id === 'string' && id.length > 0);
         const { evidenceRefs, ...rest } = suggestion;
         return { ...rest, evidenceEmailIds: Array.from(new Set(ids)) };

@@ -139,6 +139,15 @@ export function findService(name: string | null | undefined): CatalogueService |
  * word boundary, longest first.
  */
 const BRAND_DOMAINS: Readonly<Record<string, string>> = Object.freeze({
+  /* Products named differently from the company that bills them. Claude Pro
+     is billed by Anthropic; without these the logo came from whoever sent
+     the newest receipt, which for Claude Pro was a card issuer. */
+  "claude": "anthropic.com",
+  "claude pro": "anthropic.com",
+  "claude max": "anthropic.com",
+  "chatgpt": "openai.com",
+  "chatgpt plus": "openai.com",
+  "chatgpt pro": "openai.com",
   "youtube": "youtube.com",
   "youtube premium": "youtube.com",
   "youtube music": "youtube.com",

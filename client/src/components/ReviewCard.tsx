@@ -101,6 +101,9 @@ export function ReviewCard({ suggestion: s, open, leaving, onToggle, onApprove, 
           <span className="badge-cadence">{cadence}</span>
           <span className={cn("badge-status", confidence.cls)}>{confidence.label}</span>
           {money.unknownCurrency && <span className="badge-status status-trial">Check currency</span>}
+          {evidence.length === 0 && (
+            <span className="badge-status status-review" data-testid={`no-evidence-${s.id}`}>No relevant email</span>
+          )}
           {s.possibleDuplicateOf && <span className="badge-status status-review">Possible duplicate</span>}
         </span>
       </span>
@@ -201,10 +204,12 @@ export function ReviewCard({ suggestion: s, open, leaving, onToggle, onApprove, 
                 })}
               </ul>
             ) : (
-              <p className="text-[12.5px] text-muted-foreground">
-                {s.occurrences && s.occurrences > 1
-                  ? `Seen in ${s.occurrences} emails, which were not kept.`
-                  : "The emails behind this were not kept."}
+              /* Shown rather than hidden: the detector may know something the
+                 kept emails do not. But nothing in the inbox reads like a bill
+                 for it, so it arrives at low confidence and says so. */
+              <p className="rounded-[10px] border border-warning-line bg-warning-bg px-3.5 py-2.5 text-[12.5px] text-warning">
+                No receipt, invoice or renewal email was found for this. It was suggested with low
+                confidence, so check it before approving.
               </p>
             )}
 
