@@ -130,13 +130,30 @@ If NONE qualify, respond with: {"approved_ids": []}
 
 NO other text, explanations, or formatting. ONLY the JSON object.`;
 
-        const result = await withRetry(
-          () => this.ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: prompt
-          }),
-          { label: `Pre-filter chunk ${i + 1}/${chunks.length}` }
-        );
+        /*
+         * A chunk that fails every retry lets through its own candidates and
+         * no one else's. This call used to sit directly in the outer try, so
+         * one chunk failing jumped straight to the catch-all below and passed
+         * EVERY candidate -- a failed chunk of 200 sent all 716 to deep
+         * analysis, loading the service hardest at the moment it had just
+         * shown it was struggling, and throwing away the chunks it had
+         * already screened.
+         */
+        let result;
+        try {
+          result = await withRetry(
+            () => this.ai.models.generateContent({
+              model: "gemini-2.5-flash",
+              contents: prompt
+            }),
+            { label: `Pre-filter chunk ${i + 1}/${chunks.length}` }
+          );
+        } catch (chunkError) {
+          console.error(`  Chunk ${i + 1}: pre-filter failed after retries, passing its ${chunk.length} candidates through:`, chunkError);
+          approvedIds.push(...chunk.map(c => c.id));
+          if (onProgress) onProgress(((i + 1) / chunks.length) * 100);
+          continue;
+        }
         const rawResponse = (result.text || '').trim();
         
         // Validate candidate IDs for cross-checking
