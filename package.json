@@ -21,7 +21,9 @@
     "test:catalogue": "tsx client/src/lib/serviceCatalogue.test.ts",
     "test:retry": "tsx server/lib/retryTransient.test.ts",
     "test:currencies": "tsx client/src/lib/currencies.test.ts",
-    "test:evidence": "tsx server/lib/evidence.test.ts"
+    "test:evidence": "tsx server/lib/evidence.test.ts",
+    "test:sync-email": "tsx server/services/syncSummaryEmail.test.ts",
+    "test:sync-run": "tsx client/src/lib/syncRun.test.ts"
   },
   "engines": {
     "node": "22.x"

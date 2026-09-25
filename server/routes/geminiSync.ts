@@ -13,6 +13,8 @@ import { storeInvoiceAttachment } from "../lib/invoiceAttachment";
 import { verifyCurrency } from "../lib/currencyCheck";
 import { refreshRates } from "../lib/exchangeRates";
 import { pickEvidence } from "../lib/evidence";
+import { sendSyncSummaryEmail } from "../services/syncSummaryEmail";
+import { APP_BASE_URL } from "../config";
 
 // Helper function to get userId from normalized session structure
 function getUserId(req: any): string {
@@ -169,16 +171,22 @@ export function registerGeminiRoutes(app: Express) {
     accountIndex: number,
     totalAccounts: number
   ): StageReporter {
+    /* Every count this account has reported so far, sent with every event.
+       A browser that reconnects mid-sync gets only the latest event, and the
+       sync modal's checklist needs the earlier stages' numbers too -- "2,597
+       emails read" has to survive a refresh during the analysis. */
+    const facts: Record<string, unknown> = {};
     return (stage, fraction, message, details) => {
       const [from, to] = STAGE_SPANS[stage];
       const withinAccount = from + (to - from) * Math.min(Math.max(fraction, 0), 1);
       const overall = ((accountIndex + withinAccount) / totalAccounts) * 100;
+      Object.assign(facts, details ?? {});
 
       sendProgressUpdate(userId, {
         stage,
         progress: Math.round(overall),
         message: totalAccounts > 1 ? `${accountLabel}: ${message}` : message,
-        details: { account: accountLabel, ...details },
+        details: { account: accountLabel, ...facts },
       });
     };
   }
@@ -366,7 +374,7 @@ export function registerGeminiRoutes(app: Express) {
 
       console.log(`\n📥 PHASE 2: Deep Processing`);
 
-      report('fetch_full', 0, `Fetching ${aiApprovedIds.length} matching emails...`);
+      report('fetch_full', 0, `Fetching ${aiApprovedIds.length} matching emails...`, { keptEmails: aiApprovedIds.length });
 
       const gmailMessages = await gmailService.getEmailsByIds(
         accessToken,
@@ -475,13 +483,24 @@ export function registerGeminiRoutes(app: Express) {
       // protected core, so this stage is bracketed rather than sampled. It runs
       // well inside the client's stall threshold.
       report('analysis', 0, `Analysing ${savedEmails.length} emails for subscriptions...`, {
-        emailsProcessed: savedEmails.length,
+        emailsChecked: 0,
+        emailsToCheck: savedEmails.length,
       });
 
-      const geminiResults = await geminiDetector.analyzeEmailsForSubscriptions(savedEmails);
+      const geminiResults = await geminiDetector.analyzeEmailsForSubscriptions(
+        savedEmails,
+        ({ checked, total, found, foundNames }) =>
+          report('analysis', total ? checked / total : 0, `Checked ${checked} of ${total} emails`, {
+            emailsChecked: checked,
+            emailsToCheck: total,
+            foundSoFar: found,
+            foundNames,
+          })
+      );
 
       report('analysis', 1, `Found ${geminiResults.subscriptions.length} possible subscriptions`, {
         suggestionsGenerated: geminiResults.subscriptions.length,
+        foundSoFar: geminiResults.subscriptions.length,
       });
 
       console.log(`✅ Gemini analysis complete:`);
@@ -714,7 +733,7 @@ export function registerGeminiRoutes(app: Express) {
 
       console.log(`\n📥 PHASE 2: Deep Processing`);
 
-      report('fetch_full', 0, `Fetching ${aiApprovedIds.length} matching emails...`);
+      report('fetch_full', 0, `Fetching ${aiApprovedIds.length} matching emails...`, { keptEmails: aiApprovedIds.length });
 
       // Fetch full emails for AI-approved candidates
       const fullEmails = await Promise.all(
@@ -810,8 +829,27 @@ export function registerGeminiRoutes(app: Express) {
       
       // Step 4: LLM Analysis with Gemini
       console.log(`🤖 Starting Gemini analysis on ${savedEmails.length} emails...`);
-      
-      const geminiResults = await geminiDetector.analyzeEmailsForSubscriptions(savedEmails);
+      report('analysis', 0, `Analysing ${savedEmails.length} emails for subscriptions...`, {
+        emailsChecked: 0,
+        emailsToCheck: savedEmails.length,
+      });
+
+      // The same progress the Gmail path reports, so an Outlook mailbox's
+      // checklist moves too instead of sitting still through the longest stage.
+      const geminiResults = await geminiDetector.analyzeEmailsForSubscriptions(
+        savedEmails,
+        ({ checked, total, found, foundNames }) =>
+          report('analysis', total ? checked / total : 0, `Checked ${checked} of ${total} emails`, {
+            emailsChecked: checked,
+            emailsToCheck: total,
+            foundSoFar: found,
+            foundNames,
+          })
+      );
+      report('analysis', 1, `Found ${geminiResults.subscriptions.length} possible subscriptions`, {
+        suggestionsGenerated: geminiResults.subscriptions.length,
+        foundSoFar: geminiResults.subscriptions.length,
+      });
       
       console.log(`✅ Gemini analysis complete:`);
       console.log(`   • Total suggestions: ${geminiResults.subscriptions.length}`);
@@ -951,6 +989,9 @@ export function registerGeminiRoutes(app: Express) {
       }
       
       const emailSyncDays = user.emailSyncDays || 30;
+      // Suggestions made from here on belong to this run; the summary email
+      // lists exactly those.
+      const syncStartedAt = new Date();
 
       // Claim the run before acknowledging it. A second trigger while one is in
       // flight would duplicate every Gemini call and race on the same rows, so
@@ -1181,6 +1222,28 @@ export function registerGeminiRoutes(app: Express) {
               emailsProcessed: totalEmailsProcessed,
               suggestionsGenerated: totalSuggestionsGenerated,
             });
+          }
+
+          // Tell the person what was found, so closing the tab mid-sync does
+          // not leave them wondering. Only when something is waiting for them.
+          if (successfulResults.length > 0 && user.email) {
+            const found = await storage.getPendingSuggestionsSince(userId, syncStartedAt).catch((error) => {
+              console.error('[sync-email] Could not list what this sync found:', error);
+              return [];
+            });
+            if (found.length > 0) {
+              void sendSyncSummaryEmail({
+                to: user.email,
+                suggestions: found,
+                currency: user.preferredCurrency || 'USD',
+                mailboxes: [
+                  ...gmailAccounts.map(a => a.gmailEmail),
+                  ...outlookAccounts.map(a => a.outlookEmail),
+                ].filter(Boolean),
+                syncDays: emailSyncDays,
+                appUrl: APP_BASE_URL,
+              });
+            }
           }
 
         } catch (error) {

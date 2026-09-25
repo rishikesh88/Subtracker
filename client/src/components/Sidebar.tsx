@@ -187,12 +187,16 @@ export function Sidebar({ user, hasMailbox }: SidebarProps) {
               />
               {!showCollapsed && <span className="flex-1 truncate">{item.name}</span>}
               {showBadge && !showCollapsed && (
-                <span className="badge-status status-review flex-none" data-testid="review-count">
+                <span
+                  className="flex-none min-w-5 h-5 px-1.5 rounded-full bg-accent text-white text-[11px] font-bold tabular-nums flex items-center justify-center"
+                  data-testid="review-count"
+                  aria-label={`${pendingSuggestionsCount} waiting for review`}
+                >
                   {pendingSuggestionsCount}
                 </span>
               )}
               {showBadge && showCollapsed && (
-                <span className="absolute w-1.5 h-1.5 rounded-full bg-warning translate-x-3 -translate-y-2.5" />
+                <span className="absolute w-1.5 h-1.5 rounded-full bg-accent translate-x-3 -translate-y-2.5" />
               )}
             </Link>
           );

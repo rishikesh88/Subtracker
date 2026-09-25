@@ -2584,6 +2584,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   
   // Setup Server-Sent Events endpoint for real-time progress updates
+  /**
+   * Is a sync running for me, and how far has it got?
+   *
+   * What the app asks on every load, so a sync that was running when someone
+   * refreshed, closed the tab or signed out is picked up where it is instead
+   * of vanishing. The running flag comes from the job table, which outlives
+   * any browser; the progress comes from the last event the sync sent.
+   * pendingSuggestions drives the dashboard banner once the sync is done.
+   */
+  app.get('/api/sync/status', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not authenticated" });
+
+      const [job, pending] = await Promise.all([
+        storage.getRunningSyncJob(userId),
+        storage.getSuggestions(userId, { page: 1, pageSize: 1 }),
+      ]);
+
+      let progress: unknown = null;
+      const snapshot = job ? lastProgressByUser.get(userId) : undefined;
+      if (snapshot && Date.now() - snapshot.timestamp <= PROGRESS_SNAPSHOT_TTL_MS) {
+        try { progress = JSON.parse(snapshot.event); } catch { progress = null; }
+      }
+
+      res.set('Cache-Control', 'no-store');
+      res.json({
+        running: Boolean(job),
+        startedAt: job?.startedAt ?? null,
+        triggerSource: job?.triggerSource ?? null,
+        progress,
+        pendingSuggestions: pending.total,
+      });
+    } catch (error) {
+      console.error('Error reading sync status:', error);
+      res.status(500).json({ message: 'Failed to read sync status' });
+    }
+  });
+
   app.get('/api/sync-progress/:userId', isAuthenticated, (req: any, res) => {
     const { userId } = req.params;
     const authenticatedUserId = getUserId(req);

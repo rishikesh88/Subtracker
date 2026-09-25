@@ -28,15 +28,12 @@ export default function AuthCallback() {
       if (success === "true" && provider) {
         console.log('[Event: email_connected]', { provider, syncing });
 
-        // If sync is being triggered, set flag for SyncProgressPanel to auto-open
+        // The server has started the first sync: open the sync window. The
+        // flag covers the window mounting after this runs.
         if (syncing === "true") {
           localStorage.setItem('justOnboarded', 'true');
           localStorage.setItem('onboardedAt', Date.now().toString());
-          
-          toast({
-            title: `${provider === 'gmail' ? 'Gmail' : 'Outlook'} Connected!`,
-            description: `Starting email sync... This may take a few minutes.`,
-          });
+          window.dispatchEvent(new Event('syncTrigger'));
         } else {
           toast({
             title: `${provider === 'gmail' ? 'Gmail' : 'Outlook'} Connected`,
