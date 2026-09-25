@@ -319,7 +319,7 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
             {step === 2 && (
               <button
                 type="button"
-                className="btn-base btn-primary"
+                className="btn-base btn-accent"
                 onClick={goToStepThree}
                 data-testid="button-next"
               >
@@ -330,7 +330,7 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
             {step === 3 && (
               <button
                 type="button"
-                className="btn-base btn-primary"
+                className="btn-base btn-accent"
                 disabled={createMutation.isPending}
                 onClick={() => createMutation.mutate()}
                 data-testid="button-add-subscription"
@@ -384,7 +384,7 @@ function Stepper({ step, onGoTo }: { step: number; onGoTo: (n: number) => void }
                   "w-[22px] h-[22px] flex-none rounded-full flex items-center justify-center",
                   "text-[11px] font-semibold tabular-nums",
                   state === "done" && "bg-accent text-white",
-                  state === "current" && "bg-ink text-white",
+                  state === "current" && "bg-accent text-white ring-4 ring-accent-soft",
                   state === "todo" && "border border-line-firm text-muted-foreground"
                 )}
                 aria-hidden="true"
@@ -469,7 +469,7 @@ function ChooseService({
           so leaving one highlighted would say otherwise. */}
       {!searching && (
         <div
-          className="flex items-center gap-1 overflow-x-auto -mx-1 px-1 pb-0.5"
+          className="flex w-fit max-w-full items-center gap-0.5 overflow-x-auto p-0.5 rounded-lg bg-line-soft"
           role="tablist"
           aria-label="Service categories"
         >
@@ -483,11 +483,11 @@ function ChooseService({
                 aria-selected={active}
                 onClick={() => onCategory(c)}
                 className={cn(
-                  "flex-none rounded-[8px] px-2.5 py-1.5 text-[12px] font-medium whitespace-nowrap transition-colors",
+                  "flex-none h-7 rounded-button px-[11px] text-[12.5px] whitespace-nowrap transition-colors",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   active
-                    ? "bg-ink text-white"
-                    : "text-ink-body hover:bg-line-soft"
+                    ? "bg-surface font-semibold text-ink shadow-[0_1px_2px_rgba(10,10,10,0.08)]"
+                    : "bg-transparent font-medium text-ink-body hover:text-ink"
                 )}
                 data-testid={`category-tab-${testId(c)}`}
               >

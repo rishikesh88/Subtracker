@@ -44,7 +44,7 @@ function currenciesIn(text: string): string[] {
  * far enough back for "USD 23.60" or "Rs. 1,885.64", not far enough to catch
  * an unrelated symbol from the line above.
  */
-function currencyBesideAmount(text: string, amount: number): string | null {
+export function currencyBesideAmount(text: string, amount: number): string | null {
   if (!Number.isFinite(amount) || amount <= 0) return null;
 
   // The same number is written several ways: 1885.64, 1,885.64, 1885.

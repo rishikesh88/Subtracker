@@ -1,5 +1,5 @@
 /* Run: npm run test:currency */
-import { verifyCurrency } from "./currencyCheck";
+import { verifyCurrency, currencyBesideAmount } from "./currencyCheck";
 
 let passed = 0, failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -61,6 +61,19 @@ check('a lone currency far from the amount cannot overrule the model',
   got("Your Airtel bill is ready\nAmount \u20B91,885.64", 23.60, 'USD'), ['USD', false]);
 check('but it may still fill an UNKNOWN',
   got("Your Airtel bill is ready\nAmount \u20B91,885.64", 23.60, 'UNKNOWN'), ['INR', false]);
+
+/*
+ * The review inbox reads each evidence email's billed currency this way, in
+ * place of the currency saved at sync time -- which labelled Anthropic's
+ * "$23.60" as rupees because the same receipt carries an Indian GST line.
+ */
+const anthropic = "Reminder: Confirm your $23.60 payment to Anthropic, PBC\nClaude Pro  $20.00\nGST - India (18%)  \u20B90.00\nTotal due $23.60";
+check('the Claude receipt reads as dollars beside the amount',
+  currencyBesideAmount(anthropic, 23.60), 'USD');
+check('an amount with no currency printed beside it reads as nothing',
+  currencyBesideAmount("Your plan renews soon. Amount 149.00", 149), null);
+check('an amount that is not in the email reads as nothing',
+  currencyBesideAmount(anthropic, 99.99), null);
 
 console.log(`\n  ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
