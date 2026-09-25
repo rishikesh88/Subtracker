@@ -46,7 +46,7 @@ export interface IStorage {
   // Email methods
   getEmails(userId: string, limit?: number): Promise<Email[]>;
   getEmail(id: string): Promise<Email | undefined>;
-  getEmailsByIds(ids: string[]): Promise<Email[]>;
+  getEmailsByIds(ids: string[], userId?: string): Promise<Email[]>;
   getEmailByGmailId(gmailId: string): Promise<Email | undefined>;
   getSyncedGmailIds(userId: string): Promise<Set<string>>;
   startSyncJob(userId: string, triggerSource: string): Promise<{ outcome: 'claimed'; job: SyncJob } | { outcome: 'conflict' } | { outcome: 'unavailable' }>;
@@ -859,11 +859,17 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getEmailsByIds(ids: string[]): Promise<Email[]> {
+  async getEmailsByIds(ids: string[], userId?: string): Promise<Email[]> {
     try {
       if (!ids || ids.length === 0) return [];
-      // evidenceEmailIds stores gmailId values, not internal database IDs
-      const result = await this.db.select().from(emails).where(inArray(emails.gmailId, ids));
+      // evidenceEmailIds stores gmailId values, not internal database IDs.
+      // Scoped to the user where the caller knows it: a message id is only
+      // unique within one mailbox, so without this two people's mail could in
+      // principle answer the same id.
+      const where = userId
+        ? and(inArray(emails.gmailId, ids), eq(emails.userId, userId))
+        : inArray(emails.gmailId, ids);
+      const result = await this.db.select().from(emails).where(where);
       return result;
     } catch (error) {
       console.error('Error getting emails by IDs:', error);

@@ -48,6 +48,17 @@ interface SubscriptionSuggestion {
   };
   attachmentEvidence?: string; // Summary of findings from PDFs/images
   senderHistory?: string; // Pattern detected from sender's historical emails
+
+  /**
+   * The emails this subscription was found in, as their message ids.
+   *
+   * Named by the model itself, which is the only party that knows. The sync
+   * used to reconstruct this afterwards by searching subjects and senders for
+   * the service's name, which attached every Apple email to both Apple One
+   * and iCloud+, a terms-of-service notice to YouTube Premium, and nothing at
+   * all to a Netflix the model had plainly read.
+   */
+  evidenceEmailIds?: string[];
 }
 
 interface GeminiAnalysisResult {
@@ -300,7 +311,11 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
   }
 
   private async analyzeEmailChunk(emails: Email[]): Promise<SubscriptionSuggestion[]> {
-    const emailContext = emails.map(email => ({
+    // E1, E2, ... rather than the message ids themselves: a short token is far
+    // more reliably copied back than a 16-character hex id, and it is mapped
+    // back to the real id below.
+    const emailContext = emails.map((email, index) => ({
+      ref: `E${index + 1}`,
       subject: email.subject,
       from: email.fromEmail,
       date: email.receivedAt,
@@ -344,6 +359,19 @@ CURRENCY (strict - this is the most common source of wrong data):
   billing. A US dollar invoice can carry Indian GST and still be USD.
 - If no symbol or code appears anywhere in the email, return "UNKNOWN".
   Do not guess. The user will be asked to confirm it.
+- When the merchant's own receipt, invoice or payment confirmation states the
+  price, use THAT amount and currency. A bank or card alert shows what the card
+  was charged after conversion and fees, which is not the subscription's price;
+  use it only when no email from the merchant states one.
+
+EVIDENCE (required):
+- Every email above has a "ref" (E1, E2, ...). For each subscription, list in
+  "evidenceRefs" the refs of the emails that belong to THAT subscription: its
+  receipts, invoices, renewal notices and payment confirmations.
+- Never list an email that belongs to a different product, even from the same
+  company. Apple One and iCloud+ are separate subscriptions; so are YouTube
+  Premium and Google One. A general notice (terms of service, privacy policy,
+  marketing) is not evidence for any subscription.
 
 For EACH subscription detected, you MUST provide:
 1. Service name and merchant
@@ -411,9 +439,10 @@ IMPORTANT: Include renewal reminders AND completed transactions. Amount can appe
                     required: ["subjectValid", "contentValid", "attachmentValid"]
                   },
                   attachmentEvidence: { type: "string" },
-                  senderHistory: { type: "string" }
+                  senderHistory: { type: "string" },
+                  evidenceRefs: { type: "array", items: { type: "string" } }
                 },
-                required: ["serviceName", "merchantName", "amount", "currency", "frequency", "category", "confidence", "reasoning", "isActive", "recurringKeywords", "validationChecks"]
+                required: ["serviceName", "merchantName", "amount", "currency", "frequency", "category", "confidence", "reasoning", "isActive", "recurringKeywords", "validationChecks", "evidenceRefs"]
               }
             }
           },
@@ -431,7 +460,17 @@ IMPORTANT: Include renewal reminders AND completed transactions. Amount can appe
 
     try {
       const result = JSON.parse(rawJson);
-      return result.subscriptions || [];
+      const byRef = new Map(emails.map((email, index) => [`E${index + 1}`, email.gmailId]));
+      return (result.subscriptions || []).map((suggestion: any) => {
+        const refs: unknown[] = Array.isArray(suggestion.evidenceRefs) ? suggestion.evidenceRefs : [];
+        // A ref the model invented, or one from another chunk, maps to
+        // nothing and is dropped rather than guessed at.
+        const ids = refs
+          .map((ref) => byRef.get(String(ref).trim().toUpperCase()))
+          .filter((id): id is string => typeof id === 'string' && id.length > 0);
+        const { evidenceRefs, ...rest } = suggestion;
+        return { ...rest, evidenceEmailIds: Array.from(new Set(ids)) };
+      });
     } catch (parseError) {
       console.error('Failed to parse Gemini response:', rawJson);
       throw new Error(`Invalid JSON response from Gemini: ${parseError}`);
@@ -461,8 +500,16 @@ IMPORTANT: Include renewal reminders AND completed transactions. Amount can appe
       const key = `${suggestion.merchantName.toLowerCase()}_${suggestion.currency}_${Math.round(suggestion.amount)}`;
       
       const existing = seen.get(key);
+      // The same subscription found in two chunks keeps its more confident
+      // reading, but the emails from both: they are all evidence for it.
+      const evidence = Array.from(new Set([
+        ...(existing?.evidenceEmailIds ?? []),
+        ...(suggestion.evidenceEmailIds ?? []),
+      ]));
       if (!existing || this.getConfidenceScore(suggestion.confidence) > this.getConfidenceScore(existing.confidence)) {
-        seen.set(key, suggestion);
+        seen.set(key, { ...suggestion, evidenceEmailIds: evidence });
+      } else {
+        existing.evidenceEmailIds = evidence;
       }
     }
     

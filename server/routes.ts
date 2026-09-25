@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import { currencyBesideAmount } from "./lib/currencyCheck";
 import { refreshRates, ratesToInr, ratesFetchedAt } from "./lib/exchangeRates";
 import { GmailService } from "./services/gmail";
 import { OutlookService } from "./services/outlook";
@@ -211,6 +212,28 @@ function storedAttachmentNames(attachmentData: string | null | undefined): { fil
   } catch {
     return [];
   }
+}
+
+/**
+ * The amount an email billed, and the currency printed beside it.
+ *
+ * Only reported when the email itself prints a currency right next to the
+ * amount. The currency saved with the email at sync time is a guess from
+ * anywhere in its text, and it labelled Anthropic's "$23.60" as rupees
+ * because the same receipt carries an Indian GST line. An amount whose
+ * currency cannot be read off the email is left out, rather than shown
+ * under a currency borrowed from somewhere else.
+ */
+function billedIn(email: { extractedAmount?: string | null; subject?: string | null; content?: string | null }): {
+  billedAmount: string | null;
+  billedCurrency: string | null;
+} {
+  const amount = email.extractedAmount ? parseFloat(email.extractedAmount) : NaN;
+  if (!Number.isFinite(amount) || amount <= 0) return { billedAmount: null, billedCurrency: null };
+  const currency = currencyBesideAmount(`${email.subject ?? ""}\n${email.content ?? ""}`, amount);
+  return currency
+    ? { billedAmount: String(amount), billedCurrency: currency }
+    : { billedAmount: null, billedCurrency: null };
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -2235,7 +2258,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         result.suggestions.map(async (suggestion) => {
           if (suggestion.evidenceEmailIds && suggestion.evidenceEmailIds.length > 0) {
             try {
-              const emails = await storage.getEmailsByIds(suggestion.evidenceEmailIds);
+              const emails = await storage.getEmailsByIds(suggestion.evidenceEmailIds, userId);
               const emailEvidence = emails
                 .map(email => ({
                   id: email.id,
@@ -2251,8 +2274,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   // What this email billed, in the currency it billed in. The
                   // card's headline is converted; this is where the original
                   // stays visible, receipt by receipt.
-                  billedAmount: email.extractedAmount ?? null,
-                  billedCurrency: email.extractedCurrency ?? null,
+                  ...billedIn(email),
                   attachments: storedAttachmentNames(email.attachmentData),
                 }))
                 // Newest first: the latest receipt is the one that matters most.

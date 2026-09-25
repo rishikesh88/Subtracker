@@ -480,8 +480,19 @@ export function registerGeminiRoutes(app: Express) {
       
       /* Matched once per suggestion, then read twice -- the currency check and
          evidenceEmailIds below both want the same emails. */
+      /*
+       * The emails the detector itself says it found this subscription in.
+       * Only when it names none does the name search below stand in, and then
+       * on the service's name alone -- matching on the merchant ("Apple") is
+       * what filed every Apple email under both Apple One and iCloud+.
+       */
       const evidenceFor = (suggestion: any) => {
-        const ids = new Set(findMatchingEmails(suggestion, savedEmails));
+        const named: string[] = Array.isArray(suggestion.evidenceEmailIds) ? suggestion.evidenceEmailIds : [];
+        const ids = new Set(
+          named.length > 0
+            ? named
+            : findMatchingEmails({ serviceName: suggestion.serviceName }, savedEmails)
+        );
         return savedEmails.filter((email) => ids.has(email.gmailId));
       };
 
@@ -830,8 +841,19 @@ export function registerGeminiRoutes(app: Express) {
       
       /* Matched once per suggestion, then read twice -- the currency check and
          evidenceEmailIds below both want the same emails. */
+      /*
+       * The emails the detector itself says it found this subscription in.
+       * Only when it names none does the name search below stand in, and then
+       * on the service's name alone -- matching on the merchant ("Apple") is
+       * what filed every Apple email under both Apple One and iCloud+.
+       */
       const evidenceFor = (suggestion: any) => {
-        const ids = new Set(findMatchingEmails(suggestion, savedEmails));
+        const named: string[] = Array.isArray(suggestion.evidenceEmailIds) ? suggestion.evidenceEmailIds : [];
+        const ids = new Set(
+          named.length > 0
+            ? named
+            : findMatchingEmails({ serviceName: suggestion.serviceName }, savedEmails)
+        );
         return savedEmails.filter((email) => ids.has(email.gmailId));
       };
 
