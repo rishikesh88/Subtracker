@@ -1636,7 +1636,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!gmailMessage.id) continue;
 
         // Check if email already exists
-        const existingEmail = await storage.getEmailByGmailId(gmailMessage.id);
+        const existingEmail = await storage.getEmailByGmailId(gmailMessage.id, user.id);
         if (existingEmail) continue;
 
         const parsedEmail = emailParser.parseEmail(gmailMessage);
@@ -2518,7 +2518,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!gmailMessage.id) continue;
 
         // Check if email already exists
-        const existingEmail = await storage.getEmailByGmailId(gmailMessage.id);
+        const existingEmail = await storage.getEmailByGmailId(gmailMessage.id, user.id);
         if (existingEmail) continue;
 
         const parsedEmail = emailParser.parseEmail(gmailMessage);

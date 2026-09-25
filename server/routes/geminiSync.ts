@@ -92,6 +92,37 @@ function resolveEvidence(suggestions: any[], savedEmails: any[]): Map<any, any[]
   return result;
 }
 
+/**
+ * Confirm every evidence email a suggestion points at is one this account
+ * can actually be shown.
+ *
+ * Evidence once went missing silently: the ids were saved, but the emails
+ * behind them were stored under another account, and the review page showed
+ * "no relevant email". This makes any repeat of that visible in the log.
+ * It only reads, and never fails the sync.
+ */
+async function checkEvidenceReadable(
+  userId: string,
+  suggestions: { serviceName: string; evidenceEmailIds?: string[] | null }[],
+): Promise<void> {
+  try {
+    const ids = Array.from(new Set(suggestions.flatMap((s) => s.evidenceEmailIds ?? [])));
+    if (ids.length === 0) return;
+    const readable = new Set((await storage.getEmailsByIds(ids, userId)).map((e) => e.gmailId));
+    for (const s of suggestions) {
+      const missing = (s.evidenceEmailIds ?? []).filter((id) => !readable.has(id));
+      if (missing.length > 0) {
+        console.warn(
+          `⚠️  ${s.serviceName}: ${missing.length} of ${s.evidenceEmailIds!.length} evidence email(s) ` +
+          `are not stored for this account and will not show on the review page`
+        );
+      }
+    }
+  } catch (error) {
+    console.error('Could not check evidence emails:', error);
+  }
+}
+
 function resolveCurrency(suggestion: any, evidence: any[]): string {
   const text = evidence
     .map((email) => [email?.subject, email?.content].filter(Boolean).join('\n'))
@@ -417,7 +448,7 @@ export function registerGeminiRoutes(app: Express) {
           const gmailMessage = gmailMessageMap.get(email.gmailId);
           if (!gmailMessage) continue;
           
-          const existingEmail = await storage.getEmailByGmailId(email.gmailId);
+          const existingEmail = await storage.getEmailByGmailId(email.gmailId, userId);
           
           if (!existingEmail || !existingEmail.attachmentData) {
             let attachmentData = null;
@@ -554,6 +585,7 @@ export function registerGeminiRoutes(app: Express) {
       }));
       
       const savedSuggestions = await storage.createSuggestionsBulk(suggestionInserts);
+      await checkEvidenceReadable(userId, suggestionInserts);
       console.log(`✅ Saved ${savedSuggestions.length} suggestions for ${gmailAccount.gmailEmail}`);
       
       // Mark as successful before returning
@@ -766,7 +798,7 @@ export function registerGeminiRoutes(app: Express) {
       
       for (const email of fullEmails) {
         try {
-          const existingEmail = await storage.getEmailByGmailId(email.id);
+          const existingEmail = await storage.getEmailByGmailId(email.id, userId);
           
           if (!existingEmail) {
             /*
@@ -903,6 +935,7 @@ export function registerGeminiRoutes(app: Express) {
       }));
       
       const savedSuggestions = await storage.createSuggestionsBulk(suggestionInserts);
+      await checkEvidenceReadable(userId, suggestionInserts);
       console.log(`✅ Saved ${savedSuggestions.length} suggestions for ${outlookAccount.outlookEmail}`);
       
       // Mark as successful before returning

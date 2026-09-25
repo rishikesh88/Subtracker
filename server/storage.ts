@@ -48,11 +48,12 @@ export interface IStorage {
   getEmails(userId: string, limit?: number): Promise<Email[]>;
   getEmail(id: string): Promise<Email | undefined>;
   getEmailsByIds(ids: string[], userId?: string): Promise<Email[]>;
-  getEmailByGmailId(gmailId: string): Promise<Email | undefined>;
+  getEmailByGmailId(gmailId: string, userId: string): Promise<Email | undefined>;
   getSyncedGmailIds(userId: string): Promise<Set<string>>;
   startSyncJob(userId: string, triggerSource: string): Promise<{ outcome: 'claimed'; job: SyncJob } | { outcome: 'conflict' } | { outcome: 'unavailable' }>;
   finishSyncJob(jobId: string, status: 'succeeded' | 'failed', details?: { error?: string | null; emailsProcessed?: number; suggestionsGenerated?: number }): Promise<void>;
   sweepStuckSyncJobs(): Promise<number>;
+  ensureEmailsUniquePerAccount(): Promise<'changed' | 'already'>;
   getRunningSyncJob(userId: string): Promise<SyncJob | undefined>;
   getPendingSuggestionsSince(userId: string, since: Date): Promise<SubscriptionSuggestion[]>;
   getScreenedMessageIds(userId: string, provider?: string): Promise<Set<string>>;
@@ -883,9 +884,21 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getEmailByGmailId(gmailId: string): Promise<Email | undefined> {
+  /**
+   * This account's stored copy of a message, if it has one.
+   *
+   * Scoped to the account. It used to match on the message id alone, so when
+   * the same mailbox was connected to two Verloq accounts, the second one's
+   * sync picked up the first one's row -- and the review page, which only
+   * shows an account its own emails, showed that evidence as missing.
+   */
+  async getEmailByGmailId(gmailId: string, userId: string): Promise<Email | undefined> {
     try {
-      const result = await this.db.select().from(emails).where(eq(emails.gmailId, gmailId)).limit(1);
+      const result = await this.db
+        .select()
+        .from(emails)
+        .where(and(eq(emails.gmailId, gmailId), eq(emails.userId, userId)))
+        .limit(1);
       return result[0] || undefined;
     } catch (error) {
       console.error('Error getting email by Gmail ID:', error);
@@ -1008,6 +1021,58 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(syncJobs.userId, userId), eq(syncJobs.status, 'running')))
       .limit(1);
     return rows[0];
+  }
+
+  /**
+   * Make a stored email unique per account instead of across the whole app.
+   *
+   * Schema changes here are applied by hand with db:push, which currently
+   * reports drift, so this one is applied at startup instead. It is safe to
+   * run on every boot: the new rule is added first (every existing row
+   * already satisfies it, since the old rule was stricter), then the old
+   * app-wide rule on gmail_id alone is dropped, whatever it happens to be
+   * named. All of it runs as one statement, so it applies whole or not at
+   * all. Once done, the check at the top makes later boots a no-op.
+   */
+  async ensureEmailsUniquePerAccount(): Promise<'changed' | 'already'> {
+    const state = await this.db.execute(sql`
+      SELECT
+        EXISTS (SELECT 1 FROM pg_indexes WHERE tablename = 'emails' AND indexname = 'uq_emails_user_gmail') AS has_new,
+        EXISTS (
+          SELECT 1 FROM pg_index x
+          WHERE x.indrelid = 'emails'::regclass AND x.indisunique AND NOT x.indisprimary
+            AND x.indnatts = 1
+            AND x.indkey[0] = (SELECT attnum FROM pg_attribute WHERE attrelid = 'emails'::regclass AND attname = 'gmail_id')
+        ) AS has_old
+    `);
+    const row = ((state as any).rows ?? state)[0] ?? {};
+    if (row.has_new && !row.has_old) return 'already';
+
+    await this.db.execute(sql`
+      DO $$
+      DECLARE
+        r record;
+        gmail_col int2 := (SELECT attnum FROM pg_attribute WHERE attrelid = 'emails'::regclass AND attname = 'gmail_id');
+      BEGIN
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_emails_user_gmail ON emails (user_id, gmail_id);
+
+        FOR r IN
+          SELECT c.conname FROM pg_constraint c
+          WHERE c.conrelid = 'emails'::regclass AND c.contype = 'u' AND c.conkey = ARRAY[gmail_col]
+        LOOP
+          EXECUTE format('ALTER TABLE emails DROP CONSTRAINT %I', r.conname);
+        END LOOP;
+
+        FOR r IN
+          SELECT i.relname FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid
+          WHERE x.indrelid = 'emails'::regclass AND x.indisunique AND NOT x.indisprimary
+            AND x.indnatts = 1 AND x.indkey[0] = gmail_col
+        LOOP
+          EXECUTE format('DROP INDEX %I', r.relname);
+        END LOOP;
+      END $$;
+    `);
+    return 'changed';
   }
 
   async sweepStuckSyncJobs(): Promise<number> {
@@ -1403,7 +1468,12 @@ export class DatabaseStorage implements IStorage {
       if (userIds.length === 0) return withinBatch;
 
       const existing = await this.db
-        .select({ userId: subscriptionSuggestions.userId, serviceKey: subscriptionSuggestions.serviceKey })
+        .select({
+          id: subscriptionSuggestions.id,
+          userId: subscriptionSuggestions.userId,
+          serviceKey: subscriptionSuggestions.serviceKey,
+          evidenceEmailIds: subscriptionSuggestions.evidenceEmailIds,
+        })
         .from(subscriptionSuggestions)
         .where(
           and(
@@ -1412,14 +1482,34 @@ export class DatabaseStorage implements IStorage {
           )
         );
 
-      const pending = new Set(
-        existing.map((row: { userId: string; serviceKey: string }) => `${row.userId}::${row.serviceKey}`)
+      type PendingRow = { id: string; userId: string; serviceKey: string; evidenceEmailIds: string[] | null };
+      const pending = new Map<string, PendingRow>(
+        existing.map((row: PendingRow) => [`${row.userId}::${row.serviceKey}`, row])
       );
 
       const fresh = withinBatch.filter(s => !pending.has(`${s.userId}::${s.serviceKey}`));
       const alreadyPending = withinBatch.length - fresh.length;
       if (alreadyPending > 0) {
         console.log(`🔀 Skipped ${alreadyPending} suggestion(s) already awaiting review`);
+      }
+
+      // The card already waiting is kept, but if it has no evidence and this
+      // run found some, it takes the new evidence. Otherwise a card saved
+      // before its emails could be found would stay empty however many times
+      // the mailbox is synced again.
+      for (const s of withinBatch) {
+        const held = pending.get(`${s.userId}::${s.serviceKey}`);
+        const found = s.evidenceEmailIds ?? [];
+        if (!held || found.length === 0 || (held.evidenceEmailIds?.length ?? 0) > 0) continue;
+        try {
+          await this.db
+            .update(subscriptionSuggestions)
+            .set({ evidenceEmailIds: found, lastSeen: new Date() })
+            .where(and(eq(subscriptionSuggestions.id, held.id), eq(subscriptionSuggestions.userId, s.userId)));
+          console.log(`🧾 ${s.serviceName}: waiting card had no evidence, took ${found.length} email(s) from this run`);
+        } catch (error) {
+          console.error(`Could not add evidence to the waiting ${s.serviceName} card:`, error);
+        }
       }
 
       return fresh;

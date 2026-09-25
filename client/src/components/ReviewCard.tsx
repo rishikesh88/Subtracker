@@ -208,8 +208,7 @@ export function ReviewCard({ suggestion: s, open, leaving, onToggle, onApprove, 
                  kept emails do not. But nothing in the inbox reads like a bill
                  for it, so it arrives at low confidence and says so. */
               <p className="rounded-[10px] border border-warning-line bg-warning-bg px-3.5 py-2.5 text-[12.5px] text-warning">
-                No receipt, invoice or renewal email was found for this. It was suggested with low
-                confidence, so check it before approving.
+                No receipt, invoice or renewal email was found for this. Check it before approving.
               </p>
             )}
 

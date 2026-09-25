@@ -190,7 +190,9 @@ export const emails = pgTable("emails", {
   gmailAccountId: varchar("gmail_account_id"), // DEPRECATED: Legacy Gmail account link (nullable for backward compatibility)
   emailProvider: text("email_provider"), // 'gmail' | 'outlook' (nullable during migration)
   providerAccountId: varchar("provider_account_id"), // Polymorphic link to gmail_accounts.id OR outlook_accounts.id
-  gmailId: text("gmail_id").notNull().unique(),
+  // Unique per account, not across the app: two Verloq accounts reading the
+  // same mailbox each keep their own copy (uq_emails_user_gmail below).
+  gmailId: text("gmail_id").notNull(),
   subject: text("subject").notNull(),
   fromEmail: text("from_email").notNull(),
   fromName: text("from_name"),
@@ -205,6 +207,7 @@ export const emails = pgTable("emails", {
   processed: boolean("processed").default(false),
   analyzedAt: timestamp("analyzed_at").defaultNow(),
 }, (table) => [
+  uniqueIndex("uq_emails_user_gmail").on(table.userId, table.gmailId),
   index("idx_emails_user_provider").on(table.userId, table.emailProvider),
   index("idx_emails_provider_account").on(table.providerAccountId),
   check("valid_email_provider", sql`email_provider IS NULL OR email_provider IN ('gmail', 'outlook')`),
