@@ -483,7 +483,8 @@ export function registerGeminiRoutes(app: Express) {
       // protected core, so this stage is bracketed rather than sampled. It runs
       // well inside the client's stall threshold.
       report('analysis', 0, `Analysing ${savedEmails.length} emails for subscriptions...`, {
-        emailsProcessed: savedEmails.length,
+        emailsChecked: 0,
+        emailsToCheck: savedEmails.length,
       });
 
       const geminiResults = await geminiDetector.analyzeEmailsForSubscriptions(

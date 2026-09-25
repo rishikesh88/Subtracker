@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import { Layout } from "@/components/Layout";
-import { SyncProgressPanel } from "@/components/SyncProgressPanel";
+import { SyncExperience } from "@/components/SyncExperience";
 import Dashboard from "@/pages/dashboard";
 import Subscriptions from "@/pages/subscriptions";
 import Settings from "@/pages/settings";
@@ -93,7 +93,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
-        <SyncProgressPanel />
+        <SyncExperience />
         <Router />
       </TooltipProvider>
     </QueryClientProvider>

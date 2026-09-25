@@ -18,7 +18,6 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { AddSubscriptionModal } from "@/components/AddSubscriptionModal";
 import { SubscriptionSuggestionsModal } from "@/components/SubscriptionSuggestionsModal";
-import { SyncProgressModal } from "@/components/SyncProgressModal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DropdownMenu,
@@ -31,6 +30,7 @@ import {
 import { cn } from "@/lib/utils";
 import { filterBucket, formatCurrency } from "@/lib/format";
 import { SubscriptionCard } from "@/components/SubscriptionCard";
+import { ReviewBanner } from "@/components/ReviewBanner";
 import { type Subscription } from "@shared/schema";
 
 // Supported currencies
@@ -53,7 +53,6 @@ export default function Dashboard() {
   const { user } = useAuth();
   const currentUserId = user?.id;
   const [suggestionsModalOpen, setSuggestionsModalOpen] = useState(false);
-  const [syncProgressOpen, setSyncProgressOpen] = useState(false);
   const [addSubscriptionModalOpen, setAddSubscriptionModalOpen] = useState(false);
   const [isSyncInProgress, setIsSyncInProgress] = useState(false);
   // Presentation-only: which filter segment is selected on the subscription grid.
@@ -107,7 +106,6 @@ export default function Dashboard() {
               localStorage.setItem('onboardedAt', Date.now().toString());
               window.dispatchEvent(new Event('syncTrigger'));
 
-              setSyncProgressOpen(true);
               syncEmailsMutation.mutate();
             }, 1500);
         } else if (gmailConnected === 'false') {
@@ -285,9 +283,6 @@ export default function Dashboard() {
       // Trigger automatic sync with new duration
       localStorage.setItem('justOnboarded', 'true');
       localStorage.setItem('onboardedAt', Date.now().toString());
-      setSyncProgressOpen(true);
-
-      // Dispatch custom event to trigger SyncProgressPanel
       window.dispatchEvent(new Event('syncTrigger'));
 
       syncEmailsMutation.mutate();
@@ -312,15 +307,7 @@ export default function Dashboard() {
     onSuccess: (data) => {
       // The sync now runs in the background, so this response only confirms it
       // started. Completion, per-account results and the link through to the
-      // review page are all handled by SyncProgressPanel over SSE.
-      const totalAccounts = data.totalAccounts || 0;
-
-      toast({
-        title: "Email Sync Started",
-        description: totalAccounts > 1
-          ? `Analyzing ${totalAccounts} accounts in the background...`
-          : `Analyzing emails in the background...`,
-      });
+      // review page are all handled by the sync window (SyncExperience).
 
       // Invalidate and refetch all data
       queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
@@ -341,11 +328,8 @@ export default function Dashboard() {
         return;
       }
 
-      toast({
-        title: "Sync Failed",
-        description: error.message || "Failed to sync emails",
-        variant: "destructive",
-      });
+      // Shown in the sync window, which is already open.
+      window.dispatchEvent(new CustomEvent('syncStartFailed', { detail: error.message }));
     },
   });
 
@@ -389,31 +373,10 @@ export default function Dashboard() {
       return;
     }
 
-    // Open progress panel and set localStorage flags for auto-open
-    localStorage.setItem('justOnboarded', 'true');
-    localStorage.setItem('onboardedAt', Date.now().toString());
-    setSyncProgressOpen(true);
-
-    // Dispatch custom event to trigger SyncProgressPanel
+    // Opens the sync window, which follows the sync from here
     window.dispatchEvent(new Event('syncTrigger'));
 
-    toast({
-      title: "Sync Started",
-      description: "Analyzing your emails... This may take a few minutes.",
-    });
-
     syncEmailsMutation.mutate();
-  };
-
-  const handleSyncComplete = () => {
-    // Refresh all data after sync
-    queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
-    queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${currentUserId}`] });
-    queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${currentUserId}`] });
-    queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
-
-    // Navigate to review page to review suggestions
-    window.location.href = '/review';
   };
 
   const defaultStats = {
@@ -668,6 +631,8 @@ export default function Dashboard() {
         className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-[18px]"
         style={{ padding: "20px 24px 40px" }}
       >
+        <ReviewBanner />
+
         {/* 1. Metric strip */}
         {statsLoading ? (
           <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(240px,1fr))" }}>
@@ -809,13 +774,6 @@ export default function Dashboard() {
       <AddSubscriptionModal
         open={addSubscriptionModalOpen}
         onOpenChange={setAddSubscriptionModalOpen}
-      />
-      {/* Sync Progress Modal */}
-      <SyncProgressModal
-        isOpen={syncProgressOpen}
-        onOpenChange={setSyncProgressOpen}
-        userId={currentUserId}
-        onComplete={handleSyncComplete}
       />
     </div>
   );

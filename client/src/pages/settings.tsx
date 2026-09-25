@@ -282,13 +282,12 @@ export default function Settings() {
 
       return data;
     },
+    // The sync window follows the sync from here.
+    onMutate: () => {
+      window.dispatchEvent(new Event('syncTrigger'));
+    },
     onSuccess: () => {
       const userId = user?.id;
-
-      toast({
-        title: "Email Sync Started",
-        description: `Analyzing emails in background...`,
-      });
 
       // Invalidate all relevant queries to refresh data (aligned with dashboard)
       queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
@@ -303,11 +302,8 @@ export default function Settings() {
       queryClient.invalidateQueries({ queryKey: ['/api/outlook/accounts'] });
     },
     onError: (error: any) => {
-      toast({
-        title: "Sync Failed",
-        description: error?.message || "Failed to sync emails. Please try again.",
-        variant: "destructive",
-      });
+      // Shown in the sync window, which is already open.
+      window.dispatchEvent(new CustomEvent('syncStartFailed', { detail: error?.message }));
     },
   });
 
@@ -329,7 +325,7 @@ export default function Settings() {
       localStorage.setItem('justOnboarded', 'true');
       localStorage.setItem('onboardedAt', Date.now().toString());
 
-      // Dispatch custom event to trigger SyncProgressPanel
+      // Opens the sync window
       window.dispatchEvent(new Event('syncTrigger'));
 
       syncEmailsMutation.mutate();
