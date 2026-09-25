@@ -193,6 +193,26 @@ export function sendProgressUpdate(userId: string, data: {
 
 const startedAt = new Date();
 
+/**
+ * The documents an email actually carried, by name.
+ *
+ * Only attachments that were stored during the sync count. Those are the
+ * files approval turns into invoices, so listing anything else here would
+ * promise a document the archive will never show.
+ */
+function storedAttachmentNames(attachmentData: string | null | undefined): { filename: string; mimeType: string | null }[] {
+  if (!attachmentData) return [];
+  try {
+    const list = JSON.parse(attachmentData)?.attachments;
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((a: any) => a && a.objectStoragePath)
+      .map((a: any) => ({ filename: String(a.filename || 'Attachment'), mimeType: a.mimeType ?? null }));
+  } catch {
+    return [];
+  }
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Platform health check, and the answer to "is what I just merged actually
   // running?". Deliberately does not touch the database: a health check that
@@ -2216,18 +2236,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
           if (suggestion.evidenceEmailIds && suggestion.evidenceEmailIds.length > 0) {
             try {
               const emails = await storage.getEmailsByIds(suggestion.evidenceEmailIds);
-              const emailEvidence = emails.map(email => ({
-                id: email.id,
-                subject: email.subject,
-                fromName: email.fromName || email.fromEmail,
-                // The address, not just the display name. A suggestion has no
-                // merchant recorded against it yet -- that is worked out when
-                // it is approved -- so the sending domain is the only thing
-                // that can give the review screen a logo for a brand the
-                // catalogue does not list.
-                fromEmail: email.fromEmail,
-                receivedAt: email.receivedAt
-              }));
+              const emailEvidence = emails
+                .map(email => ({
+                  id: email.id,
+                  subject: email.subject,
+                  fromName: email.fromName || email.fromEmail,
+                  // The address, not just the display name. A suggestion has no
+                  // merchant recorded against it yet -- that is worked out when
+                  // it is approved -- so the sending domain is the only thing
+                  // that can give the review screen a logo for a brand the
+                  // catalogue does not list.
+                  fromEmail: email.fromEmail,
+                  receivedAt: email.receivedAt,
+                  // What this email billed, in the currency it billed in. The
+                  // card's headline is converted; this is where the original
+                  // stays visible, receipt by receipt.
+                  billedAmount: email.extractedAmount ?? null,
+                  billedCurrency: email.extractedCurrency ?? null,
+                  attachments: storedAttachmentNames(email.attachmentData),
+                }))
+                // Newest first: the latest receipt is the one that matters most.
+                .sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime());
               return { ...suggestion, emailEvidence };
             } catch (error) {
               console.error('Error fetching email evidence:', error);
@@ -2274,6 +2303,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
         message: `Approved ${result.approved} suggestions`,
         subscriptions: result.subscriptions,
+        // What Undo may remove. A subscription this approval merged into was
+        // already tracked, so it is deliberately absent from this list.
+        createdSubscriptionIds: result.createdSubscriptionIds,
         approved: result.approved
       });
     } catch (error) {
@@ -2309,6 +2341,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error rejecting suggestions:", error);
       res.status(500).json({ message: "Failed to reject suggestions" });
+    }
+  });
+
+  /**
+   * Undo for the review inbox: puts approved or rejected suggestions back and
+   * removes only the subscriptions an approval created. The checks on what
+   * may be removed live in storage, next to the data they protect.
+   */
+  app.post("/api/suggestions/undo", isAuthenticated, async (req: any, res) => {
+    try {
+      const undoSchema = z.object({
+        suggestionIds: z.array(z.string().min(1)).min(1).max(200),
+        createdSubscriptionIds: z.array(z.string().min(1)).max(200).default([]),
+      });
+      const validation = undoSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ message: "Invalid request format", errors: validation.error.issues });
+      }
+
+      const userId = getUserId(req);
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      const { suggestionIds, createdSubscriptionIds } = validation.data;
+      const result = await storage.undoSuggestionDecisions(userId, suggestionIds, createdSubscriptionIds);
+      res.json({ success: true, ...result });
+    } catch (error) {
+      console.error("Error undoing suggestion decisions:", error);
+      res.status(500).json({ message: "Failed to undo" });
     }
   });
 

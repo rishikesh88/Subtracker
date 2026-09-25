@@ -141,7 +141,10 @@
   /* --- Badges: status filled, cadence outlined, category soft ---------- */
   .badge-status   { display: inline-flex; align-items: center; border-radius: var(--radius-badge); padding: 4px 9px; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
   .badge-cadence  { display: inline-flex; align-items: center; border-radius: 6px; padding: 4px 9px; font-size: 11px; font-weight: 500; color: var(--ink-strong); border: 1px solid hsl(0, 0%, 88%); }
-  .badge-category { display: inline-flex; align-items: center; border-radius: 6px; padding: 4px 9px; font-size: 11px; font-weight: 500; color: var(--ink-body); background: var(--border-soft); }
+  /* Category's ground was --border-soft (#F0F0F0), which all but vanished on
+     the review card's grey band: the text passed contrast, the badge's shape
+     did not. A step darker ground and ink hold it on white and on grey. */
+  .badge-category { display: inline-flex; align-items: center; border-radius: 6px; padding: 4px 9px; font-size: 11px; font-weight: 500; color: hsl(0, 0%, 18%); background: hsl(0, 0%, 90%); }
 
   .status-active    { color: var(--success);     background: var(--success-soft); }
   .status-review    { color: var(--warning);     background: var(--warning-soft); }
@@ -169,6 +172,14 @@
 
   .btn-secondary { background: var(--surface); color: var(--ink-strong); border: 1px solid var(--border-firm); font-weight: 500; }
   .btn-secondary:hover:not(:disabled) { background: hsl(0, 0%, 96%); }
+
+  /* The review inbox's two decisions. Green and red carry the meaning, but
+     each also has its own weight -- filled for approve, outlined for reject --
+     so the two differ in lightness too, not in hue alone. */
+  .btn-approve   { background: var(--success); color: #FFFFFF; border: none; font-weight: 600; }
+  .btn-approve:hover:not(:disabled)   { background: hsl(154, 56%, 21%); }
+  .btn-reject    { background: var(--surface); color: var(--destructive); border: 1px solid var(--destructive); font-weight: 600; }
+  .btn-reject:hover:not(:disabled)    { background: var(--destructive-soft); }
 
   .btn-ghost     { background: transparent; color: var(--ink-body); border: none; font-weight: 500; }
   .btn-ghost:hover:not(:disabled)     { background: var(--border-soft); }

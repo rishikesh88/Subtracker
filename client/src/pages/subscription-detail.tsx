@@ -20,7 +20,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { InvoicePreview, previewKind, downloadUrl } from "@/components/InvoicePreview";
 import { cn } from "@/lib/utils";
-import { displayCategory, statusBadge, formatDate, formatCurrency, FREQUENCY_LABEL } from "@/lib/format";
+import { displayCategory, statusBadge, formatDate, formatCurrency, relativeFromNow, FREQUENCY_LABEL } from "@/lib/format";
 import { useMoney } from "@/hooks/useMoney";
 import { ServiceLogo } from "@/components/ServiceLogo";
 
@@ -740,19 +740,6 @@ function earliestKnownDate(subscription: Subscription, invoices: Invoice[]): Dat
 }
 
 /** "in 5 months" / "in 12 days" / "3 days ago", relative to now. */
-function relativeFromNow(date: Date): string {
-  const diffDays = Math.round((date.getTime() - Date.now()) / 86400000);
-  if (diffDays === 0) return "today";
-
-  const past = diffDays < 0;
-  const days = Math.abs(diffDays);
-  if (days < 30) {
-    return past ? `${days} day${days === 1 ? "" : "s"} ago` : `in ${days} day${days === 1 ? "" : "s"}`;
-  }
-  const months = Math.round(days / 30);
-  return past ? `${months} month${months === 1 ? "" : "s"} ago` : `in ${months} month${months === 1 ? "" : "s"}`;
-}
-
 /** 1st, 2nd, 3rd, 4th, ... */
 function ordinal(n: number): string {
   const suffixes = ["th", "st", "nd", "rd"];

@@ -64,7 +64,8 @@ export interface IStorage {
   getSuggestions(userId: string, options?: { page?: number; pageSize?: number; minConfidence?: string }): Promise<{ suggestions: SubscriptionSuggestion[]; total: number }>;
   createSuggestion(suggestion: InsertSubscriptionSuggestion): Promise<SubscriptionSuggestion>;
   createSuggestionsBulk(suggestions: InsertSubscriptionSuggestion[]): Promise<SubscriptionSuggestion[]>;
-  approveSuggestions(suggestionIds: string[], userId: string): Promise<{ subscriptions: Subscription[]; approved: number }>;
+  approveSuggestions(suggestionIds: string[], userId: string): Promise<{ subscriptions: Subscription[]; createdSubscriptionIds: string[]; approved: number }>;
+  undoSuggestionDecisions(userId: string, suggestionIds: string[], createdSubscriptionIds: string[]): Promise<{ restored: number; removed: number }>;
   rejectSuggestions(suggestionIds: string[], userId: string): Promise<{ rejected: number }>;
   clearSuggestions(userId: string): Promise<{ cleared: number }>;
   
@@ -1390,7 +1391,7 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async approveSuggestions(suggestionIds: string[], userId: string): Promise<{ subscriptions: Subscription[]; approved: number }> {
+  async approveSuggestions(suggestionIds: string[], userId: string): Promise<{ subscriptions: Subscription[]; createdSubscriptionIds: string[]; approved: number }> {
     try {
       const suggestions = await this.db
         .select()
@@ -1404,10 +1405,15 @@ export class DatabaseStorage implements IStorage {
         );
       
       if (suggestions.length === 0) {
-        return { subscriptions: [], approved: 0 };
+        return { subscriptions: [], createdSubscriptionIds: [], approved: 0 };
       }
       
       const createdSubscriptions: Subscription[] = [];
+      /* Which of the subscriptions above this approval brought into being, as
+         opposed to ones it merged into. createSubscription folds a duplicate
+         into the subscription already tracked, and undoing an approval must
+         never delete that: it existed before anyone pressed Approve. */
+      const createdSubscriptionIds: string[] = [];
       
       // Create subscriptions from approved suggestions (with deduplication)
       for (const suggestion of suggestions) {
@@ -1467,9 +1473,20 @@ export class DatabaseStorage implements IStorage {
           merchantEmail: await this.senderOfEvidence(userId, suggestion.evidenceEmailIds),
         };
         
+        // Asked with exactly the arguments createSubscription uses, so the
+        // answer is the branch it is about to take.
+        const alreadyTracked = await this.findDuplicateSubscription(
+          subscriptionData.userId,
+          subscriptionData.serviceName,
+          subscriptionData.amount,
+          subscriptionData.currency || 'INR',
+          subscriptionData.frequency
+        );
+
         // Use createSubscription method which has deduplication logic
         const createdSubscription = await this.createSubscription(subscriptionData);
         createdSubscriptions.push(createdSubscription);
+        if (!alreadyTracked) createdSubscriptionIds.push(createdSubscription.id);
         
         // Link evidence emails to subscription (SECURITY: Defense-in-depth with userId constraint)
         if (suggestion.evidenceEmailIds && suggestion.evidenceEmailIds.length > 0) {
@@ -1512,7 +1529,7 @@ export class DatabaseStorage implements IStorage {
           )
         );
       
-      return { subscriptions: createdSubscriptions, approved: suggestions.length };
+      return { subscriptions: createdSubscriptions, createdSubscriptionIds, approved: suggestions.length };
     } catch (error) {
       console.error('Error approving suggestions:', error);
       throw error;
@@ -1537,6 +1554,88 @@ export class DatabaseStorage implements IStorage {
       console.error('Error rejecting suggestions:', error);
       throw error;
     }
+  }
+
+  /**
+   * Put approved or rejected suggestions back in the inbox, as if nobody had
+   * pressed the button.
+   *
+   * A rejection only needs its status reset. An approval also created a
+   * subscription, which has to go -- but only one this approval created.
+   * Approving something already tracked merges into the existing subscription
+   * rather than making a new one, and deleting that would take away something
+   * the person had before they opened the inbox. So the caller passes the ids
+   * approve reported as created, and each is checked here against the
+   * suggestions being undone: it must belong to this user and carry one of
+   * their service keys, or it is left alone.
+   *
+   * Invoice ROWS go with the subscription; invoice FILES do not. The files
+   * were uploaded during the sync and the synced emails still point at them,
+   * so approving the same card again rebuilds its invoices from those same
+   * files. deleteSubscription removes the files too, which is right for a
+   * deliberate delete and wrong here.
+   *
+   * The suggestion is restored first. There are no transactions on this
+   * driver, so the order decides what a failure halfway leaves behind: a
+   * pending suggestion beside a subscription that still exists is harmless --
+   * approving it again merges into that subscription -- whereas a deleted
+   * subscription beside a suggestion still marked approved would vanish from
+   * both screens at once.
+   */
+  async undoSuggestionDecisions(
+    userId: string,
+    suggestionIds: string[],
+    createdSubscriptionIds: string[],
+  ): Promise<{ restored: number; removed: number }> {
+    if (suggestionIds.length === 0) return { restored: 0, removed: 0 };
+
+    const decided = await this.db
+      .select({ id: subscriptionSuggestions.id, serviceKey: subscriptionSuggestions.serviceKey })
+      .from(subscriptionSuggestions)
+      .where(
+        and(
+          inArray(subscriptionSuggestions.id, suggestionIds),
+          eq(subscriptionSuggestions.userId, userId),
+          inArray(subscriptionSuggestions.status, ['approved', 'rejected']),
+        ),
+      );
+    if (decided.length === 0) return { restored: 0, removed: 0 };
+
+    const restored = await this.db
+      .update(subscriptionSuggestions)
+      .set({ status: 'pending' })
+      .where(
+        and(
+          inArray(subscriptionSuggestions.id, decided.map((d: { id: string }) => d.id)),
+          eq(subscriptionSuggestions.userId, userId),
+        ),
+      );
+
+    const keys = new Set(decided.map((d: { serviceKey: string | null }) => d.serviceKey).filter(Boolean));
+    let removed = 0;
+
+    if (createdSubscriptionIds.length > 0) {
+      const candidates = await this.db
+        .select({ id: subscriptions.id, serviceKey: subscriptions.serviceKey })
+        .from(subscriptions)
+        .where(and(inArray(subscriptions.id, createdSubscriptionIds), eq(subscriptions.userId, userId)));
+
+      for (const sub of candidates) {
+        if (!sub.serviceKey || !keys.has(sub.serviceKey)) {
+          console.warn(`Undo refused to remove subscription ${sub.id}: it does not belong to the suggestions being undone`);
+          continue;
+        }
+        await this.db.delete(invoices).where(and(eq(invoices.subscriptionId, sub.id), eq(invoices.userId, userId)));
+        await this.db
+          .update(emails)
+          .set({ subscriptionId: null })
+          .where(and(eq(emails.subscriptionId, sub.id), eq(emails.userId, userId)));
+        await this.db.delete(subscriptions).where(and(eq(subscriptions.id, sub.id), eq(subscriptions.userId, userId)));
+        removed++;
+      }
+    }
+
+    return { restored: restored.rowCount || decided.length, removed };
   }
 
   async clearSuggestions(userId: string): Promise<{ cleared: number }> {
