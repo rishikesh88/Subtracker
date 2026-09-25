@@ -1,92 +1,69 @@
-import { useState, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { Link } from "wouter";
+import { Check, Inbox, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
-import type { SubscriptionSuggestion } from "@shared/schema";
-
-interface EmailEvidence {
-  id: string;
-  subject: string;
-  fromName: string;
-  /** The sending address, which is how a brand outside the catalogue finds
-   *  its logo. A suggestion has no merchant recorded against it yet. */
-  fromEmail?: string | null;
-  receivedAt: Date | string;
-}
-
-interface SuggestionWithEvidence extends SubscriptionSuggestion {
-  emailEvidence?: EmailEvidence[];
-  /**
-   * Set by the server when this looks like a subscription already tracked (#20).
-   * Advisory only -- nothing is merged or hidden, because two subscriptions from
-   * one merchant are often genuinely separate. The user decides.
-   */
-  possibleDuplicateOf?: {
-    subscriptionId: string;
-    serviceName: string;
-    amount: string;
-    currency: string;
-    reason: string;
-    confidence: 'exact' | 'likely';
-  } | null;
-}
-import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { cn } from "@/lib/utils";
-import { displayCategory, formatDate, formatCurrency, isUnknownCurrency, FREQUENCY_LABEL, FREQUENCY_SUFFIX } from "@/lib/format";
-import { ChevronLeft, ChevronRight, Check, X, Inbox, FileText, Calendar } from "lucide-react";
-import { ServiceLogo } from "@/components/ServiceLogo";
-import { ReviewCarousel, type ReviewCard } from "@/components/ReviewCarousel";
-import { useMoney } from "@/hooks/useMoney";
-import { LayoutList, Layers } from "lucide-react";
+import { ToastAction } from "@/components/ui/toast";
+import { ReviewCard, type Decision, type ReviewSuggestion } from "@/components/ReviewCard";
 
 /**
- * The attachment evidence is stored as a JSON string and can be malformed or
- * absent, so a parse failure has to mean "no documents" rather than a blank
- * page. Restored along with the block that displays it.
+ * How long a card shows its green or red before it leaves. Long enough to
+ * register which button was pressed, short enough not to feel like a wait.
  */
-function parseAttachmentEvidence(evidence: string | null | undefined): { name: string }[] {
-  if (!evidence) return [];
-  try {
-    const parsed = JSON.parse(evidence);
-    const list = Array.isArray(parsed) ? parsed : parsed?.attachments ?? [];
-    return list
-      .map((item: any) => ({ name: item?.filename || item?.name || "Attachment" }))
-      .slice(0, 4);
-  } catch {
-    return [];
+const TINT_MS = 260;
+
+/** The slide out, then the gap closing behind it. */
+const EXIT_MS = 460;
+
+/** Everything the inbox holds, in one request: the list is worked through
+ *  top to bottom, and a pager would split that into arbitrary pieces. */
+const PAGE_SIZE = 100;
+
+function invalidateAfterDecision() {
+  for (const prefix of ["/api/suggestions", "/api/subscriptions", "/api/stats"]) {
+    queryClient.invalidateQueries({
+      predicate: (query) => query.queryKey[0]?.toString().startsWith(prefix) ?? false,
+    });
   }
 }
 
+/**
+ * The review inbox.
+ *
+ * One suggestion is open at a time and the first opens by itself. Approving
+ * turns the card green and sends it off to the right; rejecting turns it red
+ * and sends it left; either way the next one opens, so a batch is cleared as
+ * a run of decisions rather than a list to scan.
+ *
+ * Each decision is saved as it is made -- nothing is lost by closing the tab
+ * halfway -- and a message offers Undo for a few seconds afterwards.
+ */
 export default function ReviewInbox() {
   const { user } = useAuth();
   const userId = user?.id;
   const { toast } = useToast();
-  const { display } = useMoney();
-  const [selectedSuggestions, setSelectedSuggestions] = useState<string[]>([]);
-  /* The list is the default. Stepping through one card at a time is built
-     and reachable from the header, but it is a proposal rather than a
-     decision -- it ships as the default only once it has been looked at. */
-  const [mode, setMode] = useState<'cards' | 'list'>('list');
-  const [currentPage, setCurrentPage] = useState(1);
+  const reduceMotion = useReducedMotion();
 
-  /* Page 3 of a ten-a-page list is not page 3 of a hundred-a-page one, so
-     switching view starts from the top rather than somewhere arbitrary. */
-  useEffect(() => { setCurrentPage(1); }, [mode]);
-  /* Stepping through cards has to cover the whole batch in one pass -- being
-     handed ten, deciding on them, then discovering there are seven more behind
-     a pager is the opposite of what a single sequence is for. The list keeps
-     its ten-a-page, which is what a table wants. */
-  const pageSize = mode === 'cards' ? 100 : 10;
-  const [processingSuggestions, setProcessingSuggestions] = useState<string[]>([]);
   const [isSyncInProgress, setIsSyncInProgress] = useState(false);
   const [syncProgress, setSyncProgress] = useState({ stage: '', progress: 0, message: '', suggestionsFound: 0 });
 
+  /* undefined until the list first loads, so the first card can open itself
+     once; null afterwards means the person closed every card on purpose, and
+     nothing reopens behind their back. */
+  const [openId, setOpenId] = useState<string | null | undefined>(undefined);
+  const [leaving, setLeaving] = useState<Record<string, Decision>>({});
+  const [gone, setGone] = useState<Record<string, Decision>>({});
+  const [skipped, setSkipped] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
   const { data: suggestionsData = { suggestions: [], total: 0 }, isLoading, refetch } = useQuery<{
-    suggestions: SuggestionWithEvidence[];
+    suggestions: ReviewSuggestion[];
     total: number;
   }>({
-    queryKey: [`/api/suggestions?userId=${userId}&page=${currentPage}&pageSize=${pageSize}`],
+    queryKey: [`/api/suggestions?userId=${userId}&page=1&pageSize=${PAGE_SIZE}`],
     enabled: !!userId,
     refetchOnMount: true,
     staleTime: 0,
@@ -154,187 +131,161 @@ export default function ReviewInbox() {
     };
   }, [userId, refetch]);
 
-  const { suggestions, total } = suggestionsData;
-  const totalPages = Math.ceil(total / pageSize);
+  /* The order people work in: as detected, with anything skipped moved to
+     the back so it comes round again after everything else. */
+  const queue = useMemo(() => {
+    const live = suggestionsData.suggestions.filter((s) => !gone[s.id]);
+    const skippedSet = new Set(skipped);
+    const fresh = live.filter((s) => !skippedSet.has(s.id));
+    const later = skipped
+      .map((id) => live.find((s) => s.id === id))
+      .filter((s): s is ReviewSuggestion => Boolean(s));
+    return [...fresh, ...later];
+  }, [suggestionsData.suggestions, gone, skipped]);
 
   useEffect(() => {
-    if (!isLoading && suggestions.length > 0) {
-      const highConfidenceIds = suggestions
-        .filter(s => s.confidence === 'high')
-        .map(s => s.id);
-      setSelectedSuggestions(highConfidenceIds);
-    }
-  }, [suggestions, isLoading]);
+    if (openId === undefined && queue.length > 0) setOpenId(queue[0].id);
+  }, [openId, queue]);
 
-  const approveMutation = useMutation({
-    mutationFn: async (suggestionIds: string[]) => {
-      const response = await apiRequest("POST", "/api/suggestions/approve", {
-        userId,
-        suggestionIds,
-      });
-      return response.json();
+  /** The card after this one, once this one is out of the way. */
+  const nextAfter = useCallback(
+    (id: string, order: ReviewSuggestion[] = queue): string | null => {
+      const index = order.findIndex((s) => s.id === id);
+      const rest = order.filter((s) => s.id !== id);
+      return (rest[index] ?? rest[0])?.id ?? null;
     },
-    onMutate: async (suggestionIds: string[]) => {
-      setProcessingSuggestions(prev => [...prev, ...suggestionIds]);
-      setSelectedSuggestions(prev => prev.filter(id => !suggestionIds.includes(id)));
-    },
-    onSuccess: (data, variables) => {
-      setProcessingSuggestions(prev => prev.filter(id => !variables.includes(id)));
-      toast({
-        title: "Subscription Approved",
-        description: `Successfully approved ${data.approved} subscription${data.approved > 1 ? 's' : ''}`,
-      });
-      queryClient.invalidateQueries({
-        predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/suggestions') ?? false
-      });
-      queryClient.invalidateQueries({
-        predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/subscriptions') ?? false
-      });
-      queryClient.invalidateQueries({
-        predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/stats') ?? false
-      });
-    },
-    onError: (error, variables) => {
-      setProcessingSuggestions(prev => prev.filter(id => !variables.includes(id)));
-      toast({
-        title: "Approval Failed",
-        description: "Failed to approve subscription. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const rejectMutation = useMutation({
-    mutationFn: async (suggestionIds: string[]) => {
-      const response = await apiRequest("POST", "/api/suggestions/reject", {
-        suggestionIds,
-      });
-      return response.json();
-    },
-    onMutate: async (suggestionIds: string[]) => {
-      setProcessingSuggestions(prev => [...prev, ...suggestionIds]);
-      setSelectedSuggestions(prev => prev.filter(id => !suggestionIds.includes(id)));
-    },
-    onSuccess: (data, variables) => {
-      setProcessingSuggestions(prev => prev.filter(id => !variables.includes(id)));
-      toast({
-        title: "Suggestion Rejected",
-        description: `Skipped ${data.rejected} suggestion${data.rejected > 1 ? 's' : ''}`,
-      });
-      queryClient.invalidateQueries({
-        predicate: (query) => query.queryKey[0]?.toString().startsWith('/api/suggestions') ?? false
-      });
-    },
-    onError: (error, variables) => {
-      setProcessingSuggestions(prev => prev.filter(id => !variables.includes(id)));
-      toast({
-        title: "Rejection Failed",
-        description: "Failed to reject suggestion. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const handleSuggestionSelect = (suggestionId: string, checked: boolean) => {
-    if (checked) {
-      setSelectedSuggestions(prev => [...prev, suggestionId]);
-    } else {
-      setSelectedSuggestions(prev => prev.filter(id => id !== suggestionId));
-    }
-  };
-
-  const selectHighConfidence = () => {
-    const highConfidenceIds = suggestions.filter(s => s.confidence === 'high').map(s => s.id);
-    setSelectedSuggestions(highConfidenceIds);
-  };
-
-  const selectAll = () => {
-    setSelectedSuggestions(suggestions.map(s => s.id));
-  };
-
-  const clearSelection = () => {
-    setSelectedSuggestions([]);
-  };
-
-  const handleBatchApprove = () => {
-    if (selectedSuggestions.length > 0) {
-      approveMutation.mutate(selectedSuggestions);
-    }
-  };
-
-  const handleBatchReject = () => {
-    if (selectedSuggestions.length > 0) {
-      rejectMutation.mutate(selectedSuggestions);
-    }
-  };
-
-  /**
-   * The address a suggestion's receipts came from.
-   *
-   * A suggestion has no merchant recorded against it -- that is worked out
-   * when it is approved -- so the first piece of evidence is the only thing
-   * that can give the review screen a logo for a brand no list carries.
-   */
-  const merchantEmailOf = (suggestion: SuggestionWithEvidence): string | null =>
-    suggestion.emailEvidence?.find((e) => e.fromEmail)?.fromEmail ?? null;
-
-  const evidenceLineOf = (suggestion: SuggestionWithEvidence): string | null => {
-    const evidence = suggestion.emailEvidence;
-    if (evidence && evidence.length > 0) {
-      const more = evidence.length - 1;
-      return `"${evidence[0].subject}" · ${formatDate(evidence[0].receivedAt)}${
-        more > 0 ? ` · +${more} more email${more > 1 ? 's' : ''}` : ''
-      }`;
-    }
-    return suggestion.occurrences && suggestion.occurrences > 1
-      ? `${suggestion.occurrences} supporting emails`
-      : null;
-  };
-
-  const reviewCards: ReviewCard[] = useMemo(
-    () =>
-      suggestions.map((suggestion) => ({
-        id: suggestion.id,
-        serviceName: suggestion.serviceName,
-        amount: suggestion.amount,
-        currency: suggestion.currency,
-        frequency: suggestion.frequency,
-        category: suggestion.category,
-        confidence: suggestion.confidence,
-        reasoning:
-          suggestion.reasoning
-          || `This appears to be a ${suggestion.frequency} subscription to ${suggestion.serviceName} based on the email patterns detected.`,
-        nextBillingDate: suggestion.nextBillingDate ?? null,
-        merchantEmail: merchantEmailOf(suggestion),
-        evidenceLine: evidenceLineOf(suggestion),
-        duplicateReason: suggestion.possibleDuplicateOf?.reason ?? null,
-      })),
-    [suggestions]
+    [queue],
   );
 
-  /**
-   * One save for a whole pass through the cards.
-   *
-   * Both calls go out together rather than one after the other, because a
-   * person pressing save has made one decision about the batch, not two.
-   * Either failing shows its own message and leaves the suggestions in place
-   * to try again -- nothing here is lost by retrying.
-   */
-  const handleCarouselSave = (keep: string[], skip: string[]) => {
-    if (keep.length > 0) approveMutation.mutate(keep);
-    if (skip.length > 0) rejectMutation.mutate(skip);
+  /* Focus follows the open card. Without this, deciding with the keyboard
+     drops focus on the page body the moment the card it was in disappears. */
+  const focusCard = (id: string | null) => {
+    if (!id) return;
+    window.setTimeout(() => document.getElementById(`review-header-${id}`)?.focus({ preventScroll: false }), TINT_MS + 40);
   };
 
-  // Confidence -> the design's status pair (ink on a soft ground), plus a
-  // plain label. High reads as "on track" (active), medium as "worth a
-  // second look" (review), low as inert (cancelled's neutral grey).
-  const confidenceMeta = (confidence: string): { label: string; cls: string } => {
-    switch (confidence) {
-      case 'high': return { label: 'High confidence', cls: 'status-active' };
-      case 'medium': return { label: 'Medium confidence', cls: 'status-review' };
-      case 'low': return { label: 'Low confidence', cls: 'status-cancelled' };
-      default: return { label: confidence, cls: 'status-cancelled' };
+  const undoMutation = useMutation({
+    mutationFn: async (body: { suggestionIds: string[]; createdSubscriptionIds: string[] }) => {
+      const response = await apiRequest("POST", "/api/suggestions/undo", body);
+      return response.json();
+    },
+  });
+
+  const undo = async (ids: string[], createdSubscriptionIds: string[], reopen: string) => {
+    try {
+      await undoMutation.mutateAsync({ suggestionIds: ids, createdSubscriptionIds });
+      setGone((prev) => {
+        const next = { ...prev };
+        for (const id of ids) delete next[id];
+        return next;
+      });
+      setLeaving((prev) => {
+        const next = { ...prev };
+        for (const id of ids) delete next[id];
+        return next;
+      });
+      setOpenId(reopen);
+      invalidateAfterDecision();
+      focusCard(reopen);
+    } catch {
+      toast({
+        title: "Couldn't undo",
+        description: "The decision was saved and could not be reversed. You can change it from Subscriptions.",
+        variant: "destructive",
+      });
     }
+  };
+
+  /**
+   * Record a decision on one or more cards.
+   *
+   * The card is tinted first and leaves a beat later, so the colour is seen;
+   * the request goes out at once rather than after the animation. If it
+   * fails, the cards come back exactly where they were.
+   */
+  const decide = async (ids: string[], decision: Decision) => {
+    if (ids.length === 0 || busy) return;
+    setBusy(true);
+
+    const upcoming = ids.length === 1 ? nextAfter(ids[0]) : null;
+    const first = queue.find((s) => s.id === ids[0]);
+
+    setLeaving((prev) => {
+      const next = { ...prev };
+      for (const id of ids) next[id] = decision;
+      return next;
+    });
+
+    const request = apiRequest(
+      "POST",
+      decision === "approve" ? "/api/suggestions/approve" : "/api/suggestions/reject",
+      decision === "approve" ? { userId, suggestionIds: ids } : { suggestionIds: ids },
+    ).then((r) => r.json());
+
+    window.setTimeout(() => {
+      setGone((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = decision;
+        return next;
+      });
+      setOpenId(upcoming);
+      focusCard(upcoming);
+    }, reduceMotion ? 0 : TINT_MS);
+
+    try {
+      const result = await request;
+      const createdSubscriptionIds: string[] = result.createdSubscriptionIds ?? [];
+      /* Refreshed only once the card has gone. The request usually returns
+         well inside the tint, and refetching then pulled the card out of the
+         list before anyone saw it turn green -- it vanished rather than
+         leaving. */
+      window.setTimeout(invalidateAfterDecision, reduceMotion ? 0 : TINT_MS + EXIT_MS + 60);
+
+      const single = ids.length === 1 && first ? first.serviceName : null;
+      toast({
+        title:
+          decision === "approve"
+            ? single ? `${single} added` : `${ids.length} subscriptions added`
+            : single ? `${single} rejected` : `${ids.length} suggestions rejected`,
+        description:
+          decision === "approve"
+            ? "It's on your Subscriptions page now."
+            : "It won't be suggested again from these emails.",
+        duration: 6000,
+        action: (
+          <ToastAction altText="Undo" onClick={() => undo(ids, createdSubscriptionIds, ids[0])}>
+            Undo
+          </ToastAction>
+        ),
+      });
+    } catch {
+      // Put everything back where it was: the decision did not happen.
+      setGone((prev) => {
+        const next = { ...prev };
+        for (const id of ids) delete next[id];
+        return next;
+      });
+      setLeaving((prev) => {
+        const next = { ...prev };
+        for (const id of ids) delete next[id];
+        return next;
+      });
+      setOpenId(ids[0]);
+      toast({
+        title: decision === "approve" ? "Couldn't approve" : "Couldn't reject",
+        description: "Nothing was changed. Try again in a moment.",
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const skip = (id: string) => {
+    const upcoming = nextAfter(id);
+    setSkipped((prev) => [...prev.filter((x) => x !== id), id]);
+    setOpenId(upcoming);
+    focusCard(upcoming);
   };
 
   if (!userId) {
@@ -345,14 +296,17 @@ export default function ReviewInbox() {
     );
   }
 
+  const count = queue.length;
   const subline = isLoading
-    ? "Checking for unmatched charges…"
-    : total === 0
+    ? "Checking what your last sync found…"
+    : count === 0
       ? "Nothing waiting for review right now."
-      : `${total} charge${total === 1 ? "" : "s"} the last sync couldn't match`;
+      : `Your last sync found ${count} subscription${count === 1 ? "" : "s"}. Approve the ones you want to track.`;
+
+  const allIds = queue.map((s) => s.id);
 
   return (
-    <div className="flex flex-col h-full min-h-0 overflow-hidden bg-canvas">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden bg-[hsl(0,0%,95%)]">
       {/* Progressive Loading Banner */}
       {isSyncInProgress && (
         <div
@@ -378,287 +332,112 @@ export default function ReviewInbox() {
           </div>
         </div>
       )}
-
-      {/* --- Page header ---------------------------------------------------- */}
-      <header
-        className="flex-shrink-0 bg-surface border-b border-line flex items-end justify-between gap-4 flex-wrap"
-        style={{ padding: "20px 24px 16px" }}
-      >
-        <div className="min-w-0">
-          <h1 className="t-page">Review inbox</h1>
-          <p className="text-[12.5px] text-muted-foreground mt-1">{subline}</p>
-        </div>
-
-        {suggestions.length > 0 && mode === 'cards' && (
-          <button
-            type="button"
-            className="btn-base btn-ghost"
-            onClick={() => setMode('list')}
-            data-testid="mode-list"
-          >
-            <LayoutList size={15} strokeWidth={2} />
-            Review as a list
-          </button>
-        )}
-
-        {suggestions.length > 0 && mode === 'list' && (
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              className="btn-base btn-ghost"
-              onClick={() => setMode('cards')}
-              data-testid="mode-cards"
-            >
-              <Layers size={15} strokeWidth={2} />
-              One at a time
-            </button>
-            <div className="w-px h-5 bg-line mx-1" />
-            <span className="text-[12.5px] text-muted-foreground mr-1">
-              {selectedSuggestions.length} of {suggestions.length} selected
-            </span>
-            <button type="button" className="btn-base btn-ghost" onClick={selectHighConfidence}>
-              Select high confidence
-            </button>
-            <button type="button" className="btn-base btn-ghost" onClick={selectAll}>
-              Select all
-            </button>
-            <button type="button" className="btn-base btn-ghost" onClick={clearSelection}>
-              Clear
-            </button>
-            {selectedSuggestions.length > 0 && (
-              <>
-                <div className="w-px h-5 bg-line mx-1" />
+      <main className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 pt-8 pb-16">
+        <div className="mx-auto w-full max-w-[1000px] flex flex-col gap-7">
+          <header className="flex items-end justify-between gap-4 flex-wrap">
+            <div className="min-w-0">
+              <h1 className="t-page">Review inbox</h1>
+              <p className="text-[13px] text-muted-foreground mt-1.5">{subline}</p>
+            </div>
+            {count > 0 && (
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  className="btn-base btn-secondary"
-                  onClick={handleBatchReject}
-                  disabled={rejectMutation.isPending}
+                  className="btn-base btn-secondary !h-9 !px-3.5 !text-[13px] font-semibold"
+                  onClick={() => decide(allIds, "reject")}
+                  disabled={busy}
+                  data-testid="button-reject-all"
                 >
-                  <X size={15} strokeWidth={2} />
-                  Reject ({selectedSuggestions.length})
+                  <X size={15} strokeWidth={2.2} aria-hidden="true" />
+                  Reject all
                 </button>
                 <button
                   type="button"
-                  className="btn-base btn-primary"
-                  onClick={handleBatchApprove}
-                  disabled={approveMutation.isPending}
+                  className="btn-base btn-approve !h-9 !px-3.5 !text-[13px]"
+                  onClick={() => decide(allIds, "approve")}
+                  disabled={busy}
+                  data-testid="button-approve-all"
                 >
-                  <Check size={15} strokeWidth={2} />
-                  Approve ({selectedSuggestions.length})
+                  <Check size={15} strokeWidth={2.4} aria-hidden="true" />
+                  Approve all ({count})
                 </button>
-              </>
+              </div>
             )}
-          </div>
-        )}
-      </header>
+          </header>
 
-      {/* --- Body ------------------------------------------------------------ */}
-      <main
-        className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-[18px]"
-        style={{ padding: "20px 24px 40px" }}
-      >
-        {isLoading ? (
-          <div className="flex flex-col gap-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="bg-line-soft rounded-card h-[132px] animate-pulse" />
-            ))}
-          </div>
-        ) : suggestions.length === 0 ? (
-          <div className="surface-card flex flex-col items-center justify-center text-center py-10">
-            <Inbox size={20} strokeWidth={2} className="text-muted-foreground" />
-            <h3 className="text-[13px] font-semibold text-ink mt-3">Nothing to review</h3>
-            <p className="text-[11.5px] text-muted-foreground mt-1">
-              The last sync matched every charge it found.
-            </p>
-          </div>
-        ) : mode === 'cards' ? (
-          <ReviewCarousel
-            cards={reviewCards}
-            confidenceMeta={confidenceMeta}
-            onSave={handleCarouselSave}
-            isSaving={approveMutation.isPending || rejectMutation.isPending}
-            onSwitchToList={() => setMode('list')}
-          />
-        ) : (
-          <div className="flex flex-col gap-3">
-            {suggestions.map((suggestion) => {
-              const isProcessing = processingSuggestions.includes(suggestion.id);
-              const attachments = parseAttachmentEvidence(suggestion.attachmentEvidence);
-              const isSelected = selectedSuggestions.includes(suggestion.id);
-              const category = displayCategory(suggestion.category);
-              const confidence = confidenceMeta(suggestion.confidence);
-              const frequencyLabel = FREQUENCY_LABEL[suggestion.frequency] ?? suggestion.frequency;
-              const frequencySuffix = FREQUENCY_SUFFIX[suggestion.frequency] ?? "";
-              const money = display(suggestion.amount, suggestion.currency);
-              const reasoningText = suggestion.reasoning
-                || `This appears to be a ${suggestion.frequency} subscription to ${suggestion.serviceName} based on the email patterns detected.`;
-              const evidenceLine = suggestion.emailEvidence && suggestion.emailEvidence.length > 0
-                ? `"${suggestion.emailEvidence[0].subject}" · ${formatDate(suggestion.emailEvidence[0].receivedAt)}${
-                    suggestion.emailEvidence.length > 1 ? ` · +${suggestion.emailEvidence.length - 1} more email${suggestion.emailEvidence.length - 1 > 1 ? 's' : ''}` : ''
-                  }`
-                : (suggestion.occurrences && suggestion.occurrences > 1
-                    ? `${suggestion.occurrences} supporting emails`
-                    : null);
-
-              return (
-                <div
-                  key={suggestion.id}
-                  className={cn(
-                    "surface-card p-[15px] flex flex-col gap-3 transition-opacity duration-200",
-                    isProcessing && "opacity-50"
-                  )}
-                  data-testid={`suggestion-card-${suggestion.id}`}
-                >
-                  {/* Top line */}
-                  <div className="flex items-center gap-2.5">
-                    <Checkbox
-                      checked={isSelected}
-                      onCheckedChange={(checked) => handleSuggestionSelect(suggestion.id, checked as boolean)}
-                      disabled={isProcessing}
+          {isLoading ? (
+            <div className="flex flex-col gap-3" aria-busy="true">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className={`bg-surface border border-line rounded-[16px] animate-pulse ${i === 0 ? "h-[320px]" : "h-[76px]"}`} />
+              ))}
+            </div>
+          ) : count === 0 ? (
+            <div className="bg-surface border border-line rounded-[16px] flex flex-col items-center justify-center text-center py-12 px-6">
+              <Inbox size={20} strokeWidth={2} className="text-muted-foreground" aria-hidden="true" />
+              <h2 className="text-[14px] font-semibold text-ink mt-3">All caught up</h2>
+              <p className="text-[12.5px] text-muted-foreground mt-1">
+                Everything the last sync found has been decided.{" "}
+                <Link href="/subscriptions" className="text-accent font-medium">See your subscriptions</Link>
+              </p>
+            </div>
+          ) : (
+            <ul className="flex flex-col" aria-label="Suggestions to review">
+              <AnimatePresence initial={false}>
+                {queue.map((s) => (
+                  /*
+                   * Leaving is two movements: the card slides off toward its
+                   * verdict, then the space it held closes. They overlap a
+                   * little so it reads as one gesture.
+                   *
+                   * No `layout` here. Layout animation fakes size changes with
+                   * transforms, so the list item's real height dropped to zero
+                   * at once and the cards below jumped up underneath a card
+                   * still on its way out. Animating the real height lets the
+                   * rest of the list follow it down smoothly.
+                   *
+                   * The clip is vertical only: it hides the card as its row
+                   * closes without cutting off the sideways slide.
+                   */
+                  <motion.li
+                    key={s.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0, x: 0 }}
+                    exit={
+                      reduceMotion
+                        ? { opacity: 0, transition: { duration: 0.15 } }
+                        : {
+                            opacity: 0,
+                            x: leaving[s.id] === "reject" ? -160 : 160,
+                            height: 0,
+                            paddingBottom: 0,
+                            clipPath: "inset(0px -400px 0px -400px)",
+                            transition: {
+                              x: { duration: 0.28, ease: [0.4, 0, 1, 1] },
+                              opacity: { duration: 0.26, ease: "easeIn" },
+                              height: { duration: 0.24, delay: 0.2, ease: [0.4, 0, 0.2, 1] },
+                              paddingBottom: { duration: 0.24, delay: 0.2 },
+                            },
+                          }
+                    }
+                    transition={{ type: "spring", stiffness: 420, damping: 38 }}
+                    className="pb-3"
+                  >
+                    <ReviewCard
+                      suggestion={s}
+                      open={openId === s.id}
+                      leaving={leaving[s.id]}
+                      busy={busy}
+                      onToggle={() => setOpenId(openId === s.id ? null : s.id)}
+                      onApprove={() => decide([s.id], "approve")}
+                      onReject={() => decide([s.id], "reject")}
+                      onSkip={() => skip(s.id)}
                     />
-                    <ServiceLogo name={suggestion.serviceName} merchantEmail={merchantEmailOf(suggestion)} size={34} />
-                    <span className="t-card-title flex-1 min-w-0 truncate">{suggestion.serviceName}</span>
-                    <span className="t-price flex-none text-right">
-                      {money.primary}
-                      <span className="text-[11.5px] font-medium text-muted-foreground">{frequencySuffix}</span>
-                      {money.secondary && (
-                        <span className="block text-[10.5px] font-medium text-muted-foreground tabular-nums">
-                          billed {money.secondary}
-                        </span>
-                      )}
-                    </span>
-                  </div>
-
-                  {/* Badge row */}
-                  <div className="flex flex-wrap gap-[5px]">
-                    <span className="badge-cadence">{frequencyLabel}</span>
-                    {category && <span className="badge-category">{category}</span>}
-                    <span className={cn("badge-status", confidence.cls)}>{confidence.label}</span>
-                    {/* Detection found no currency printed in the email and
-                        refused to guess one. Worth a glance before approving,
-                        because the amount is right and only the unit is open. */}
-                    {isUnknownCurrency(suggestion.currency) && (
-                      <span className="badge-status status-trial" data-testid={`currency-unknown-${suggestion.id}`}>
-                        Check currency
-                      </span>
-                    )}
-                    {suggestion.possibleDuplicateOf && (
-                      <span
-                        className="badge-status status-review"
-                        title={suggestion.possibleDuplicateOf.reason}
-                        data-testid="badge-possible-duplicate"
-                      >
-                        Possible duplicate
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Evidence */}
-                  <div className="bg-line-soft rounded-lg p-3 flex flex-col gap-1.5">
-                    <p className="text-[12.5px] text-ink-body">{reasoningText}</p>
-                    {suggestion.possibleDuplicateOf && (
-                      <p className="text-[11.5px] text-warning" data-testid="text-duplicate-reason">
-                        {suggestion.possibleDuplicateOf.reason}
-                      </p>
-                    )}
-                  </div>
-                  {evidenceLine && (
-                    <p className="text-[11.5px] text-muted-foreground -mt-1.5">{evidenceLine}</p>
-                  )}
-
-                  {/*
-                    The rest of the evidence. These were dropped in the first
-                    styling pass as decoration, but they are the page's whole
-                    purpose: every one is real, stored data, and together they
-                    are the answer to "why does Verloq think this is a
-                    subscription". Folded into compact lines rather than the
-                    three separate bordered boxes they used to occupy.
-                  */}
-                  {(attachments.length > 0 ||
-                    (suggestion.recurringKeywords && suggestion.recurringKeywords.length > 0) ||
-                    suggestion.nextBillingDate) && (
-                    <div className="flex flex-col gap-2 -mt-1">
-                      {attachments.length > 0 && (
-                        <div className="flex items-start gap-2 text-[11.5px] text-muted-foreground">
-                          <FileText size={13} strokeWidth={2} className="flex-none mt-px" />
-                          <span className="min-w-0">
-                            {attachments.map((att) => att.name).join(", ")}
-                          </span>
-                        </div>
-                      )}
-
-                      {suggestion.recurringKeywords && suggestion.recurringKeywords.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-[5px]">
-                          {suggestion.recurringKeywords.slice(0, 5).map((keyword, index) => (
-                            <span key={index} className="badge-category">
-                              {keyword}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                      {suggestion.nextBillingDate && (
-                        <div className="flex items-center gap-2 text-[11.5px] text-muted-foreground">
-                          <Calendar size={13} strokeWidth={2} className="flex-none" />
-                          <span>Next charge expected {formatDate(suggestion.nextBillingDate)}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Per-row actions */}
-                  <div className="flex items-center justify-end gap-2 border-t border-line-soft pt-3">
-                    <button
-                      type="button"
-                      className="btn-base btn-secondary"
-                      onClick={() => rejectMutation.mutate([suggestion.id])}
-                      disabled={isProcessing}
-                    >
-                      <X size={15} strokeWidth={2} />
-                      Reject
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-base btn-primary"
-                      onClick={() => approveMutation.mutate([suggestion.id])}
-                      disabled={isProcessing}
-                    >
-                      <Check size={15} strokeWidth={2} />
-                      Approve
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Pagination */}
-        {mode === 'list' && totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2">
-            <button
-              type="button"
-              className="btn-base btn-secondary"
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-            >
-              <ChevronLeft size={15} strokeWidth={2} />
-              Previous
-            </button>
-            <span className="text-[12.5px] text-muted-foreground px-4">
-              Page {currentPage} of {totalPages}
-            </span>
-            <button
-              type="button"
-              className="btn-base btn-secondary"
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-            >
-              Next
-              <ChevronRight size={15} strokeWidth={2} />
-            </button>
-          </div>
-        )}
+                  </motion.li>
+                ))}
+              </AnimatePresence>
+            </ul>
+          )}
+        </div>
       </main>
     </div>
   );

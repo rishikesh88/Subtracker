@@ -144,3 +144,34 @@ export function displayCategory(raw?: string | null): string | null {
     )
     .join(" ");
 }
+
+/**
+ * "in 3 days", "2 months ago". Moved here from the subscription detail panel
+ * so the review inbox says it the same way.
+ */
+export function relativeFromNow(date: Date): string {
+  const diffDays = Math.round((date.getTime() - Date.now()) / 86400000);
+  if (diffDays === 0) return "today";
+
+  const past = diffDays < 0;
+  const days = Math.abs(diffDays);
+  if (days < 30) {
+    return past ? `${days} day${days === 1 ? "" : "s"} ago` : `in ${days} day${days === 1 ? "" : "s"}`;
+  }
+  const months = Math.round(days / 30);
+  return past ? `${months} month${months === 1 ? "" : "s"} ago` : `in ${months} month${months === 1 ? "" : "s"}`;
+}
+
+/**
+ * "Sep 18, 2026 · 9:42 AM", in the interface face rather than a code face.
+ * The review inbox used monospace for receipt times once, and beside
+ * everything else set in Archivo it read as a different product.
+ */
+export function formatDateTime(value: Date | string | null | undefined): string {
+  if (!value) return "";
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return "";
+  const day = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const time = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `${day} · ${time}`;
+}
