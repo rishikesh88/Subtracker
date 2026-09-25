@@ -109,6 +109,16 @@ app.use((req, res, next) => {
       console.error('Failed to sweep stuck sync jobs:', error);
     }
 
+    // Emails are stored per account (see ensureEmailsUniquePerAccount). Until
+    // this has run, a second account reading the same mailbox cannot save its
+    // own copies, so a failure is logged loudly -- but the app still serves.
+    try {
+      const outcome = await storage.ensureEmailsUniquePerAccount();
+      if (outcome === 'changed') log('emails are now stored per account');
+    } catch (error) {
+      console.error('❌ Could not make emails unique per account:', error);
+    }
+
     // Fill the rate table before the first page asks for a total. This never
     // rejects -- a failure leaves the fallback in place and says so in the log
     // -- so it is deliberately not awaited and cannot delay the port opening.
