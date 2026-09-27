@@ -9,6 +9,7 @@
  * Violet appears here exactly twice: the brand tile, and the icon on the
  * active row. That is the whole of its job in navigation.
  */
+import { signOut } from "@/lib/signOut";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
@@ -108,14 +109,7 @@ export function Sidebar({ user, hasMailbox }: SidebarProps) {
   const pendingSuggestionsCount = suggestionsData?.total ?? 0;
 
   const handleLogout = () => {
-    queryClient.clear();
-    toast({
-      title: "Signing out…",
-      description: "You'll be redirected to sign in with a different account.",
-    });
-    setTimeout(() => {
-      window.location.href = "/api/logout";
-    }, 500);
+    void signOut();
   };
 
   const displayName =

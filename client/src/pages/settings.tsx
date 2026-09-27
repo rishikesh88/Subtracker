@@ -1,3 +1,4 @@
+import { signOut } from "@/lib/signOut";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { User, LogOut, Mail, Calendar, Save, Trash2, RefreshCw, AlertTriangle } from "lucide-react";
@@ -363,19 +364,7 @@ export default function Settings() {
   };
 
   const handleLogout = () => {
-    // Clear all cached data before logout for seamless account switching
-    queryClient.clear();
-
-    // Show signing out feedback
-    toast({
-      title: "Signing out...",
-      description: "You'll be redirected to sign in with a different account.",
-    });
-
-    // Redirect to logout endpoint
-    setTimeout(() => {
-      window.location.href = '/api/logout';
-    }, 500);
+    void signOut();
   };
 
   return (

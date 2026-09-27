@@ -87,6 +87,14 @@ export async function setupAuth(app: Express) {
   // This allows the app to work in production without Replit-specific auth
   if (!process.env.REPLIT_DOMAINS) {
     console.log('[Auth] REPLIT_DOMAINS not set, skipping Replit OIDC auth setup');
+    // The Replit sign-out below is not registered here, and the app's own
+    // buttons no longer use this address -- but an old link or bookmark to
+    // it answered {"message":"Not found"}. End the session and go to sign in.
+    app.get("/api/logout", (req, res) => {
+      req.logout(() => {
+        req.session.destroy(() => res.redirect("/login"));
+      });
+    });
     return;
   }
 
