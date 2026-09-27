@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Link } from "wouter";
-import { Check, Inbox, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -300,7 +300,7 @@ export default function ReviewInbox() {
   const subline = isLoading
     ? "Checking what your last sync found…"
     : count === 0
-      ? "Nothing waiting for review right now."
+      ? "Nothing waiting for review."
       : `Your last sync found ${count} subscription${count === 1 ? "" : "s"}. Approve the ones you want to track.`;
 
   const allIds = queue.map((s) => s.id);
@@ -372,13 +372,24 @@ export default function ReviewInbox() {
               ))}
             </div>
           ) : count === 0 ? (
-            <div className="bg-surface border border-line rounded-[16px] flex flex-col items-center justify-center text-center py-12 px-6">
-              <Inbox size={20} strokeWidth={2} className="text-muted-foreground" aria-hidden="true" />
-              <h2 className="text-[14px] font-semibold text-ink mt-3">All caught up</h2>
-              <p className="text-[12.5px] text-muted-foreground mt-1">
-                Everything the last sync found has been decided.{" "}
-                <Link href="/subscriptions" className="text-accent font-medium">See your subscriptions</Link>
+            <div className="flex flex-col items-center justify-center text-center gap-[18px] py-16 px-6" data-testid="review-empty">
+              {/* Three cards squared away, the top one ticked. */}
+              <div className="relative w-[150px] h-[104px]" aria-hidden="true">
+                <span className="absolute left-[22px] top-0 w-[106px] h-16 rounded-[10px] bg-surface border border-line -rotate-6" />
+                <span className="absolute left-[18px] top-[14px] w-[114px] h-[68px] rounded-[10px] bg-surface border border-line rotate-[4deg]" />
+                <span className="absolute left-[14px] top-[30px] w-[122px] h-[72px] rounded-[11px] bg-surface border border-line-firm shadow-[0_10px_24px_-12px_rgba(0,0,0,0.25)] flex items-center justify-center">
+                  <span className="w-[34px] h-[34px] rounded-full bg-success flex items-center justify-center">
+                    <Check size={18} strokeWidth={2.8} className="text-white" />
+                  </span>
+                </span>
+              </div>
+              <h2 className="font-serif text-[30px] font-normal tracking-[-0.02em] leading-tight text-ink">All caught up</h2>
+              <p className="text-[14.5px] leading-relaxed text-ink-body max-w-[420px]">
+                Everything your syncs found has been decided. New subscriptions will show up here after the next sync.
               </p>
+              <Link href="/" className="btn-base btn-accent h-10 px-4 text-[13.5px]">
+                Go to dashboard
+              </Link>
             </div>
           ) : (
             <ul className="flex flex-col" aria-label="Suggestions to review">

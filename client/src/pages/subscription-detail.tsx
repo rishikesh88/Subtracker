@@ -29,7 +29,7 @@ import { ServiceLogo } from "@/components/ServiceLogo";
  * page rather than as a page of its own.
  *
  * The id comes in as a prop instead of being read from the route, because the
- * drawer and the list share one URL: /subscriptions/:id renders the list with
+ * drawer and the dashboard share one URL: /subscriptions/:id renders the dashboard with
  * this panel open over it. Keeping the URL means a shared link, a refresh and
  * the back button all still land where they should.
  */
@@ -58,7 +58,7 @@ export default function SubscriptionDetail({
 
   // Closing falls back to navigation when no handler is supplied, so the
   // component still works if it is ever rendered on its own again.
-  const close = onClose ?? (() => setLocation("/subscriptions"));
+  const close = onClose ?? (() => setLocation("/"));
 
   // Fetch subscription details
   const { data: subscription, isLoading: loadingSubscription } = useQuery<Subscription>({
@@ -150,7 +150,7 @@ export default function SubscriptionDetail({
       });
       queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
       queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
-      setLocation('/subscriptions');
+      setLocation('/');
     },
     onError: () => {
       toast({
@@ -483,7 +483,7 @@ export default function SubscriptionDetail({
               <span className="text-[13px] text-ink">{subscription.ownerName || 'Not specified'}</span>
             )}
           </DetailRow>
-          <DetailRow label="Owner email" noBorder>
+          <DetailRow label="Owner email">
             {isEditMode ? (
               <div className="field">
                 <input
@@ -497,6 +497,13 @@ export default function SubscriptionDetail({
             ) : (
               <span className="text-[13px] text-ink">{subscription.ownerEmail || 'Not specified'}</span>
             )}
+          </DetailRow>
+          {/* What the merchant actually charged, in its own currency. Taken
+              from the receipt, so it is shown, never edited. */}
+          <DetailRow label="Billed in" noBorder>
+            <span className="text-[13px] text-ink tabular-nums" data-testid="billed-in">
+              {formatCurrency(amount, subscription.currency)}
+            </span>
           </DetailRow>
         </div>
       </div>

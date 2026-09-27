@@ -1,39 +1,27 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { CURRENCIES } from "@/lib/currencies";
 import { useState, useEffect } from "react";
-import { Link } from "wouter";
-import {
-  RefreshCw,
-  Mail,
-  Globe,
-  Plus,
-  MoreVertical,
-  Trash2,
-  Copy,
-  AlertTriangle,
-} from "lucide-react";
+import { useLocation, useRoute } from "wouter";
+import { RefreshCw, Mail, Plus, Search, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useMailboxes } from "@/hooks/useMailboxes";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { AddSubscriptionModal } from "@/components/AddSubscriptionModal";
 import { SubscriptionSuggestionsModal } from "@/components/SubscriptionSuggestionsModal";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import SubscriptionDetail from "@/pages/subscription-detail";
 import { cn } from "@/lib/utils";
-import { filterBucket, formatCurrency } from "@/lib/format";
+import { filterBucket, formatCurrency, displayCategory } from "@/lib/format";
 import { SubscriptionCard } from "@/components/SubscriptionCard";
 import { ReviewBanner } from "@/components/ReviewBanner";
 import { type Subscription } from "@shared/schema";
 
-// Supported currencies
 
 // "synced 2 hours ago" -- purely a display formatter for the sync
 // timestamp the page already has (user.lastSync).
@@ -57,6 +45,17 @@ export default function Dashboard() {
   const [isSyncInProgress, setIsSyncInProgress] = useState(false);
   // Presentation-only: which filter segment is selected on the subscription grid.
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "expired">("active");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+
+  /*
+   * The subscription detail is a drawer over the dashboard. It keeps its own
+   * URL, /subscriptions/:id, so a shared link, a refresh and the back button
+   * behave -- the Subscriptions page it used to open over is gone.
+   */
+  const [detailMatches, detailParams] = useRoute("/subscriptions/:id");
+  const [, setLocation] = useLocation();
+  const openSubscriptionId = detailMatches ? detailParams?.id : undefined;
 
   // Track sync progress from localStorage
   useEffect(() => {
@@ -146,14 +145,6 @@ export default function Dashboard() {
     enabled: !!currentUserId,
   });
 
-  // Pending suggestions -- same endpoint the sidebar's review badge already
-  // reads, used here to drive the review banner and its count.
-  const { data: suggestionsData } = useQuery<{ suggestions: any[]; total: number }>({
-    queryKey: [`/api/suggestions?userId=${currentUserId}`],
-    enabled: !!currentUserId,
-  });
-  const pendingSuggestionsCount = suggestionsData?.total ?? 0;
-
   // Gmail auth mutation
   const gmailAuthMutation = useMutation({
     mutationFn: async () => {
@@ -209,93 +200,6 @@ export default function Dashboard() {
     }
   };
 
-  // Clear all data mutation
-  const clearDataMutation = useMutation({
-    mutationFn: async () => {
-      if (!currentUserId) throw new Error("No user ID");
-      const response = await apiRequest("DELETE", `/api/clear-data`);
-      return response.json();
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "Data Cleared Successfully",
-        description: `Cleared ${data.clearedEmails} emails and ${data.clearedSubscriptions} subscriptions`,
-      });
-      // Refresh all data
-      queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
-      queryClient.invalidateQueries({ queryKey: [`/api/suggestions?userId=${currentUserId}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/emails?userId=${currentUserId}`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
-    },
-    onError: () => {
-      toast({
-        title: "Clear Failed",
-        description: "Failed to clear data. Please try again.",
-        variant: "destructive",
-      });
-    }
-  });
-
-  // Currency change mutation
-  const changeCurrencyMutation = useMutation({
-    mutationFn: async (newCurrency: string) => {
-      const response = await apiRequest("PATCH", "/api/settings", {
-        preferredCurrency: newCurrency
-      });
-      return response.json();
-    },
-    onSuccess: (data) => {
-      const currency = CURRENCIES.find(c => c.code === data.preferredCurrency);
-      toast({
-        title: "Currency Updated",
-        description: `Your preferred currency is now ${currency?.symbol || ''}${data.preferredCurrency}`,
-      });
-      // Refresh user data to update preference
-      queryClient.invalidateQueries({ queryKey: [`/api/auth/user`] });
-      // Refresh stats with new currency
-      queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
-    },
-    onError: () => {
-      toast({
-        title: "Currency Update Failed",
-        description: "Failed to update your preferred currency. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  // Email sync days change mutation
-  const changeSyncDaysMutation = useMutation({
-    mutationFn: async (newDays: number) => {
-      const response = await apiRequest("PATCH", "/api/settings", {
-        emailSyncDays: newDays
-      });
-      return response.json();
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "Sync Range Updated",
-        description: `Email sync will now fetch emails from the past ${data.emailSyncDays} days. Starting sync...`,
-      });
-      // Refresh user data to update preference
-      queryClient.invalidateQueries({ queryKey: [`/api/auth/user`] });
-
-      // Trigger automatic sync with new duration
-      localStorage.setItem('justOnboarded', 'true');
-      localStorage.setItem('onboardedAt', Date.now().toString());
-      window.dispatchEvent(new Event('syncTrigger'));
-
-      syncEmailsMutation.mutate();
-    },
-    onError: () => {
-      toast({
-        title: "Sync Range Update Failed",
-        description: "Failed to update email sync range. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
   // Enhanced sync emails mutation with multi-account support
   const syncEmailsMutation = useMutation({
     mutationFn: async () => {
@@ -330,30 +234,6 @@ export default function Dashboard() {
 
       // Shown in the sync window, which is already open.
       window.dispatchEvent(new CustomEvent('syncStartFailed', { detail: error.message }));
-    },
-  });
-
-  // Cleanup duplicates mutation
-  const cleanupDuplicatesMutation = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/cleanup-duplicates");
-      return response.json();
-    },
-    onSuccess: (data) => {
-      toast({
-        title: "Cleanup Complete! 🎉",
-        description: `Removed ${data.duplicatesRemoved} duplicate subscriptions from ${data.groupsProcessed} groups`,
-      });
-      // Refresh all data to show updated results
-      queryClient.invalidateQueries({ queryKey: ['/api/subscriptions'] });
-      queryClient.invalidateQueries({ queryKey: [`/api/stats?userId=${currentUserId}`] });
-    },
-    onError: () => {
-      toast({
-        title: "Cleanup Failed",
-        description: "Failed to cleanup duplicates. Please try again.",
-        variant: "destructive",
-      });
     },
   });
 
@@ -423,16 +303,25 @@ export default function Dashboard() {
     active: subscriptions.filter((s) => filterBucket(s.status) === "active").length,
     expired: subscriptions.filter((s) => filterBucket(s.status) === "expired").length,
   };
-  const filteredSubscriptions = subscriptions.filter(
-    (s) => statusFilter === "all" || filterBucket(s.status) === statusFilter
-  );
+  // The categories actually present, normalised the way the badges are, so
+  // "streaming" and "Streaming" are one choice.
+  const categories = Array.from(
+    new Set(subscriptions.map((s) => displayCategory(s.category)).filter(Boolean) as string[])
+  ).sort((a, b) => a.localeCompare(b));
+  const filteredSubscriptions = subscriptions.filter((s) => {
+    const matchesStatus = statusFilter === "all" || filterBucket(s.status) === statusFilter;
+    const matchesSearch = s.serviceName.toLowerCase().includes(searchQuery.trim().toLowerCase());
+    const matchesCategory = categoryFilter === "all" || displayCategory(s.category) === categoryFilter;
+    return matchesStatus && matchesSearch && matchesCategory;
+  });
+  const isFiltering = searchQuery.trim() !== "" || categoryFilter !== "all";
 
   const segments: { key: typeof statusFilter; label: string; count: number; testId: string }[] = [
     // Active first: it is the segment people are actually here for, and it is
     // also what the page opens on.
     { key: "active", label: "Active", count: filterCounts.active, testId: "filter-active" },
+    { key: "expired", label: "Ended", count: filterCounts.expired, testId: "filter-expired" },
     { key: "all", label: "All", count: filterCounts.all, testId: "filter-all" },
-    { key: "expired", label: "Expired", count: filterCounts.expired, testId: "filter-expired" },
   ];
 
   const addSubscriptionTile = (
@@ -524,105 +413,6 @@ export default function Dashboard() {
             Add subscription
           </button>
 
-          {/* 3-dot Menu for Settings and Actions */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                data-testid="dashboard-menu"
-                className={cn(
-                  "btn-base btn-ghost w-8 px-0",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                )}
-                aria-label="Dashboard menu"
-              >
-                <MoreVertical size={15} strokeWidth={2} />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              {/* Currency Selection */}
-              <DropdownMenuLabel className="text-xs text-muted-foreground">Currency</DropdownMenuLabel>
-              <div className="px-2 py-1">
-                <Select
-                  value={user?.preferredCurrency || 'INR'}
-                  onValueChange={(value) => changeCurrencyMutation.mutate(value)}
-                  disabled={changeCurrencyMutation.isPending}
-                >
-                  <SelectTrigger className="w-full h-8 text-sm" data-testid="currency-selector">
-                    <Globe className="w-3 h-3 mr-1" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent data-testid="currency-dropdown">
-                    {CURRENCIES.map((currency) => (
-                      <SelectItem
-                        key={currency.code}
-                        value={currency.code}
-                        data-testid={`currency-option-${currency.code}`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span>{currency.symbol}</span>
-                          <span>{currency.code}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Sync Days Selection */}
-              <DropdownMenuLabel className="text-xs text-muted-foreground mt-2">Sync Period</DropdownMenuLabel>
-              <div className="px-2 py-1">
-                <Select
-                  value={String(user?.emailSyncDays || 30)}
-                  onValueChange={(value) => changeSyncDaysMutation.mutate(parseInt(value))}
-                  disabled={changeSyncDaysMutation.isPending}
-                >
-                  <SelectTrigger className="w-full h-8 text-sm" data-testid="sync-days-selector">
-                    <Mail className="w-3 h-3 mr-1" />
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent data-testid="sync-days-dropdown">
-                    <SelectItem value="30" data-testid="sync-days-option-30">30 days</SelectItem>
-                    <SelectItem value="60" data-testid="sync-days-option-60">60 days</SelectItem>
-                    <SelectItem value="90" data-testid="sync-days-option-90">90 days</SelectItem>
-                    <SelectItem value="180" data-testid="sync-days-option-180">180 days</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <DropdownMenuSeparator />
-
-              {/* Remove Duplicates */}
-              <DropdownMenuItem
-                onClick={() => cleanupDuplicatesMutation.mutate()}
-                disabled={cleanupDuplicatesMutation.isPending}
-                data-testid="cleanup-duplicates"
-                className="cursor-pointer"
-              >
-                {cleanupDuplicatesMutation.isPending ? (
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Copy className="w-4 h-4 mr-2" />
-                )}
-                Remove Duplicates
-              </DropdownMenuItem>
-
-              {/* Clear Data */}
-              <DropdownMenuItem
-                onClick={() => clearDataMutation.mutate()}
-                disabled={clearDataMutation.isPending}
-                data-testid="clear-data"
-                className="cursor-pointer text-destructive focus:text-destructive"
-              >
-                {clearDataMutation.isPending ? (
-                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <Trash2 className="w-4 h-4 mr-2" />
-                )}
-                Clear All Data
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </header>
 
@@ -689,35 +479,39 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* 2. Review banner */}
-        {pendingSuggestionsCount > 0 && (
-          <div
-            className="flex items-center gap-3 flex-wrap px-[15px] py-3 rounded-card border border-warning-line bg-warning-bg"
-            data-testid="review-banner"
-          >
-            <AlertTriangle size={16} strokeWidth={2} className="text-warning flex-none" />
-            <p className="text-[13px] text-ink-strong flex-1 min-w-[200px]">
-              <span className="font-semibold">
-                {pendingSuggestionsCount} charge{pendingSuggestionsCount === 1 ? "" : "s"} need{pendingSuggestionsCount === 1 ? "s" : ""} review.
-              </span>{" "}
-              The last sync found payments it couldn't match to anything you track.
-            </p>
-            <Link
-              href="/review"
-              className={cn(
-                "h-7 inline-flex items-center rounded-button border border-warning-line bg-surface",
-                "text-warning text-xs font-semibold px-[11px] flex-none",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              )}
-              data-testid="open-review-inbox"
-            >
-              Open review inbox
-            </Link>
-          </div>
-        )}
-
-        {/* 3. Filter bar */}
+        {/* 2. Filter bar: search and category on the left, status on the right */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="field w-[260px] max-w-full">
+              <Search size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search subscriptions"
+                aria-label="Search subscriptions"
+                data-testid="search-subscriptions"
+              />
+            </div>
+            {categories.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button type="button" className="btn-base btn-secondary" data-testid="filter-category">
+                    {categoryFilter === "all" ? "All categories" : categoryFilter}
+                    <ChevronDown size={13} strokeWidth={2} className="text-muted-foreground" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-52">
+                  <DropdownMenuItem onClick={() => setCategoryFilter("all")}>All categories</DropdownMenuItem>
+                  {categories.map((category) => (
+                    <DropdownMenuItem key={category} onClick={() => setCategoryFilter(category)}>
+                      {category}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
           <div className="inline-flex gap-0.5 p-0.5 rounded-lg bg-line-soft">
             {segments.map((segment) => {
               const selected = statusFilter === segment.key;
@@ -755,15 +549,52 @@ export default function Dashboard() {
             <div className="w-full max-w-xs">{addSubscriptionTile}</div>
           </div>
         ) : (
-          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(max(250px, calc((100% - 4 * 0.75rem) / 5)), 1fr))" }}>
-            {filteredSubscriptions.map((sub) => (
-              <SubscriptionCard key={sub.id} subscription={sub} />
-            ))}
+          <>
+            {filteredSubscriptions.length === 0 && isFiltering && (
+              <p className="text-[13px] text-muted-foreground" data-testid="no-matches">
+                Nothing matches that search.{" "}
+                <button
+                  type="button"
+                  className="font-semibold text-accent hover:underline"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setCategoryFilter("all");
+                  }}
+                >
+                  Clear filters
+                </button>
+              </p>
+            )}
+            <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(max(250px, calc((100% - 4 * 0.75rem) / 5)), 1fr))" }}>
+              {filteredSubscriptions.map((sub) => (
+                <SubscriptionCard key={sub.id} subscription={sub} />
+              ))}
 
-            {addSubscriptionTile}
-          </div>
+              {addSubscriptionTile}
+            </div>
+          </>
         )}
       </main>
+
+      {/* The detail drawer, opened by /subscriptions/:id */}
+      <Sheet
+        open={Boolean(openSubscriptionId)}
+        onOpenChange={(open) => {
+          if (!open) setLocation("/");
+        }}
+      >
+        <SheetContent
+          side="right"
+          // The detail draws its own close button in the same corner.
+          hideClose
+          className="w-full sm:max-w-[560px] p-0 overflow-y-auto bg-canvas"
+          data-testid="subscription-drawer"
+        >
+          {openSubscriptionId && (
+            <SubscriptionDetail subscriptionId={openSubscriptionId} onClose={() => setLocation("/")} />
+          )}
+        </SheetContent>
+      </Sheet>
 
       {/* Suggestions Modal */}
       <SubscriptionSuggestionsModal
