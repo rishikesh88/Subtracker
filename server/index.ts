@@ -84,6 +84,17 @@ app.use((req, res, next) => {
   // Other ports are firewalled. Default to 5000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
+  // Subscription status columns and the payments table (see
+  // ensureSubscriptionStatusTables). Awaited before the port opens, unlike
+  // the steps below: the new columns are part of the subscriptions table's
+  // declaration, so every subscription query names them, and none may run
+  // before they exist. Idempotent, and a no-op once applied.
+  try {
+    await storage.ensureSubscriptionStatusTables();
+  } catch (error) {
+    console.error('❌ Could not set up subscription status tables:', error);
+  }
+
   const TWELVE_HOURS = 12 * 60 * 60 * 1000;
   const port = parseInt(process.env.PORT || '5000', 10);
   server.listen({

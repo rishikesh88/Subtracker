@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, decimal, integer, boolean, index, uniqueIndex, jsonb, check, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, decimal, integer, boolean, index, uniqueIndex, jsonb, check, primaryKey, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -125,11 +125,32 @@ export const subscriptions = pgTable("subscriptions", {
   ownerName: text("owner_name"),
   ownerEmail: text("owner_email"),
   description: text("description"),
+
+  /*
+   * Subscription status (feature switch `subscription_status`). Written only
+   * for users who have that switch on, by server/services/subscriptionStatus.ts
+   * from the rules in server/lib/statusRules.ts; null for everyone else. They
+   * sit beside `status` above and never change it. Added at startup by
+   * storage.ensureSubscriptionStatusTables(), which must match these.
+   */
+  lifecycleStatus: text("lifecycle_status"), // active | needs_review | inactive
+  lifecycleReason: text("lifecycle_reason"), // short code, see REASON_TEXT in statusRules.ts
+  lifecycleUpdatedAt: timestamp("lifecycle_updated_at"),
+  lastPaymentAt: date("last_payment_at"),
+  expectedNextPaymentAt: date("expected_next_payment_at"),
+  endsOn: date("ends_on"), // access ends after a cancellation
+  cancelledAt: date("cancelled_at"),
+  inactiveSince: date("inactive_since"),
+  inactiveSource: text("inactive_source"), // email | user
+  stillActiveTaps: integer("still_active_taps").default(0).notNull(),
+  stillActiveUntil: date("still_active_until"),
 }, (table) => [
   index("idx_subscriptions_user_provider").on(table.userId, table.emailProvider),
   index("idx_subscriptions_provider_account").on(table.providerAccountId),
   check("valid_email_provider", sql`email_provider IS NULL OR email_provider IN ('gmail', 'outlook')`),
   check("provider_fields_sync", sql`(email_provider IS NULL) = (provider_account_id IS NULL)`),
+  check("subscriptions_lifecycle_status_check", sql`lifecycle_status IS NULL OR lifecycle_status IN ('active', 'needs_review', 'inactive')`),
+  check("subscriptions_inactive_source_check", sql`inactive_source IS NULL OR inactive_source IN ('email', 'user')`),
 ]);
 
 /**
@@ -259,11 +280,46 @@ export const subscriptionSuggestions = pgTable("subscription_suggestions", {
   lastSeen: timestamp("last_seen").notNull(),
   detectedAt: timestamp("detected_at").defaultNow(),
   status: text("status").default("pending").notNull(), // pending, approved, rejected
+  // Read from a cancellation email by the detector. Stored only for users with
+  // the `subscription_status` switch on; carried to the subscription on approval.
+  cancelledOn: date("cancelled_on"),
+  accessEndsOn: date("access_ends_on"),
 }, (table) => [
   index("idx_suggestions_user_provider").on(table.userId, table.emailProvider),
   index("idx_suggestions_provider_account").on(table.providerAccountId),
   check("valid_email_provider", sql`email_provider IS NULL OR email_provider IN ('gmail', 'outlook')`),
   check("provider_fields_sync", sql`(email_provider IS NULL) = (provider_account_id IS NULL)`),
+]);
+
+/*
+ * Payments seen for a subscription (feature switch `subscription_status`).
+ *
+ * One row per charge-related email linked to a subscription: receipts,
+ * invoices, card alerts, and also failures, refunds and pauses, which the
+ * status rules read but do not count as payments. Created at startup by
+ * storage.ensureSubscriptionStatusTables(), which must match this.
+ */
+export const PAYMENT_KINDS = ["receipt", "invoice", "card_alert", "failed", "refund", "pause"] as const;
+export const PAYMENT_SOURCES = ["sync", "approval", "history"] as const;
+
+export const payments = pgTable("payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  subscriptionId: varchar("subscription_id").notNull().references(() => subscriptions.id, { onDelete: "cascade" }),
+  emailId: varchar("email_id").references(() => emails.id, { onDelete: "set null" }),
+  paidAt: date("paid_at").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }), // null: the email showed no amount
+  currency: text("currency"),
+  kind: text("kind").$type<(typeof PAYMENT_KINDS)[number]>().notNull(),
+  pausedUntil: date("paused_until"),
+  source: text("source").$type<(typeof PAYMENT_SOURCES)[number]>().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  // The same email never yields two payments for one subscription.
+  uniqueIndex("uq_payments_subscription_email").on(table.subscriptionId, table.emailId),
+  index("idx_payments_user_subscription").on(table.userId, table.subscriptionId, table.paidAt),
+  check("payments_kind_check", sql`kind IN ('receipt', 'invoice', 'card_alert', 'failed', 'refund', 'pause')`),
+  check("payments_source_check", sql`source IN ('sync', 'approval', 'history')`),
 ]);
 
 /*
@@ -358,6 +414,18 @@ export const insertSubscriptionSchema = createInsertSchema(subscriptions)
   .omit({
     id: true,
     detectedAt: true,
+    // Status fields are worked out by the server, never sent by a client.
+    lifecycleStatus: true,
+    lifecycleReason: true,
+    lifecycleUpdatedAt: true,
+    lastPaymentAt: true,
+    expectedNextPaymentAt: true,
+    endsOn: true,
+    cancelledAt: true,
+    inactiveSince: true,
+    inactiveSource: true,
+    stillActiveTaps: true,
+    stillActiveUntil: true,
   })
   .extend({
     nextBillingDate: jsonDate.nullish(),
@@ -507,3 +575,5 @@ export type UpdateOutlookAccount = z.infer<typeof updateOutlookAccountSchema>;
 export type FeatureFlag = typeof featureFlags.$inferSelect;
 export type FeatureFlagUser = typeof featureFlagUsers.$inferSelect;
 export type FeatureFlagAudit = typeof featureFlagAudit.$inferSelect;
+export type Payment = typeof payments.$inferSelect;
+export type InsertPayment = typeof payments.$inferInsert;

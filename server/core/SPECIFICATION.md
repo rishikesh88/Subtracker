@@ -387,6 +387,8 @@ CRITICAL EXAMPLES TO DETECT:
 ✅ "GoDaddy domain renewal - example.com expires in 7 days - ₹800/year" → DETECT as GoDaddy hosting
 ✅ "Your Netflix subscription has been renewed - ₹649/month" → DETECT as Netflix
 
+CANCELLATION (optional): Only when an email clearly says this subscription was cancelled or will not renew, fill "cancelledOn" with the date it was cancelled and "accessEndsOn" with the date access ends (both YYYY-MM-DD). Otherwise leave both out; a renewal reminder or an expiry notice is not a cancellation.
+
 IMPORTANT: Include renewal reminders AND completed transactions. Amount can appear ANYWHERE in the email - extract carefully from subject, body, or snippet.
 ```
 
@@ -422,7 +424,9 @@ IMPORTANT: Include renewal reminders AND completed transactions. Amount can appe
             "required": ["subjectValid", "contentValid", "attachmentValid"]
           },
           "attachmentEvidence": { "type": "string" },
-          "senderHistory": { "type": "string" }
+          "senderHistory": { "type": "string" },
+          "cancelledOn": { "type": "string", "nullable": true },
+          "accessEndsOn": { "type": "string", "nullable": true }
         },
         "required": ["serviceName", "merchantName", "amount", "currency", "frequency", "category", "confidence", "reasoning", "isActive", "recurringKeywords", "validationChecks"]
       }
@@ -431,6 +435,20 @@ IMPORTANT: Include renewal reminders AND completed transactions. Amount can appe
   "required": ["subscriptions"]
 }
 ```
+
+### Cancellation fields (v1.0.2)
+
+`cancelledOn` and `accessEndsOn` are optional and nullable, and are not in
+`required`. The model fills them only when an email clearly says the
+subscription was cancelled or will not renew (the `CANCELLATION (optional)`
+paragraph above, added just before the closing `IMPORTANT:` line; nothing else
+in the prompt changed). Both the paragraph and the two schema fields are sent
+ONLY for users with the `subscription_status` switch on; everyone else gets the
+v1.0.1 prompt and schema byte for byte. They feed the subscription status feature
+(`subscription_status` switch): the sync stores them on the suggestion and, on
+approval or when a sync matches a tracked subscription, on
+`subscriptions.cancelled_at` / `subscriptions.ends_on` -- only for users with
+that switch on. Detection itself does not read them.
 
 ---
 
@@ -552,6 +570,7 @@ const key = `${merchantName.toLowerCase()}_${currency}_${Math.round(amount)}`;
 
 | Version | Date | Changes | Approved By |
 |---------|------|---------|-------------|
+| 1.0.2 | 2026-09-29 | Deep analysis: added optional `cancelledOn` / `accessEndsOn` to the response schema and one `CANCELLATION (optional)` paragraph to the system prompt, for the subscription status feature. Additive only. | User |
 | 1.0.1 | 2025-11-14 | Documented tiered merchant matching system (80/60/45 pts), multi-domain support via pipe-separated format (airtel.com\|airtel.in), and tldts library integration for multi-level TLD support (.co.uk, .com.au). Updated merchant count to 200. | User |
 | 1.0.0 | 2025-11-10 | Initial specification creation | User |
 

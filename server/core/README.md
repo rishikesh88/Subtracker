@@ -46,7 +46,7 @@ This directory contains SubTracker's core subscription detection intellectual pr
 |------|---------|---------|---------------|
 | `transactionDetector.ts` | Rule-based scoring engine | 1.0.0 | 2025-11-10 |
 | `merchantDatabase.ts` | Verified merchant lookup | 1.0.0 | 2025-11-10 |
-| `geminiSubscriptionDetector.ts` | AI pre-filter & deep analysis | 1.0.0 | 2025-11-10 |
+| `geminiSubscriptionDetector.ts` | AI pre-filter & deep analysis | 1.0.1 | 2026-09-29 |
 
 ### Documentation Files
 
@@ -220,6 +220,7 @@ USER APPROVAL: ⏳ Pending
 |------|------|--------|-------------|--------|
 | 2025-11-10 | All | Initial protection setup | User | Protect core IP and ensure consistency across providers |
 | 2026-08-18 | merchantDatabase.ts | Multi-location CSV path resolution (v1.0.1) | User | Bundled production builds could not find merchants.csv; enrichment silently disabled since Railway migration |
+| 2026-09-29 | geminiSubscriptionDetector.ts | Optional `cancelledOn` / `accessEndsOn` response fields plus one prompt paragraph asking for them only on clear cancellations, sent only for users with the subscription_status switch on (v1.0.1; spec v1.0.2) | User | Subscription status feature needs to know when a subscription was cancelled and when access ends |
 
 ---
 

@@ -47,6 +47,7 @@ import {
   isValidFeatureKey,
   normaliseTags,
 } from "../lib/featureFlags";
+import { STATUS_FEATURE, statusRowsForAdmin } from "../services/subscriptionStatus";
 
 /**
  * Sends an admin page, uncacheable.
@@ -372,7 +373,20 @@ export function registerAdminRoutes(app: Express): void {
         console.error("[Admin] Failed to load a user's features:", error);
       }
 
-      res.json({ ...normaliseUserRow(detail), subscriptions_detail, features });
+      // Subscription status, recorded quietly while its switch is on for this
+      // person, so it can be checked against their inbox before anyone sees
+      // it. Null when the switch is off; optional like features above.
+      let status_payments = null;
+      const statusOn = (features ?? []).some((f: any) => f.key === STATUS_FEATURE && f.enabled);
+      if (statusOn) {
+        try {
+          status_payments = await statusRowsForAdmin(req.params.id);
+        } catch (error) {
+          console.error("[Admin] Failed to load a user's subscription status:", error);
+        }
+      }
+
+      res.json({ ...normaliseUserRow(detail), subscriptions_detail, features, status_payments });
     } catch (error) {
       console.error("[Admin] Failed to load a user:", error);
       res.status(500).json({ message: "Could not load that user." });

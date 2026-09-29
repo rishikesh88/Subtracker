@@ -4,8 +4,8 @@
  * Gemini AI Subscription Detector
  * Two-phase AI analysis: Pre-filter (Phase 1.5) + Deep Analysis (Phase 2)
  * 
- * @version 1.0.0
- * @lastModified 2025-11-10
+ * @version 1.0.1
+ * @lastModified 2026-09-29
  * @protection LOCKED - See server/core/README.md for modification protocol
  * @model gemini-2.5-flash (specified by user - DO NOT CHANGE)
  * 
@@ -60,7 +60,27 @@ interface SubscriptionSuggestion {
    * all to a Netflix the model had plainly read.
    */
   evidenceEmailIds?: string[];
+
+  /**
+   * Only when an email clearly says this subscription was cancelled or will
+   * end (YYYY-MM-DD). Optional; added 2026-09-29 with user approval for the
+   * subscription status feature, and only stored for users who have it.
+   */
+  cancelledOn?: string | null;
+  accessEndsOn?: string | null;
 }
+
+/**
+ * Sent only when the subscription status switch is on for the user (see
+ * analyzeEmailsForSubscriptions' options). Approved 2026-09-29.
+ */
+const CANCELLATION_INSTRUCTION = `CANCELLATION (optional): Only when an email clearly says this subscription was cancelled or will not renew, fill "cancelledOn" with the date it was cancelled and "accessEndsOn" with the date access ends (both YYYY-MM-DD). Otherwise leave both out; a renewal reminder or an expiry notice is not a cancellation.
+
+`;
+const CANCELLATION_SCHEMA = {
+  cancelledOn: { type: "string", nullable: true },
+  accessEndsOn: { type: "string", nullable: true },
+};
 
 interface GeminiAnalysisResult {
   subscriptions: SubscriptionSuggestion[];
@@ -248,6 +268,12 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
      * sync, and it used to report only its start and its end.
      */
     onProgress?: (progress: { checked: number; total: number; found: number; foundNames: string[] }) => void,
+    /**
+     * cancellation: also ask for cancelledOn / accessEndsOn. Only for users
+     * with the subscription status switch on, so everyone else is sent the
+     * exact prompt and schema they had before (added 2026-09-29, approved).
+     */
+    options: { cancellation?: boolean } = {},
   ): Promise<GeminiAnalysisResult> {
     if (!emails.length) {
       return {
@@ -283,7 +309,7 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
         console.log(`Processing chunk ${i + 1}/${chunks.length}...`);
 
         try {
-          const chunkSuggestions = await this.analyzeEmailChunk(chunks[i]);
+          const chunkSuggestions = await this.analyzeEmailChunk(chunks[i], options.cancellation === true);
           allSuggestions.push(...chunkSuggestions);
         } catch (chunkError) {
           failedChunks.push(i + 1);
@@ -352,7 +378,7 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
     }
   }
 
-  private async analyzeEmailChunk(emails: Email[]): Promise<SubscriptionSuggestion[]> {
+  private async analyzeEmailChunk(emails: Email[], cancellation = false): Promise<SubscriptionSuggestion[]> {
     // E1, E2, ... rather than the message ids themselves: a short token is far
     // more reliably copied back than a 16-character hex id, and it is mapped
     // back to the real id below.
@@ -445,7 +471,7 @@ CRITICAL EXAMPLES TO DETECT:
 ✅ "Confirm your $23.60 payment to Anthropic, PBC" → DETECT as Claude, amount 23.60, currency USD
    (a "GST - India (18%)" line in that same invoice does NOT make it INR)
 
-IMPORTANT: Include renewal reminders AND completed transactions. Amount can appear ANYWHERE in the email - extract carefully from subject, body, or snippet.`;
+${cancellation ? CANCELLATION_INSTRUCTION : ''}IMPORTANT: Include renewal reminders AND completed transactions. Amount can appear ANYWHERE in the email - extract carefully from subject, body, or snippet.`;
 
     const response = await withRetry(() => this.ai.models.generateContent({
       model: "gemini-2.5-flash",
@@ -482,7 +508,8 @@ IMPORTANT: Include renewal reminders AND completed transactions. Amount can appe
                   },
                   attachmentEvidence: { type: "string" },
                   senderHistory: { type: "string" },
-                  evidenceRefs: { type: "array", items: { type: "string" } }
+                  evidenceRefs: { type: "array", items: { type: "string" } },
+                  ...(cancellation ? CANCELLATION_SCHEMA : {})
                 },
                 required: ["serviceName", "merchantName", "amount", "currency", "frequency", "category", "confidence", "reasoning", "isActive", "recurringKeywords", "validationChecks", "evidenceRefs"]
               }

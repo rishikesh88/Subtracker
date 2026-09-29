@@ -1053,6 +1053,11 @@ ${head("Verloq Admin")}
         })
       : emptyCard("Nothing found yet.")));
 
+    // Only while the subscription_status switch is on for this person.
+    if (detail.status_payments) {
+      root.appendChild(section("Status and payments (recording quietly)", buildPersonStatus(detail.status_payments)));
+    }
+
     var syncs = detail.recent_syncs || [];
     root.appendChild(section("Recent syncs", syncs.length
       ? buildTable(["Status", "Started", "Emails", "Suggestions", "Detail"], syncs, function (j) {
@@ -1075,6 +1080,60 @@ ${head("Verloq Admin")}
       : emptyCard("No sync has been recorded for this account yet.")));
 
     return root;
+  }
+
+  // --- one person's subscription status ---------------------------------
+
+  var LIFECYCLE = {
+    active: { label: "Active", cls: "badge-success" },
+    needs_review: { label: "Needs review", cls: "badge-warning" },
+    inactive: { label: "Inactive", cls: "badge-muted" }
+  };
+
+  /**
+   * What the status feature has worked out for each subscription, so it can
+   * be compared with the person's inbox before anyone is shown it. Read only.
+   */
+  /** A 'YYYY-MM-DD' day as written, with no timezone shift. */
+  function fmtDay(day) {
+    var m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})/.exec(day || "");
+    if (!m) return fmtDate(day);
+    return Number(m[3]) + " " + MONTHS[Number(m[2]) - 1] + " " + m[1];
+  }
+
+  function buildPersonStatus(rows) {
+    if (rows.length === 0) return emptyCard("No subscriptions yet.");
+    return buildTable(["Service", "Status", "Last payment", "Expected next", "Payments"], rows, function (s) {
+      var tr = document.createElement("tr");
+      var name = document.createElement("td");
+      name.appendChild(el("div", "cell-title", s.service_name));
+      name.appendChild(el("div", "cell-sub", s.frequency));
+      tr.appendChild(name);
+
+      var st = document.createElement("td");
+      var spec = LIFECYCLE[s.lifecycle_status];
+      st.appendChild(spec
+        ? el("span", "badge " + spec.cls, spec.label)
+        : el("span", "badge badge-muted", "Not worked out yet"));
+      var why = [];
+      if (s.reason) why.push(s.reason);
+      if (s.ends_on) why.push("access ends " + fmtDay(s.ends_on));
+      if (s.inactive_since) why.push("since " + fmtDay(s.inactive_since) + (s.inactive_source ? " (" + s.inactive_source + ")" : ""));
+      if (s.still_active_taps > 0) why.push("Still active tapped " + plural(s.still_active_taps, "time", "times"));
+      if (why.length) st.appendChild(el("div", "cell-sub", why.join(" · ")));
+      tr.appendChild(st);
+
+      tr.appendChild(el("td", "num nowrap", s.last_payment_at ? fmtDay(s.last_payment_at) : "—"));
+      tr.appendChild(el("td", "num nowrap", s.expected_next_payment_at ? fmtDay(s.expected_next_payment_at) : "—"));
+
+      var count = document.createElement("td");
+      count.appendChild(el("div", "num", String(s.payments_counted)));
+      if (s.payments_recorded !== s.payments_counted) {
+        count.appendChild(el("div", "cell-sub", s.payments_recorded + " recorded"));
+      }
+      tr.appendChild(count);
+      return tr;
+    });
   }
 
   // --- one person's features --------------------------------------------
