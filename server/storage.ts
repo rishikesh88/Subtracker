@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, type SyncJob, users, syncJobs, subscriptions, emails, screenedMessages, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts, featureFlags, featureFlagUsers, featureFlagAudit, type FeatureFlag, type FeatureRollout } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, type SyncJob, users, syncJobs, subscriptions, emails, screenedMessages, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts, featureFlags, featureFlagUsers, featureFlagAudit, type FeatureFlag, type FeatureRollout, payments, type Payment, type InsertPayment } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
 import { eq, and, desc, asc, count, sql, inArray, isNotNull, isNull, ne, gte } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
@@ -110,6 +110,25 @@ export interface IStorage {
   createOutlookAccount(account: InsertOutlookAccount): Promise<OutlookAccount>;
   updateOutlookAccount(id: string, updates: UpdateOutlookAccount): Promise<OutlookAccount | undefined>;
   deleteOutlookAccount(id: string): Promise<boolean>;
+}
+
+/** One approved suggestion, as the status recorder needs it. */
+export interface ApprovedForStatus {
+  subscriptionId: string;
+  currency: string;
+  evidenceEmailIds: string[];
+  cancelledOn: string | null;
+  accessEndsOn: string | null;
+}
+
+/** An email as the payment recorder reads it. */
+export interface PaymentSourceEmail {
+  id: string;
+  subject: string;
+  content: string | null;
+  receivedAt: Date | string;
+  extractedAmount: string | null;
+  extractedCurrency: string | null;
 }
 
 /** The switches this release knows about. Seeded if missing; see ensureFeatureFlagTables. */
@@ -1387,6 +1406,223 @@ export class DatabaseStorage implements IStorage {
     return true;
   }
 
+  // ---------------------------------------------------------------------
+  // Subscription status and payments (feature switch `subscription_status`)
+  //
+  // Storage only. What to record and what it means is decided by
+  // server/services/subscriptionStatus.ts and server/lib/statusRules.ts, and
+  // nothing here is called for a user without the switch.
+  // ---------------------------------------------------------------------
+
+  /**
+   * Create the payments table and the status columns.
+   *
+   * Applied at startup for the same reason as ensureFeatureFlagTables:
+   * db:push is not usable here. Every statement is idempotent. The new
+   * columns are all nullable (or defaulted), so existing rows and every
+   * existing query are unaffected; `subscriptions.status` is not touched.
+   * Must match shared/schema.ts.
+   */
+  async ensureSubscriptionStatusTables(): Promise<void> {
+    await this.db.execute(sql`
+      ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS lifecycle_status text,
+        ADD COLUMN IF NOT EXISTS lifecycle_reason text,
+        ADD COLUMN IF NOT EXISTS lifecycle_updated_at timestamp,
+        ADD COLUMN IF NOT EXISTS last_payment_at date,
+        ADD COLUMN IF NOT EXISTS expected_next_payment_at date,
+        ADD COLUMN IF NOT EXISTS ends_on date,
+        ADD COLUMN IF NOT EXISTS cancelled_at date,
+        ADD COLUMN IF NOT EXISTS inactive_since date,
+        ADD COLUMN IF NOT EXISTS inactive_source text,
+        ADD COLUMN IF NOT EXISTS still_active_taps integer NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS still_active_until date
+    `);
+    await this.db.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = 'subscriptions'::regclass AND conname = 'subscriptions_lifecycle_status_check'
+        ) THEN
+          ALTER TABLE subscriptions ADD CONSTRAINT subscriptions_lifecycle_status_check
+            CHECK (lifecycle_status IS NULL OR lifecycle_status IN ('active', 'needs_review', 'inactive'));
+        END IF;
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = 'subscriptions'::regclass AND conname = 'subscriptions_inactive_source_check'
+        ) THEN
+          ALTER TABLE subscriptions ADD CONSTRAINT subscriptions_inactive_source_check
+            CHECK (inactive_source IS NULL OR inactive_source IN ('email', 'user'));
+        END IF;
+      END $$;
+    `);
+    await this.db.execute(sql`
+      ALTER TABLE subscription_suggestions
+        ADD COLUMN IF NOT EXISTS cancelled_on date,
+        ADD COLUMN IF NOT EXISTS access_ends_on date
+    `);
+    await this.db.execute(sql`
+      CREATE TABLE IF NOT EXISTS payments (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id varchar NOT NULL,
+        subscription_id varchar NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+        email_id varchar REFERENCES emails(id) ON DELETE SET NULL,
+        paid_at date NOT NULL,
+        amount numeric(10, 2),
+        currency text,
+        kind text NOT NULL,
+        paused_until date,
+        source text NOT NULL,
+        created_at timestamp NOT NULL DEFAULT now(),
+        CONSTRAINT payments_kind_check CHECK (kind IN ('receipt', 'invoice', 'card_alert', 'failed', 'refund', 'pause')),
+        CONSTRAINT payments_source_check CHECK (source IN ('sync', 'approval', 'history'))
+      )
+    `);
+    await this.db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_subscription_email ON payments (subscription_id, email_id)
+    `);
+    await this.db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_payments_user_subscription ON payments (user_id, subscription_id, paid_at)
+    `);
+  }
+
+  /** Inserts payments, skipping any email already recorded for that subscription. */
+  async insertPayments(rows: InsertPayment[]): Promise<number> {
+    if (rows.length === 0) return 0;
+    const inserted = await this.db
+      .insert(payments)
+      .values(rows)
+      .onConflictDoNothing({ target: [payments.subscriptionId, payments.emailId] })
+      .returning({ id: payments.id });
+    return inserted.length;
+  }
+
+  async getPaymentsForUser(userId: string): Promise<Payment[]> {
+    return this.db.select().from(payments).where(eq(payments.userId, userId));
+  }
+
+  /** Newest first. */
+  async getPaymentsForSubscription(subscriptionId: string, userId: string): Promise<Payment[]> {
+    return this.db
+      .select()
+      .from(payments)
+      .where(and(eq(payments.subscriptionId, subscriptionId), eq(payments.userId, userId)))
+      .orderBy(desc(payments.paidAt), desc(payments.createdAt));
+  }
+
+  /** What a payment is read from: the email's subject, the start of its body, amount and date. */
+  async getEmailsForPayments(userId: string, gmailIds: string[]): Promise<PaymentSourceEmail[]> {
+    if (gmailIds.length === 0) return [];
+    return this.db
+      .select({
+        id: emails.id,
+        subject: emails.subject,
+        content: sql<string | null>`left(${emails.content}, 600)`,
+        receivedAt: emails.receivedAt,
+        extractedAmount: emails.extractedAmount,
+        extractedCurrency: emails.extractedCurrency,
+      })
+      .from(emails)
+      .where(and(eq(emails.userId, userId), inArray(emails.gmailId, gmailIds)));
+  }
+
+  /**
+   * Emails already linked to one of this user's subscriptions (at an approval
+   * before the switch was on) that have no payment row yet.
+   */
+  async getLinkedEmailsWithoutPayments(userId: string): Promise<(PaymentSourceEmail & { subscriptionId: string; subscriptionCurrency: string })[]> {
+    const result = await this.db.execute(sql`
+      SELECT e.id, e.subject, left(e.content, 600) AS content,
+             to_char(e.received_at, 'YYYY-MM-DD') AS received_day,
+             e.extracted_amount, e.extracted_currency,
+             s.id AS subscription_id, s.currency AS subscription_currency
+      FROM emails e
+      JOIN subscriptions s ON s.id = e.subscription_id AND s.user_id = ${userId}
+      WHERE e.user_id = ${userId}
+        AND NOT EXISTS (
+          SELECT 1 FROM payments p WHERE p.subscription_id = s.id AND p.email_id = e.id
+        )
+      LIMIT 2000
+    `);
+    return (((result as any)?.rows ?? []) as any[]).map((row) => ({
+      id: row.id,
+      subject: row.subject,
+      content: row.content,
+      receivedAt: row.received_day,
+      extractedAmount: row.extracted_amount,
+      extractedCurrency: row.extracted_currency,
+      subscriptionId: row.subscription_id,
+      subscriptionCurrency: row.subscription_currency,
+    }));
+  }
+
+  /**
+   * The tracked subscription a new detection is about, if any: the same
+   * service key, or failing that a near-identical name at the same frequency.
+   * The amount is deliberately not compared -- a price change is still the
+   * same subscription, and its receipts belong to it.
+   */
+  async findSubscriptionForDetection(
+    userId: string,
+    serviceName: string,
+    serviceKey: string,
+    frequency: string,
+  ): Promise<{ id: string; currency: string } | null> {
+    const rows: { id: string; serviceName: string; serviceKey: string; frequency: string; currency: string }[] = await this.db
+      .select({
+        id: subscriptions.id,
+        serviceName: subscriptions.serviceName,
+        serviceKey: subscriptions.serviceKey,
+        frequency: subscriptions.frequency,
+        currency: subscriptions.currency,
+      })
+      .from(subscriptions)
+      .where(eq(subscriptions.userId, userId));
+
+    const byKey = rows.find((row) => row.serviceKey === serviceKey);
+    if (byKey) return { id: byKey.id, currency: byKey.currency };
+
+    let best: { id: string; currency: string; score: number } | null = null;
+    for (const row of rows) {
+      if (row.frequency !== frequency) continue;
+      const score = this.calculateSimilarity(serviceName, row.serviceName);
+      if (score > 0.85 && (!best || score > best.score)) best = { id: row.id, currency: row.currency, score };
+    }
+    return best ? { id: best.id, currency: best.currency } : null;
+  }
+
+  /** Writes status fields on one of this user's subscriptions. */
+  async updateSubscriptionStatusFields(
+    id: string,
+    userId: string,
+    fields: Partial<Pick<Subscription,
+      'lifecycleStatus' | 'lifecycleReason' | 'lifecycleUpdatedAt' | 'lastPaymentAt' | 'expectedNextPaymentAt' |
+      'endsOn' | 'cancelledAt' | 'inactiveSince' | 'inactiveSource' | 'stillActiveTaps' | 'stillActiveUntil'>>,
+  ): Promise<Subscription | undefined> {
+    const result = await this.db
+      .update(subscriptions)
+      .set(fields)
+      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, userId)))
+      .returning();
+    return result[0];
+  }
+
+  /** Every mailbox's health, without any token column. */
+  async getMailboxHealth(userId: string): Promise<{ id: string; syncStatus: string; lastSync: Date | null }[]> {
+    const [gmail, outlook] = await Promise.all([
+      this.db
+        .select({ id: gmailAccounts.id, syncStatus: gmailAccounts.syncStatus, lastSync: gmailAccounts.lastSync })
+        .from(gmailAccounts)
+        .where(eq(gmailAccounts.userId, userId)),
+      this.db
+        .select({ id: outlookAccounts.id, syncStatus: outlookAccounts.syncStatus, lastSync: outlookAccounts.lastSync })
+        .from(outlookAccounts)
+        .where(eq(outlookAccounts.userId, userId)),
+    ]);
+    return [...gmail, ...outlook];
+  }
+
   async sweepStuckSyncJobs(): Promise<number> {
     try {
       const swept = await this.db
@@ -1856,6 +2092,9 @@ export class DatabaseStorage implements IStorage {
          into the subscription already tracked, and undoing an approval must
          never delete that: it existed before anyone pressed Approve. */
       const createdSubscriptionIds: string[] = [];
+      /* What the status recorder needs from each approval. Only read when the
+         user has the subscription_status switch on; see below. */
+      const approvedForStatus: ApprovedForStatus[] = [];
       
       // Create subscriptions from approved suggestions (with deduplication)
       for (const suggestion of suggestions) {
@@ -1932,6 +2171,13 @@ export class DatabaseStorage implements IStorage {
         const createdSubscription = await this.createSubscription(subscriptionData);
         createdSubscriptions.push(createdSubscription);
         if (!alreadyTracked) createdSubscriptionIds.push(createdSubscription.id);
+        approvedForStatus.push({
+          subscriptionId: createdSubscription.id,
+          currency: createdSubscription.currency,
+          evidenceEmailIds: suggestion.evidenceEmailIds ?? [],
+          cancelledOn: suggestion.cancelledOn ?? null,
+          accessEndsOn: suggestion.accessEndsOn ?? null,
+        });
         
         // Link evidence emails to subscription (SECURITY: Defense-in-depth with userId constraint)
         if (suggestion.evidenceEmailIds && suggestion.evidenceEmailIds.length > 0) {
@@ -1973,6 +2219,16 @@ export class DatabaseStorage implements IStorage {
             eq(subscriptionSuggestions.status, 'pending') // Only pending suggestions
           )
         );
+
+      // Payments and status, recorded quietly for users with the
+      // subscription_status switch; a no-op for everyone else. It never
+      // fails an approval: anything that goes wrong is logged and dropped.
+      try {
+        const { recordAfterApproval } = await import('./services/subscriptionStatus');
+        await recordAfterApproval(userId, approvedForStatus);
+      } catch (statusError) {
+        console.error('[Status] Could not record payments after approval (non-fatal):', statusError);
+      }
       
       return { subscriptions: createdSubscriptions, createdSubscriptionIds, approved: suggestions.length };
     } catch (error) {
@@ -2412,6 +2668,7 @@ export class DatabaseStorage implements IStorage {
     const rowsDeleted: Record<string, number> = {};
     const tables: Array<[string, any, any]> = [
       ["invoices", invoices, invoices.userId],
+      ["payments", payments, payments.userId],
       ["subscription_suggestions", subscriptionSuggestions, subscriptionSuggestions.userId],
       ["subscriptions", subscriptions, subscriptions.userId],
       ["emails", emails, emails.userId],

@@ -15,6 +15,13 @@ import { refreshRates } from "../lib/exchangeRates";
 import { pickEvidence } from "../lib/evidence";
 import { sendSyncSummaryEmail } from "../services/syncSummaryEmail";
 import { APP_BASE_URL } from "../config";
+import {
+  statusEnabledFor,
+  recordFromSync,
+  recomputeAfterSync,
+  cancellationDay,
+  type SyncDetection,
+} from "../services/subscriptionStatus";
 
 // Helper function to get userId from normalized session structure
 function getUserId(req: any): string {
@@ -121,6 +128,30 @@ async function checkEvidenceReadable(
   } catch (error) {
     console.error('Could not check evidence emails:', error);
   }
+}
+
+/**
+ * The cancellation dates the detector read, for a user with the
+ * subscription_status switch; nothing at all for anyone else, so their
+ * suggestions are saved exactly as before.
+ */
+function cancellationFields(statusOn: boolean, suggestion: any): { cancelledOn?: string | null; accessEndsOn?: string | null } {
+  if (!statusOn) return {};
+  return {
+    cancelledOn: cancellationDay(suggestion.cancelledOn),
+    accessEndsOn: cancellationDay(suggestion.accessEndsOn),
+  };
+}
+
+/** What the status recorder needs from this run's detections. */
+function statusDetections(suggestions: any[], evidenceFor: (suggestion: any) => any[]): SyncDetection[] {
+  return suggestions.map((suggestion) => ({
+    serviceName: suggestion.serviceName,
+    frequency: suggestion.frequency,
+    evidenceGmailIds: evidenceFor(suggestion).map((email) => email.gmailId),
+    cancelledOn: cancellationDay(suggestion.cancelledOn),
+    accessEndsOn: cancellationDay(suggestion.accessEndsOn),
+  }));
 }
 
 function resolveCurrency(suggestion: any, evidence: any[]): string {
@@ -518,6 +549,10 @@ export function registerGeminiRoutes(app: Express) {
         emailsToCheck: savedEmails.length,
       });
 
+      // Subscription status is recorded quietly, and only for users with its
+      // switch on. isEnabled never throws; unreadable switches read as off.
+      const statusOn = await statusEnabledFor(userId);
+
       const geminiResults = await geminiDetector.analyzeEmailsForSubscriptions(
         savedEmails,
         ({ checked, total, found, foundNames }) =>
@@ -526,7 +561,8 @@ export function registerGeminiRoutes(app: Express) {
             emailsToCheck: total,
             foundSoFar: found,
             foundNames,
-          })
+          }),
+        { cancellation: statusOn },
       );
 
       report('analysis', 1, `Found ${geminiResults.subscriptions.length} possible subscriptions`, {
@@ -557,7 +593,6 @@ export function registerGeminiRoutes(app: Express) {
       // evidenceEmailIds below.
       const evidenceBySuggestion = resolveEvidence(geminiResults.subscriptions, savedEmails);
       const evidenceFor = (suggestion: any) => evidenceBySuggestion.get(suggestion) ?? [];
-
       const suggestionInserts = geminiResults.subscriptions.map(suggestion => ({
         userId,
         gmailAccountId: gmailAccount.id,
@@ -581,12 +616,19 @@ export function registerGeminiRoutes(app: Express) {
         validationChecks: suggestion.validationChecks ? (typeof suggestion.validationChecks === 'string' ? suggestion.validationChecks : JSON.stringify(suggestion.validationChecks)) : null,
         nextBillingDate: ensureFutureBillingDate(parseValidDate(suggestion.nextBillingDate), suggestion.frequency),
         lastSeen: new Date(),
-        status: 'pending'
+        status: 'pending',
+        ...cancellationFields(statusOn, suggestion),
       }));
       
       const savedSuggestions = await storage.createSuggestionsBulk(suggestionInserts);
       await checkEvidenceReadable(userId, suggestionInserts);
       console.log(`✅ Saved ${savedSuggestions.length} suggestions for ${gmailAccount.gmailEmail}`);
+
+      // Payments and cancellations for subscriptions already tracked. Never
+      // throws; a failure is logged and the sync carries on.
+      if (statusOn) {
+        await recordFromSync(userId, statusDetections(geminiResults.subscriptions, evidenceFor));
+      }
       
       // Mark as successful before returning
       processingSuccessful = true;
@@ -868,6 +910,10 @@ export function registerGeminiRoutes(app: Express) {
 
       // The same progress the Gmail path reports, so an Outlook mailbox's
       // checklist moves too instead of sitting still through the longest stage.
+      // Subscription status is recorded quietly, and only for users with its
+      // switch on. isEnabled never throws; unreadable switches read as off.
+      const statusOn = await statusEnabledFor(userId);
+
       const geminiResults = await geminiDetector.analyzeEmailsForSubscriptions(
         savedEmails,
         ({ checked, total, found, foundNames }) =>
@@ -876,7 +922,8 @@ export function registerGeminiRoutes(app: Express) {
             emailsToCheck: total,
             foundSoFar: found,
             foundNames,
-          })
+          }),
+        { cancellation: statusOn },
       );
       report('analysis', 1, `Found ${geminiResults.subscriptions.length} possible subscriptions`, {
         suggestionsGenerated: geminiResults.subscriptions.length,
@@ -906,7 +953,6 @@ export function registerGeminiRoutes(app: Express) {
       // evidenceEmailIds below.
       const evidenceBySuggestion = resolveEvidence(geminiResults.subscriptions, savedEmails);
       const evidenceFor = (suggestion: any) => evidenceBySuggestion.get(suggestion) ?? [];
-
       const suggestionInserts = geminiResults.subscriptions.map(suggestion => ({
         userId,
         emailProvider: 'outlook' as const,
@@ -931,12 +977,19 @@ export function registerGeminiRoutes(app: Express) {
         validationChecks: suggestion.validationChecks ? (typeof suggestion.validationChecks === 'string' ? suggestion.validationChecks : JSON.stringify(suggestion.validationChecks)) : null,
         nextBillingDate: ensureFutureBillingDate(parseValidDate(suggestion.nextBillingDate), suggestion.frequency),
         lastSeen: new Date(),
-        status: 'pending'
+        status: 'pending',
+        ...cancellationFields(statusOn, suggestion),
       }));
       
       const savedSuggestions = await storage.createSuggestionsBulk(suggestionInserts);
       await checkEvidenceReadable(userId, suggestionInserts);
       console.log(`✅ Saved ${savedSuggestions.length} suggestions for ${outlookAccount.outlookEmail}`);
+
+      // Payments and cancellations for subscriptions already tracked. Never
+      // throws; a failure is logged and the sync carries on.
+      if (statusOn) {
+        await recordFromSync(userId, statusDetections(geminiResults.subscriptions, evidenceFor));
+      }
       
       // Mark as successful before returning
       processingSuccessful = true;
@@ -1015,13 +1068,15 @@ export function registerGeminiRoutes(app: Express) {
         return { ok: false as const, status: 400, message: "No email accounts connected" };
       }
       
-      // Get user's email sync days setting (default 30, max 180)
+      // Get user's email sync days setting (default 90, max 180)
       const user = await storage.getUser(userId);
       if (!user) {
         return { ok: false as const, status: 404, message: "User not found" };
       }
       
-      const emailSyncDays = user.emailSyncDays || 30;
+      // 90 is the column's default; the fallback used to say 30, so a missing
+      // value synced a third of the window everyone else gets.
+      const emailSyncDays = user.emailSyncDays || 90;
       // Suggestions made from here on belong to this run; the summary email
       // lists exactly those.
       const syncStartedAt = new Date();
@@ -1256,6 +1311,9 @@ export function registerGeminiRoutes(app: Express) {
               suggestionsGenerated: totalSuggestionsGenerated,
             });
           }
+
+          // Subscription status, for users with its switch on. Never throws.
+          await recomputeAfterSync(userId);
 
           // Tell the person what was found, so closing the tab mid-sync does
           // not leave them wondering. Only when something is waiting for them.

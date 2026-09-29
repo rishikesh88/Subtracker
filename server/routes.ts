@@ -28,6 +28,7 @@ import { sendVerificationEmail, generateVerificationCode } from "./services/emai
 import rateLimit from "express-rate-limit";
 import { revokeGoogleToken } from "./lib/oauthRevoke";
 import { enabledKeysFor } from "./lib/featureFlags";
+import { statusEnabledFor, markStillActive, markInactive, markActive } from "./services/subscriptionStatus";
 
 
 // Helper function to get userId from normalized session structure
@@ -1886,6 +1887,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Get invoices error:", error);
       res.status(500).json({ message: "Failed to fetch invoices" });
+    }
+  });
+
+  // --- Subscription status (feature switch `subscription_status`) ---------
+  //
+  // For the screens that come in a later release. Each route answers 404 to
+  // anyone without the switch, exactly as it did before these existed.
+
+  /** The subscription, if the switch is on and it is this user's; otherwise the response is sent. */
+  async function statusSubscriptionFor(req: any, res: any) {
+    const userId = getUserId(req);
+    if (!userId) {
+      res.status(401).json({ message: "User not authenticated" });
+      return null;
+    }
+    if (!(await statusEnabledFor(userId))) {
+      res.status(404).json({ message: "Not found" });
+      return null;
+    }
+    const subscription = await storage.getSubscription(req.params.id);
+    if (!subscription) {
+      res.status(404).json({ message: "Subscription not found" });
+      return null;
+    }
+    if (subscription.userId !== userId) {
+      res.status(403).json({ message: "Unauthorized to access this subscription" });
+      return null;
+    }
+    return subscription;
+  }
+
+  // Payments recorded for a subscription, newest first.
+  app.get("/api/subscriptions/:id/payments", isAuthenticated, async (req: any, res) => {
+    try {
+      const subscription = await statusSubscriptionFor(req, res);
+      if (!subscription) return;
+      res.json(await storage.getPaymentsForSubscription(subscription.id, subscription.userId));
+    } catch (error) {
+      console.error("Get payments error:", error);
+      res.status(500).json({ message: "Failed to fetch payments" });
+    }
+  });
+
+  // "Still active": holds off Needs review; after two, it is never asked again.
+  app.post("/api/subscriptions/:id/still-active", isAuthenticated, async (req: any, res) => {
+    try {
+      const subscription = await statusSubscriptionFor(req, res);
+      if (!subscription) return;
+      res.json(await markStillActive(subscription));
+    } catch (error) {
+      console.error("Still active error:", error);
+      res.status(500).json({ message: "Failed to update subscription" });
+    }
+  });
+
+  app.post("/api/subscriptions/:id/mark-inactive", isAuthenticated, async (req: any, res) => {
+    try {
+      const subscription = await statusSubscriptionFor(req, res);
+      if (!subscription) return;
+      res.json(await markInactive(subscription));
+    } catch (error) {
+      console.error("Mark inactive error:", error);
+      res.status(500).json({ message: "Failed to update subscription" });
+    }
+  });
+
+  // Undoes the person's own "inactive". A cancellation read from email still applies.
+  app.post("/api/subscriptions/:id/mark-active", isAuthenticated, async (req: any, res) => {
+    try {
+      const subscription = await statusSubscriptionFor(req, res);
+      if (!subscription) return;
+      res.json(await markActive(subscription));
+    } catch (error) {
+      console.error("Mark active error:", error);
+      res.status(500).json({ message: "Failed to update subscription" });
     }
   });
 
