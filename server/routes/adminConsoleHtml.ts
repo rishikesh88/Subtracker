@@ -42,6 +42,7 @@ const baseStyles = `
     --destructive-foreground: 210 40% 98%;
     --success: 142 72% 29%;
     --warning: 32 95% 34%;
+    --info: 243 75% 59%;
     --radius: 0.5rem;
   }
 
@@ -63,6 +64,7 @@ const baseStyles = `
       --destructive-foreground: 210 40% 98%;
       --success: 142 64% 52%;
       --warning: 38 92% 60%;
+      --info: 234 89% 74%;
     }
   }
 
@@ -195,6 +197,21 @@ const baseStyles = `
   .badge-success { background: hsl(var(--success) / .12); color: hsl(var(--success)); }
   .badge-warning { background: hsl(var(--warning) / .12); color: hsl(var(--warning)); }
   .badge-destructive { background: hsl(var(--destructive) / .12); color: hsl(var(--destructive)); }
+  .badge-info { background: hsl(var(--info) / .12); color: hsl(var(--info)); }
+  /* A leading dot, for a state rather than a label (a feature's rollout). */
+  .badge-dot::before {
+    content: ""; width: 0.4375rem; height: 0.4375rem; margin-right: 0.375rem;
+    border-radius: 9999px; background: currentColor;
+  }
+
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.8125rem;
+    background: hsl(var(--muted));
+    padding: 0.125rem 0.375rem;
+    border-radius: 4px;
+    overflow-wrap: anywhere;
+  }
 
   /* --- Layout ------------------------------------------------------------ */
   .topbar {
@@ -206,7 +223,25 @@ const baseStyles = `
     backdrop-filter: blur(8px);
     border-bottom: 1px solid hsl(var(--border));
   }
+  .topbar-left { display: flex; align-items: center; gap: 1.5rem; min-width: 0; }
   .topbar-right { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+
+  /* --- Top nav ----------------------------------------------------------- */
+  .nav { display: flex; gap: 0.25rem; }
+  .nav a {
+    display: inline-flex; align-items: center;
+    height: 2rem; padding: 0 0.625rem;
+    border-radius: calc(var(--radius) - 2px);
+    font-size: 0.8125rem; font-weight: 500;
+    color: hsl(var(--muted-foreground));
+    text-decoration: none;
+  }
+  .nav a:hover { color: hsl(var(--foreground)); }
+  .nav a[aria-current="page"] { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
+  .nav a:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring));
+  }
   .topbar-email {
     font-size: 0.8125rem; color: hsl(var(--muted-foreground));
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -266,6 +301,91 @@ const baseStyles = `
   .back:hover { color: hsl(var(--foreground)); }
   .back:focus-visible { outline: none; text-decoration: underline; }
 
+  .page-head { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end; justify-content: space-between; }
+  .card-header.split { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; justify-content: space-between; }
+  .footer-line { margin: 0; font-size: 0.8125rem; color: hsl(var(--muted-foreground)); }
+
+  /* --- Filter pills ------------------------------------------------------ */
+  .pills { display: flex; flex-wrap: wrap; gap: 0.375rem; align-items: center; }
+  .pill-btn {
+    height: 1.75rem; padding: 0 0.625rem;
+    border: 1px solid hsl(var(--input));
+    border-radius: 9999px;
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font: inherit; font-size: 0.8125rem; font-weight: 500;
+    cursor: pointer;
+  }
+  .pill-btn:hover { background: hsl(var(--accent)); }
+  .pill-btn[aria-pressed="true"] {
+    background: hsl(var(--primary)); border-color: hsl(var(--primary)); color: hsl(var(--primary-foreground));
+  }
+  .pill-btn:focus-visible, .seg button:focus-visible, .match:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring));
+  }
+  .tags { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+
+  /* --- Segmented switch (a feature's rollout) ---------------------------- */
+  .seg {
+    display: inline-flex; align-self: flex-start; flex-wrap: wrap; gap: 0.125rem; padding: 0.1875rem;
+    background: hsl(var(--muted));
+    border-radius: calc(var(--radius) - 2px);
+  }
+  .seg button {
+    height: 1.75rem; padding: 0 0.625rem;
+    border: 0; border-radius: calc(var(--radius) - 4px);
+    background: transparent; color: hsl(var(--muted-foreground));
+    font: inherit; font-size: 0.8125rem; font-weight: 500;
+    white-space: nowrap; cursor: pointer;
+  }
+  .seg button:hover { color: hsl(var(--foreground)); }
+  .seg button[aria-pressed="true"] {
+    background: hsl(var(--background)); color: hsl(var(--foreground));
+    box-shadow: 0 1px 2px rgba(15,23,42,.12);
+  }
+
+  /* --- Forms ------------------------------------------------------------- */
+  .form { display: flex; flex-direction: column; gap: 1rem; }
+  .form-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+  .textarea { height: auto; min-height: 5rem; padding: 0.5rem 0.75rem; resize: vertical; line-height: 1.5; }
+  .hint { margin-top: 0.375rem; font-size: 0.8125rem; color: hsl(var(--muted-foreground)); }
+  .tag-editor {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem;
+    min-height: 2.25rem; padding: 0.25rem 0.5rem;
+    border: 1px solid hsl(var(--input));
+    border-radius: calc(var(--radius) - 2px);
+    background: hsl(var(--background));
+    cursor: text;
+  }
+  .tag-editor:focus-within { box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring)); }
+  .tag-editor input {
+    flex: 1; min-width: 6rem; height: 1.625rem;
+    border: 0; outline: 0; background: transparent;
+    color: hsl(var(--foreground)); font: inherit; font-size: 0.875rem;
+  }
+  .tag-editor input::placeholder { color: hsl(var(--muted-foreground)); }
+  .tag-remove {
+    margin-left: 0.25rem; padding: 0; border: 0; background: none;
+    color: inherit; font: inherit; line-height: 1; cursor: pointer; opacity: .7;
+  }
+  .tag-remove:hover { opacity: 1; }
+
+  /* --- One feature ------------------------------------------------------- */
+  .feature-grid { display: grid; gap: 1.5rem; align-items: start; }
+  @media (min-width: 64rem) { .feature-grid { grid-template-columns: minmax(0, 30rem) minmax(0, 1fr); } }
+  .search-row { display: flex; gap: 0.5rem; }
+  .match-list { display: flex; flex-direction: column; gap: 0.125rem; }
+  .match {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+    width: 100%; padding: 0.5rem 0.625rem;
+    border: 0; border-radius: calc(var(--radius) - 2px);
+    background: transparent; color: hsl(var(--foreground));
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  .match:hover { background: hsl(var(--muted) / .5); }
+  .match[aria-pressed="true"] { background: hsl(var(--muted)); }
+
   .person-head { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; justify-content: space-between; }
   .person-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
@@ -291,7 +411,8 @@ const baseStyles = `
   .login-form { display: flex; flex-direction: column; gap: 1rem; }
 
   @media (max-width: 640px) {
-    .topbar { padding: 0 1rem; }
+    /* With the nav it no longer fits one line on a phone, so it wraps. */
+    .topbar { height: auto; min-height: 3.5rem; flex-wrap: wrap; padding: 0.5rem 1rem; gap: 0.5rem 1rem; }
     .topbar-email { display: none; }
     /* The build marker stays on a phone; the email is the one that goes. */
     main { padding: 1rem; }
@@ -373,9 +494,15 @@ export function consolePage(opts: {
 <head>
 ${head("Verloq Admin")}
 </head>
-<body data-csrf="${csrfToken}">
+<body data-csrf="${csrfToken}" data-admin-email="${adminEmail}">
   <header class="topbar">
-    <h1>Verloq Admin</h1>
+    <div class="topbar-left">
+      <h1>Verloq Admin</h1>
+      <nav class="nav" aria-label="Admin">
+        <a href="#" id="nav-people">People</a>
+        <a href="#features" id="nav-features">Features</a>
+      </nav>
+    </div>
     <div class="topbar-right">
       <span class="topbar-build" title="The commit this server was built from">build ${version}</span>
       <a class="btn btn-outline btn-sm" href="/admin/microsoft">Microsoft setup</a>
@@ -397,13 +524,42 @@ ${head("Verloq Admin")}
     <form method="dialog" class="dialog-body">
       <h2 id="dialog-title">Confirm</h2>
       <p id="dialog-message" class="muted" style="margin:0"></p>
-      <div>
+      <div id="dialog-email-field">
         <label class="label" for="dialog-email">Type the email address to confirm</label>
         <input class="input" id="dialog-email" type="text" autocomplete="off" spellcheck="false">
       </div>
       <div class="dialog-actions">
         <button class="btn btn-outline" type="button" id="dialog-cancel">Cancel</button>
         <button class="btn btn-destructive" type="button" id="dialog-confirm" disabled>Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="new-feature" aria-labelledby="nf-title">
+    <form class="dialog-body" id="nf-form" novalidate>
+      <h2 id="nf-title">New feature</h2>
+      <div id="nf-error" class="alert alert-error" role="alert" hidden></div>
+      <div>
+        <label class="label" for="nf-key">Key</label>
+        <input class="input" id="nf-key" type="text" autocomplete="off" spellcheck="false" maxlength="50" placeholder="e.g. smart_reminders">
+        <div class="hint">Lowercase letters, numbers and underscores, starting with a letter. Used in code, so it can’t be changed later.</div>
+      </div>
+      <div>
+        <label class="label" for="nf-name">Name</label>
+        <input class="input" id="nf-name" type="text" autocomplete="off" maxlength="80">
+      </div>
+      <div>
+        <label class="label" for="nf-description">Description</label>
+        <textarea class="input textarea" id="nf-description" rows="3" maxlength="500"></textarea>
+      </div>
+      <div>
+        <label class="label" for="nf-tags">Tags</label>
+        <div id="nf-tags-host"></div>
+      </div>
+      <p class="hint" style="margin:0">New features start off. Nobody sees them until you choose who gets them.</p>
+      <div class="dialog-actions">
+        <button class="btn btn-outline" type="button" id="nf-cancel">Cancel</button>
+        <button class="btn btn-primary" type="submit" id="nf-submit">Create feature</button>
       </div>
     </form>
   </dialog>
@@ -420,15 +576,30 @@ ${head("Verloq Admin")}
   var dialogEmail = document.getElementById("dialog-email");
   var dialogConfirm = document.getElementById("dialog-confirm");
   var dialogCancel = document.getElementById("dialog-cancel");
+  var dialogEmailField = document.getElementById("dialog-email-field");
+  var ADMIN_EMAIL = document.body.getAttribute("data-admin-email") || "";
 
-  // "list" or a user id. The whole reason this is a route rather than an
-  // expanding row: three sub-tables side by side inside a table cell
-  // overlapped each other and became unreadable.
+  // "list", a user id, "features" or "features/<id>" (see parseRoute). The
+  // whole reason a person is a route rather than an expanding row: three
+  // sub-tables side by side inside a table cell overlapped each other and
+  // became unreadable.
   var route = "list";
   var overview = null;
   var detailCache = {};
   var filter = "";
   var pending = null;
+
+  // Features. The list, each opened feature, unsaved edits to a feature's
+  // details (kept so a reload after adding a user does not throw them away),
+  // and the list's two filters.
+  var features = null;
+  var featureCache = {};
+  var drafts = {};
+  var featureFilter = "";
+  var featureTag = "";
+  // A message to show once the next route has drawn. Navigating clears the
+  // status line, so one set just before go() would never be seen.
+  var flash = null;
 
   // --- small helpers ----------------------------------------------------
 
@@ -505,13 +676,17 @@ ${head("Verloq Admin")}
 
   function apiGet(url) { return fetch(url, { credentials: "same-origin" }).then(handle); }
 
-  function apiPost(url) {
-    return fetch(url, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "x-admin-csrf": CSRF }
-    }).then(handle);
+  function apiSend(method, url, body) {
+    var headers = { "x-admin-csrf": CSRF };
+    var init = { method: method, credentials: "same-origin", headers: headers };
+    if (body !== undefined) {
+      headers["content-type"] = "application/json";
+      init.body = JSON.stringify(body);
+    }
+    return fetch(url, init).then(handle);
   }
+
+  function apiPost(url, body) { return apiSend("POST", url, body); }
 
   function showStatus(text, isError) {
     statusEl.className = "alert " + (isError ? "alert-error" : "alert-success");
@@ -554,6 +729,115 @@ ${head("Verloq Admin")}
     var card = el("div", "card");
     card.appendChild(el("div", "empty", text));
     return card;
+  }
+
+  function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
+
+  /** Makes a table row open something, by mouse or keyboard. */
+  function rowLink(tr, label, open) {
+    tr.className = "row-link";
+    tr.tabIndex = 0;
+    tr.setAttribute("role", "button");
+    tr.setAttribute("aria-label", label);
+    tr.addEventListener("click", open);
+    tr.addEventListener("keydown", function (e) {
+      if (e.target !== tr) return;
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
+    });
+  }
+
+  function codeEl(text) { var c = document.createElement("code"); c.textContent = text; return c; }
+
+  // "Beta" is the one tag that says something about readiness, so it stands out.
+  function tagClass(tag) {
+    return "badge " + (String(tag).toLowerCase() === "beta" ? "badge-warning" : "badge-muted");
+  }
+
+  function tagList(tags) {
+    var wrap = el("div", "tags");
+    (tags || []).forEach(function (t) { wrap.appendChild(el("span", tagClass(t), t)); });
+    return wrap;
+  }
+
+  var ROLLOUTS = [
+    { value: "off", label: "Off", cls: "badge-muted" },
+    { value: "selected", label: "Selected users", cls: "badge-info" },
+    { value: "everyone", label: "Everyone", cls: "badge-success" }
+  ];
+
+  function rolloutBadge(rollout) {
+    var spec = ROLLOUTS.filter(function (r) { return r.value === rollout; })[0] || ROLLOUTS[0];
+    return el("span", "badge badge-dot " + spec.cls, spec.label);
+  }
+
+  /** "Who has it", in the words the list uses. */
+  function whoHas(f) {
+    if (f.rollout === "everyone") return "All " + plural(f.total_users, "user", "users");
+    if (f.rollout === "selected" && f.listed_users > 0) return plural(f.listed_users, "user", "users");
+    return "No one";
+  }
+
+  function addedBy(by) {
+    if (!by) return "";
+    return "by " + (by.toLowerCase() === ADMIN_EMAIL.toLowerCase() ? "you" : by);
+  }
+
+  /**
+   * A tag input: pills with a remove button, and a text box that adds one on
+   * Enter or a comma. get() also takes whatever is still typed in the box.
+   */
+  function tagEditor(id, initial, onChange) {
+    var list = (initial || []).slice();
+    var wrap = el("div", "tag-editor");
+    var pills = el("span", "tags");
+    var input = document.createElement("input");
+    input.id = id;
+    input.type = "text";
+    input.autocomplete = "off";
+    input.placeholder = "Add a tag";
+    input.maxLength = 30;
+    wrap.appendChild(pills);
+    wrap.appendChild(input);
+
+    function changed() { draw(); if (onChange) onChange(list.slice()); }
+
+    function draw() {
+      clear(pills);
+      list.forEach(function (tag, i) {
+        var pill = el("span", tagClass(tag), tag);
+        var x = el("button", "tag-remove", "×");
+        x.type = "button";
+        x.setAttribute("aria-label", "Remove tag " + tag);
+        x.addEventListener("click", function () { list.splice(i, 1); changed(); input.focus(); });
+        pill.appendChild(x);
+        pills.appendChild(pill);
+      });
+    }
+
+    function commit() {
+      var value = input.value.split(",").join(" ").split(" ").filter(Boolean).join(" ");
+      input.value = "";
+      if (!value) return;
+      var exists = list.some(function (t) { return t.toLowerCase() === value.toLowerCase(); });
+      if (!exists && list.length < 12) { list.push(value); changed(); }
+    }
+
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === ",") { e.preventDefault(); commit(); }
+      else if (e.key === "Backspace" && !input.value && list.length) { list.pop(); changed(); }
+    });
+    input.addEventListener("blur", commit);
+    wrap.addEventListener("click", function (e) { if (e.target === wrap || e.target === pills) input.focus(); });
+    draw();
+
+    return { node: wrap, get: function () { commit(); return list.slice(); } };
+  }
+
+  /** After any feature write: every cached view that shows features is stale. */
+  function forgetFeatures() {
+    features = null;
+    featureCache = {};
+    detailCache = {};
   }
 
   // --- the list view ----------------------------------------------------
@@ -723,6 +1007,8 @@ ${head("Verloq Admin")}
     headCard.appendChild(headBody);
     root.appendChild(headCard);
 
+    root.appendChild(section("Features", buildPersonFeatures(detail)));
+
     // Each section is full width and stacked. Nothing sits beside anything
     // else, which is what broke the previous layout.
     var mailboxes = detail.mailboxes || [];
@@ -791,10 +1077,628 @@ ${head("Verloq Admin")}
     return root;
   }
 
+  // --- one person's features --------------------------------------------
+
+  /**
+   * Every feature and whether this person has it, with the reason. Read
+   * only: who has a feature is changed on the feature itself.
+   */
+  function buildPersonFeatures(detail) {
+    if (!detail.features) return emptyCard("Could not load features for this person.");
+    if (detail.features.length === 0) return emptyCard("No features have been set up yet.");
+
+    return buildTable(["Feature", "Rollout", "For this user"], detail.features, function (f) {
+      var tr = document.createElement("tr");
+      rowLink(tr, "Open " + f.name, function () { go("features/" + f.id); });
+
+      var name = document.createElement("td");
+      name.appendChild(el("div", "cell-title", f.name));
+      var key = el("div", "cell-sub");
+      key.appendChild(codeEl(f.key));
+      name.appendChild(key);
+      tr.appendChild(name);
+
+      var rollout = document.createElement("td");
+      rollout.appendChild(rolloutBadge(f.rollout));
+      tr.appendChild(rollout);
+
+      var state = document.createElement("td");
+      var why;
+      if (f.enabled && f.rollout === "everyone") why = "Everyone";
+      else if (f.enabled) why = "Added on " + fmtDate(f.added_at) + (f.added_by ? " " + addedBy(f.added_by) : "");
+      else if (f.listed) why = "Listed since " + fmtDate(f.added_at) + ", but the feature is off";
+      else if (f.rollout === "selected") why = "Not on the list";
+      else why = "Off for everyone";
+      state.appendChild(el("span", "badge " + (f.enabled ? "badge-success" : "badge-muted"), f.enabled ? "On" : "Off"));
+      state.appendChild(el("div", "cell-sub", why));
+      tr.appendChild(state);
+      return tr;
+    });
+  }
+
+  // --- the features list ------------------------------------------------
+
+  function featureMatches(f) {
+    if (featureTag && (f.tags || []).indexOf(featureTag) === -1) return false;
+    if (!featureFilter) return true;
+    var q = featureFilter.toLowerCase();
+    return f.name.toLowerCase().indexOf(q) !== -1 || f.key.toLowerCase().indexOf(q) !== -1;
+  }
+
+  function buildFeatureRow(f) {
+    var tr = document.createElement("tr");
+    function open() { go("features/" + f.id); }
+    rowLink(tr, "Open " + f.name, open);
+
+    var feature = document.createElement("td");
+    feature.appendChild(el("div", "cell-title", f.name));
+    var key = el("div", "cell-sub");
+    key.appendChild(codeEl(f.key));
+    feature.appendChild(key);
+    if (f.description) feature.appendChild(el("div", "cell-sub", f.description));
+    tr.appendChild(feature);
+
+    var tags = document.createElement("td");
+    tags.appendChild(tagList(f.tags));
+    tr.appendChild(tags);
+
+    var rollout = document.createElement("td");
+    rollout.appendChild(rolloutBadge(f.rollout));
+    tr.appendChild(rollout);
+
+    var who = document.createElement("td");
+    var label = whoHas(f);
+    who.appendChild(el("div", "nowrap" + (label === "No one" ? " muted" : ""), label));
+    // Off with people listed: they are waiting, not forgotten.
+    if (f.rollout === "off" && f.listed_users > 0) {
+      who.appendChild(el("div", "cell-sub", plural(f.listed_users, "person", "people") + " listed"));
+    }
+    tr.appendChild(who);
+
+    var openCell = document.createElement("td");
+    var btn = el("button", "btn btn-outline btn-sm", "Open");
+    btn.type = "button";
+    btn.tabIndex = -1;
+    btn.addEventListener("click", function (e) { e.stopPropagation(); open(); });
+    openCell.appendChild(btn);
+    tr.appendChild(openCell);
+    return tr;
+  }
+
+  function renderFeatures() {
+    var root = el("div", "stack");
+    var all = features.features || [];
+
+    var head = el("div", "page-head");
+    var titles = document.createElement("div");
+    titles.appendChild(el("h2", "", "Features"));
+    titles.appendChild(el("div", "cell-sub", "Open a feature to change who has it."));
+    head.appendChild(titles);
+    var newBtn = el("button", "btn btn-primary", "New feature");
+    newBtn.type = "button";
+    newBtn.addEventListener("click", openNewFeature);
+    head.appendChild(newBtn);
+    root.appendChild(head);
+
+    // Tags in use, most used first.
+    var counts = {};
+    all.forEach(function (f) { (f.tags || []).forEach(function (t) { counts[t] = (counts[t] || 0) + 1; }); });
+    var tags = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a] || a.localeCompare(b); });
+    if (featureTag && !counts[featureTag]) featureTag = "";
+
+    var controls = el("div", "section");
+    var labelEl = el("label", "sr-only", "Filter features");
+    labelEl.setAttribute("for", "feature-filter");
+    var input = document.createElement("input");
+    input.className = "input";
+    input.id = "feature-filter";
+    input.type = "search";
+    input.placeholder = "Filter by name or key";
+    input.value = featureFilter;
+    input.style.maxWidth = "24rem";
+    input.addEventListener("input", function () {
+      featureFilter = input.value;
+      renderView({ keepFocus: "feature-filter" });
+    });
+    controls.appendChild(labelEl);
+    controls.appendChild(input);
+
+    if (tags.length) {
+      var pills = el("div", "pills");
+      pills.setAttribute("role", "group");
+      pills.setAttribute("aria-label", "Filter by tag");
+      pills.appendChild(el("span", "cell-sub", "Tags"));
+      [""].concat(tags).forEach(function (t) {
+        var b = el("button", "pill-btn", t || "All");
+        b.type = "button";
+        b.setAttribute("aria-pressed", String(featureTag === t));
+        b.addEventListener("click", function () { featureTag = t; renderView(); });
+        pills.appendChild(b);
+      });
+      controls.appendChild(pills);
+    }
+    root.appendChild(controls);
+
+    var shown = all.filter(featureMatches);
+    if (all.length === 0) {
+      root.appendChild(emptyCard("No features yet."));
+      return root;
+    }
+    if (shown.length === 0) {
+      root.appendChild(emptyCard("No feature matches that filter."));
+      return root;
+    }
+
+    root.appendChild(buildTable(["Feature", "Tags", "Rollout", "Who has it", "Open"], shown, buildFeatureRow));
+
+    var by = { off: 0, selected: 0, everyone: 0 };
+    shown.forEach(function (f) { by[f.rollout] = (by[f.rollout] || 0) + 1; });
+    root.appendChild(el("p", "footer-line", [
+      plural(shown.length, "feature", "features"),
+      by.selected + " on for selected users",
+      by.everyone + " on for everyone",
+      by.off + " off"
+    ].join(" · ")));
+    return root;
+  }
+
+  // --- one feature ------------------------------------------------------
+
+  function rolloutExplained(f) {
+    if (f.rollout === "everyone") {
+      return "On for all " + plural(f.total_users, "user", "users") +
+        ", and anyone who signs up. The list below is kept in case you switch back.";
+    }
+    if (f.rollout === "selected") {
+      if (f.listed_users === 0) return "On for the users listed, but no one is listed yet, so no one sees it.";
+      return "On for the " + plural(f.listed_users, "user", "users") + " listed. Everyone else doesn’t see it.";
+    }
+    return "Off for everyone, including anyone listed. No one sees it.";
+  }
+
+  function askRollout(f, next) {
+    var name = "“" + f.name + "”";
+    var opts;
+    if (next === "off") {
+      opts = {
+        title: "Turn off for everyone?",
+        message: name + " will stop showing for everyone who has it now. The list of users is kept.",
+        confirmLabel: "Turn off",
+        destructive: true
+      };
+    } else if (next === "everyone") {
+      opts = {
+        title: "Turn on for everyone?",
+        message: "All " + plural(f.total_users, "user", "users") + " will get " + name +
+          ", and so will anyone who signs up from now on.",
+        confirmLabel: "Turn on for everyone"
+      };
+    } else {
+      opts = {
+        title: "Turn on for selected users only?",
+        message: (f.listed_users === 0
+          ? "No one is listed yet, so no one will have " + name + " until you add users."
+          : "Only the " + plural(f.listed_users, "user", "users") + " listed will have " + name + ".") +
+          (f.rollout === "everyone" ? " Everyone else loses it." : ""),
+        confirmLabel: "Switch to selected users",
+        destructive: f.rollout === "everyone"
+      };
+    }
+    opts.run = function () {
+      return apiPost("/admin/api/features/" + encodeURIComponent(f.id) + "/rollout", { rollout: next })
+        .then(function (result) {
+          showStatus(result.message || "Rollout changed.", false);
+          forgetFeatures();
+          return load(true);
+        });
+    };
+    askChoice(opts);
+  }
+
+  function buildDetailsCard(f) {
+    var card = el("div", "card");
+    var header = el("div", "card-header split");
+    header.appendChild(el("h3", "", "Details"));
+    header.appendChild(el("span", "cell-sub", "Created " + fmtDate(f.created_at)));
+    card.appendChild(header);
+
+    var original = { name: f.name, description: f.description || "", tags: (f.tags || []).slice() };
+    var draft = drafts[f.id] || { name: original.name, description: original.description, tags: original.tags.slice() };
+
+    var form = el("form", "card-body form");
+    form.noValidate = true;
+
+    var nameWrap = document.createElement("div");
+    var nameLabel = el("label", "label", "Name");
+    nameLabel.setAttribute("for", "fd-name");
+    var nameInput = document.createElement("input");
+    nameInput.className = "input";
+    nameInput.id = "fd-name";
+    nameInput.maxLength = 80;
+    nameInput.value = draft.name;
+    nameWrap.appendChild(nameLabel);
+    nameWrap.appendChild(nameInput);
+    form.appendChild(nameWrap);
+
+    var keyWrap = document.createElement("div");
+    keyWrap.appendChild(el("div", "label", "Key"));
+    var keyLine = el("div", "pills");
+    keyLine.appendChild(codeEl(f.key));
+    keyLine.appendChild(el("span", "cell-sub", "Used in code, can’t be changed"));
+    keyWrap.appendChild(keyLine);
+    form.appendChild(keyWrap);
+
+    var descWrap = document.createElement("div");
+    var descLabel = el("label", "label", "Description");
+    descLabel.setAttribute("for", "fd-description");
+    var descInput = document.createElement("textarea");
+    descInput.className = "input textarea";
+    descInput.id = "fd-description";
+    descInput.rows = 3;
+    descInput.maxLength = 500;
+    descInput.value = draft.description;
+    descWrap.appendChild(descLabel);
+    descWrap.appendChild(descInput);
+    form.appendChild(descWrap);
+
+    var tagsWrap = document.createElement("div");
+    var tagsLabel = el("label", "label", "Tags");
+    tagsLabel.setAttribute("for", "fd-tags");
+    var editor = tagEditor("fd-tags", draft.tags, function (tags) { draft.tags = tags; sync(); });
+    tagsWrap.appendChild(tagsLabel);
+    tagsWrap.appendChild(editor.node);
+    form.appendChild(tagsWrap);
+
+    var actions = el("div", "form-actions");
+    var cancel = el("button", "btn btn-outline", "Cancel");
+    cancel.type = "button";
+    var save = el("button", "btn btn-primary", "Save changes");
+    save.type = "submit";
+    actions.appendChild(cancel);
+    actions.appendChild(save);
+    form.appendChild(actions);
+
+    function dirty() {
+      return draft.name !== original.name || draft.description !== original.description ||
+        JSON.stringify(draft.tags) !== JSON.stringify(original.tags);
+    }
+    function sync() {
+      if (dirty()) drafts[f.id] = draft; else delete drafts[f.id];
+      save.disabled = !dirty() || !draft.name.trim();
+      cancel.disabled = !dirty();
+    }
+
+    nameInput.addEventListener("input", function () { draft.name = nameInput.value; sync(); });
+    descInput.addEventListener("input", function () { draft.description = descInput.value; sync(); });
+    cancel.addEventListener("click", function () {
+      delete drafts[f.id];
+      renderView();
+    });
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      draft.tags = editor.get();
+      if (!dirty() || !draft.name.trim()) return;
+      save.disabled = true;
+      apiSend("PATCH", "/admin/api/features/" + encodeURIComponent(f.id), {
+        name: draft.name,
+        description: draft.description,
+        tags: draft.tags
+      }).then(function (result) {
+        delete drafts[f.id];
+        showStatus(result.message || "Changes saved.", false);
+        forgetFeatures();
+        return load(true);
+      }).catch(function (err) {
+        showStatus(err.message || "Could not save the changes.", true);
+        sync();
+      });
+    });
+
+    sync();
+    card.appendChild(form);
+    return card;
+  }
+
+  function buildRolloutCard(f) {
+    var card = el("div", "card");
+    var header = el("div", "card-header");
+    header.appendChild(el("h3", "", "Rollout"));
+    card.appendChild(header);
+
+    var body = el("div", "card-body form");
+    var seg = el("div", "seg");
+    seg.setAttribute("role", "group");
+    seg.setAttribute("aria-label", "Who has this feature");
+    ROLLOUTS.forEach(function (r) {
+      var b = el("button", "", r.label);
+      b.type = "button";
+      b.setAttribute("aria-pressed", String(f.rollout === r.value));
+      b.addEventListener("click", function () {
+        if (f.rollout !== r.value) askRollout(f, r.value);
+      });
+      seg.appendChild(b);
+    });
+    body.appendChild(seg);
+    body.appendChild(el("p", "muted", rolloutExplained(f))).style.margin = "0";
+    card.appendChild(body);
+    return card;
+  }
+
+  function buildUsersCard(data) {
+    var f = data.feature;
+    var users = data.users || [];
+    var card = el("div", "card");
+    var header = el("div", "card-header split");
+    header.appendChild(el("h3", "", "Users with this feature"));
+    header.appendChild(el("span", "badge badge-muted", plural(users.length, "user", "users")));
+    card.appendChild(header);
+
+    var body = el("div", "card-body form");
+
+    if (f.rollout !== "selected") {
+      body.appendChild(el("p", "cell-sub", f.rollout === "everyone"
+        ? "Everyone has this feature right now. This list only counts when the rollout is Selected users."
+        : "The feature is off, so no one on this list has it yet.")).style.margin = "0";
+    }
+
+    // Add users: search, pick one or more, add.
+    var addWrap = document.createElement("div");
+    var addLabel = el("label", "label", "Add users");
+    addLabel.setAttribute("for", "fu-search");
+    addWrap.appendChild(addLabel);
+    var row = el("div", "search-row");
+    var input = document.createElement("input");
+    input.className = "input";
+    input.id = "fu-search";
+    input.type = "search";
+    input.autocomplete = "off";
+    input.placeholder = "Type an email or name";
+    var addBtn = el("button", "btn btn-primary", "Add");
+    addBtn.type = "button";
+    addBtn.disabled = true;
+    row.appendChild(input);
+    row.appendChild(addBtn);
+    addWrap.appendChild(row);
+    var matchesEl = el("div", "match-list");
+    matchesEl.setAttribute("aria-live", "polite");
+    matchesEl.style.marginTop = "0.5rem";
+    addWrap.appendChild(matchesEl);
+    body.appendChild(addWrap);
+
+    var selected = {};
+    var results = [];
+    var seq = 0;
+    var timer = null;
+
+    function selectedIds() { return Object.keys(selected).filter(function (id) { return selected[id]; }); }
+
+    function drawMatches(message) {
+      clear(matchesEl);
+      if (message) { matchesEl.appendChild(el("div", "cell-sub", message)); }
+      results.forEach(function (u) {
+        var b = el("button", "match");
+        b.type = "button";
+        b.setAttribute("aria-pressed", String(Boolean(selected[u.id])));
+        var who = document.createElement("span");
+        who.appendChild(el("div", "cell-title", personName(u)));
+        who.appendChild(el("div", "cell-sub", u.email));
+        b.appendChild(who);
+        b.appendChild(el("span", "cell-sub nowrap", "Joined " + fmtDate(u.created_at)));
+        b.addEventListener("click", function () {
+          selected[u.id] = !selected[u.id];
+          b.setAttribute("aria-pressed", String(selected[u.id]));
+          var n = selectedIds().length;
+          addBtn.disabled = n === 0;
+          addBtn.textContent = n > 1 ? "Add " + n : "Add";
+        });
+        matchesEl.appendChild(b);
+      });
+    }
+
+    input.addEventListener("input", function () {
+      clearTimeout(timer);
+      var q = input.value.trim();
+      timer = setTimeout(function () {
+        var mine = ++seq;
+        if (q.length < 2) {
+          // Keep anyone already picked; drop the rest.
+          results = results.filter(function (u) { return selected[u.id]; });
+          drawMatches("");
+          return;
+        }
+        apiGet("/admin/api/features/" + encodeURIComponent(f.id) + "/user-search?q=" + encodeURIComponent(q))
+          .then(function (res) {
+            if (mine !== seq) return;
+            var picked = results.filter(function (u) { return selected[u.id]; });
+            var fresh = (res.users || []).filter(function (u) { return !selected[u.id]; });
+            results = picked.concat(fresh);
+            drawMatches(fresh.length || picked.length ? "" : "No one matches, or they’re already on the list.");
+          })
+          .catch(function (err) { if (mine === seq) drawMatches(err.message || "Could not search."); });
+      }, 250);
+    });
+
+    addBtn.addEventListener("click", function () {
+      var ids = selectedIds();
+      if (!ids.length) return;
+      addBtn.disabled = true;
+      apiPost("/admin/api/features/" + encodeURIComponent(f.id) + "/users", { userIds: ids })
+        .then(function (result) {
+          showStatus(result.message || "Added.", false);
+          forgetFeatures();
+          return load(true);
+        })
+        .catch(function (err) {
+          addBtn.disabled = false;
+          showStatus(err.message || "Could not add those users.", true);
+        });
+    });
+
+    if (users.length === 0) {
+      body.appendChild(el("div", "empty", "No one has been added yet."));
+    } else {
+      body.appendChild(buildTable(["Person", "Added", "Remove"], users, function (u) {
+        var tr = document.createElement("tr");
+        var person = document.createElement("td");
+        person.appendChild(el("div", "cell-title", personName(u)));
+        person.appendChild(el("div", "cell-sub", u.email));
+        tr.appendChild(person);
+
+        var added = document.createElement("td");
+        added.appendChild(el("div", "nowrap", fmtDate(u.added_at)));
+        if (u.added_by) added.appendChild(el("div", "cell-sub", addedBy(u.added_by)));
+        tr.appendChild(added);
+
+        var removeCell = document.createElement("td");
+        removeCell.style.textAlign = "right";
+        var remove = el("button", "btn btn-ghost btn-sm", "Remove");
+        remove.type = "button";
+        remove.setAttribute("aria-label", "Remove " + u.email);
+        remove.addEventListener("click", function () {
+          function run() {
+            return apiSend("DELETE", "/admin/api/features/" + encodeURIComponent(f.id) +
+              "/users/" + encodeURIComponent(u.id))
+              .then(function (result) {
+                showStatus((u.email || "User") + " removed from " + f.name + ".", false);
+                forgetFeatures();
+                return load(true);
+              });
+          }
+          // Only asked when it takes the feature away from them right now.
+          if (f.rollout === "selected") {
+            askChoice({
+              title: "Remove " + u.email + "?",
+              message: "They lose “" + f.name + "” straight away.",
+              confirmLabel: "Remove",
+              destructive: true,
+              run: run
+            });
+          } else {
+            run().catch(function (err) { showStatus(err.message || "Could not remove that user.", true); });
+          }
+        });
+        removeCell.appendChild(remove);
+        tr.appendChild(removeCell);
+        return tr;
+      }));
+    }
+
+    card.appendChild(body);
+    return card;
+  }
+
+  function buildFeature(data) {
+    var root = el("div", "stack");
+    var back = el("button", "back", "← All features");
+    back.type = "button";
+    back.addEventListener("click", function () { go("features"); });
+    root.appendChild(back);
+
+    var head = el("div", "page-head");
+    var titles = document.createElement("div");
+    titles.appendChild(el("h2", "", data.feature.name));
+    if (data.feature.description) titles.appendChild(el("div", "cell-sub", data.feature.description));
+    head.appendChild(titles);
+    head.appendChild(rolloutBadge(data.feature.rollout));
+    root.appendChild(head);
+
+    var grid = el("div", "feature-grid");
+    var left = el("div", "stack");
+    left.appendChild(buildDetailsCard(data.feature));
+    left.appendChild(buildRolloutCard(data.feature));
+    grid.appendChild(left);
+    grid.appendChild(buildUsersCard(data));
+    root.appendChild(grid);
+    return root;
+  }
+
+  // --- new feature ------------------------------------------------------
+
+  var KEY_PATTERN = /^[a-z][a-z0-9_]{2,49}$/;
+  var nfDialog = document.getElementById("new-feature");
+  var nfForm = document.getElementById("nf-form");
+  var nfError = document.getElementById("nf-error");
+  var nfKey = document.getElementById("nf-key");
+  var nfName = document.getElementById("nf-name");
+  var nfDescription = document.getElementById("nf-description");
+  var nfTagsHost = document.getElementById("nf-tags-host");
+  var nfSubmit = document.getElementById("nf-submit");
+  var nfTags = null;
+
+  function nfShowError(text) {
+    nfError.textContent = text;
+    nfError.hidden = !text;
+  }
+
+  function openNewFeature() {
+    nfForm.reset();
+    nfShowError("");
+    clear(nfTagsHost);
+    nfTags = tagEditor("nf-tags", [], null);
+    nfTagsHost.appendChild(nfTags.node);
+    nfSubmit.disabled = false;
+    if (typeof nfDialog.showModal === "function") nfDialog.showModal();
+    else nfDialog.setAttribute("open", "open");
+    nfKey.focus();
+  }
+
+  function closeNewFeature() {
+    if (typeof nfDialog.close === "function") nfDialog.close();
+    else nfDialog.removeAttribute("open");
+  }
+
+  // Keys are lowercase snake_case, so type them that way.
+  nfKey.addEventListener("input", function () {
+    var v = nfKey.value.toLowerCase().split(" ").join("_").split("-").join("_");
+    if (v !== nfKey.value) nfKey.value = v;
+  });
+
+  document.getElementById("nf-cancel").addEventListener("click", closeNewFeature);
+
+  nfForm.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var key = nfKey.value.trim();
+    var name = nfName.value.trim();
+    var tags = nfTags ? nfTags.get() : [];
+    if (!KEY_PATTERN.test(key)) {
+      nfShowError("The key must be 3 to 50 lowercase letters, numbers or underscores, starting with a letter.");
+      nfKey.focus();
+      return;
+    }
+    if (features && (features.features || []).some(function (f) { return f.key === key; })) {
+      nfShowError("A feature with the key " + key + " already exists.");
+      nfKey.focus();
+      return;
+    }
+    if (!name) {
+      nfShowError("Give the feature a name.");
+      nfName.focus();
+      return;
+    }
+    nfShowError("");
+    nfSubmit.disabled = true;
+    apiPost("/admin/api/features", {
+      key: key,
+      name: name,
+      description: nfDescription.value.trim(),
+      tags: tags
+    }).then(function (result) {
+      closeNewFeature();
+      forgetFeatures();
+      flash = { text: "Created " + name + ". It’s off until you choose who gets it.", isError: false };
+      go("features/" + result.feature.id);
+    }).catch(function (err) {
+      nfSubmit.disabled = false;
+      nfShowError(err.message || "Could not create the feature.");
+    });
+  });
+
   // --- confirmation -----------------------------------------------------
 
   function askConfirm(user, action) {
     pending = { user: user, action: action };
+    dialogEmailField.hidden = false;
+    dialogConfirm.className = "btn btn-destructive";
     dialogEmail.value = "";
     dialogConfirm.disabled = true;
 
@@ -819,6 +1723,24 @@ ${head("Verloq Admin")}
     dialogEmail.focus();
   }
 
+  /**
+   * The same dialog for a change that needs a second look but not the
+   * type-the-address guard deletion has: a feature's rollout, removing
+   * someone from a feature. opts.run does the work and returns a promise.
+   */
+  function askChoice(opts) {
+    pending = { run: opts.run };
+    dialogTitle.textContent = opts.title;
+    dialogMessage.textContent = opts.message;
+    dialogConfirm.textContent = opts.confirmLabel;
+    dialogConfirm.className = "btn " + (opts.destructive ? "btn-destructive" : "btn-primary");
+    dialogEmailField.hidden = true;
+    dialogConfirm.disabled = false;
+    if (typeof dialog.showModal === "function") dialog.showModal();
+    else dialog.setAttribute("open", "open");
+    dialogConfirm.focus();
+  }
+
   function closeDialog() {
     pending = null;
     if (typeof dialog.close === "function") dialog.close();
@@ -826,7 +1748,7 @@ ${head("Verloq Admin")}
   }
 
   dialogEmail.addEventListener("input", function () {
-    dialogConfirm.disabled = !pending ||
+    dialogConfirm.disabled = !pending || !pending.user ||
       dialogEmail.value.trim().toLowerCase() !== String(pending.user.email).toLowerCase();
   });
 
@@ -834,6 +1756,15 @@ ${head("Verloq Admin")}
 
   dialogConfirm.addEventListener("click", function () {
     if (!pending) return;
+    if (pending.run) {
+      var run = pending.run;
+      dialogConfirm.disabled = true;
+      run().then(closeDialog, function (err) {
+        closeDialog();
+        showStatus(err.message || "That did not work.", true);
+      });
+      return;
+    }
     var user = pending.user;
     var action = pending.action;
     var url = "/admin/api/users/" + encodeURIComponent(user.id) +
@@ -876,9 +1807,25 @@ ${head("Verloq Admin")}
     if (routeFromHash() !== next) applyRoute();
   }
 
+  /** "list", "features", "features/<id>", or a user id. */
+  function parseRoute(r) {
+    if (r === "list") return { view: "people" };
+    if (r === "features") return { view: "features" };
+    if (r.indexOf("features/") === 0) return { view: "feature", id: decodeURIComponent(r.slice(9)) };
+    return { view: "person", id: r };
+  }
+
+  var navPeople = document.getElementById("nav-people");
+  var navFeatures = document.getElementById("nav-features");
+
   function applyRoute() {
     route = routeFromHash();
-    hideStatus();
+    var view = parseRoute(route).view;
+    var onFeatures = view === "features" || view === "feature";
+    if (onFeatures) { navFeatures.setAttribute("aria-current", "page"); navPeople.removeAttribute("aria-current"); }
+    else { navPeople.setAttribute("aria-current", "page"); navFeatures.removeAttribute("aria-current"); }
+    if (flash) { showStatus(flash.text, flash.isError); flash = null; }
+    else hideStatus();
     window.scrollTo(0, 0);
     load(false);
   }
@@ -898,37 +1845,65 @@ ${head("Verloq Admin")}
     }
   }
 
+  function restoreFocus(options) {
+    if (!options || !options.keepFocus) return;
+    var again = document.getElementById(options.keepFocus);
+    if (again) {
+      again.focus();
+      var end = again.value.length;
+      try { again.setSelectionRange(end, end); } catch (e) {}
+    }
+  }
+
   function renderInto(host, options) {
     clear(host);
+    var r = parseRoute(route);
 
-    if (route === "list") {
+    if (r.view === "features") {
+      if (!features) { host.appendChild(el("p", "muted", "Loading…")); return; }
+      host.appendChild(renderFeatures());
+      restoreFocus(options);
+      return;
+    }
+
+    if (r.view === "feature") {
+      var data = featureCache[r.id];
+      if (!data) { host.appendChild(el("p", "muted", "Loading…")); return; }
+      host.appendChild(buildFeature(data));
+      return;
+    }
+
+    if (r.view === "people") {
       // load() renders once before its requests resolve, so the page shows
       // something immediately rather than a blank body.
       if (!overview) { host.appendChild(el("p", "muted", "Loading\u2026")); return; }
       host.appendChild(renderList());
-      if (options && options.keepFocus) {
-        var again = document.getElementById(options.keepFocus);
-        if (again) {
-          again.focus();
-          var end = again.value.length;
-          try { again.setSelectionRange(end, end); } catch (e) {}
-        }
-      }
+      restoreFocus(options);
       return;
     }
 
-    var detail = detailCache[route];
+    var detail = detailCache[r.id];
     if (!detail) { host.appendChild(el("p", "muted", "Loading…")); return; }
     host.appendChild(buildPerson(detail));
   }
 
   function load(force) {
     var jobs = [];
-    if (!overview || force) {
+    var r = parseRoute(route);
+    if (r.view === "features" && (!features || force)) {
+      jobs.push(apiGet("/admin/api/features").then(function (data) { features = data; }));
+    }
+    if (r.view === "feature" && (!featureCache[r.id] || force)) {
+      var featureId = r.id;
+      jobs.push(apiGet("/admin/api/features/" + encodeURIComponent(featureId)).then(function (data) {
+        featureCache[featureId] = data;
+      }));
+    }
+    if ((r.view === "people" || r.view === "person") && (!overview || force)) {
       jobs.push(apiGet("/admin/api/overview").then(function (data) { overview = data; }));
     }
-    if (route !== "list" && (!detailCache[route] || force)) {
-      var id = route;
+    if (r.view === "person" && (!detailCache[r.id] || force)) {
+      var id = r.id;
       jobs.push(apiGet("/admin/api/users/" + encodeURIComponent(id)).then(function (data) {
         detailCache[id] = data;
       }));

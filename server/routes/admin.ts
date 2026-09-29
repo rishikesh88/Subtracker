@@ -11,6 +11,10 @@
  * account, and every read path here selects counts and timestamps rather than
  * mailbox tokens.
  *
+ * The one thing it does change is feature switches (Features): which users
+ * get a gated feature. Those are the console's own settings rather than
+ * anyone's data, and every change to them is written to feature_flag_audit.
+ *
  * Mounted only when ADMIN_EMAIL and ADMIN_PASSWORD_HASH are both set. Without
  * them these routes do not exist at all and /admin falls through to the app's
  * normal not-found handling, so an unconfigured deploy does not announce that
@@ -36,6 +40,13 @@ import { APP_BASE_URL } from "../config";
 // One definition of "what is running", shared with /healthz rather than a
 // second copy here that can drift from it.
 import { buildInfo } from "../lib/buildInfo";
+import {
+  decide,
+  invalidateFeatureFlags,
+  isRollout,
+  isValidFeatureKey,
+  normaliseTags,
+} from "../lib/featureFlags";
 
 /**
  * Sends an admin page, uncacheable.
@@ -186,6 +197,76 @@ function describe(result: any, verb: string): string {
   return `${verb} Removed ${parts.join(", ")}.${revoked}`;
 }
 
+// --- Feature switches ---------------------------------------------------
+
+/** Who made a change, for the audit trail. There is one admin. */
+function adminActor(): string {
+  return process.env.ADMIN_EMAIL || "admin";
+}
+
+/**
+ * The editable details of a switch from a request body, or the reason they
+ * are refused. `current` is given for an edit, so a field left out keeps its
+ * value; for a create every field is required except description and tags.
+ */
+function readFeatureDetails(
+  body: any,
+  current?: { name: string; description: string; tags: string[] }
+): { ok: true; value: { name: string; description: string; tags: string[] } } | { ok: false; message: string } {
+  const name = body?.name === undefined && current ? current.name : body?.name;
+  const description = body?.description === undefined ? current?.description ?? "" : body?.description;
+  const tagsIn = body?.tags === undefined ? current?.tags ?? [] : body?.tags;
+
+  if (typeof name !== "string" || !name.trim()) return { ok: false, message: "Give the feature a name." };
+  if (name.trim().length > 80) return { ok: false, message: "Keep the name under 80 characters." };
+  if (typeof description !== "string") return { ok: false, message: "The description must be text." };
+  if (description.trim().length > 500) return { ok: false, message: "Keep the description under 500 characters." };
+  const tags = normaliseTags(tagsIn);
+  if (!tags) return { ok: false, message: "Tags must be a list of up to 12 short words." };
+
+  return { ok: true, value: { name: name.trim(), description: description.trim(), tags } };
+}
+
+/** A switch as the console shows it, with the counts it needs. */
+function featureForAdmin(flag: any, listedUsers: number, totalUsers: number) {
+  return {
+    id: flag.id,
+    key: flag.key,
+    name: flag.name,
+    description: flag.description,
+    tags: flag.tags ?? [],
+    rollout: flag.rollout,
+    created_at: flag.createdAt,
+    updated_at: flag.updatedAt,
+    listed_users: listedUsers,
+    total_users: totalUsers,
+  };
+}
+
+/**
+ * Every switch for one person: whether they have it, and why. The answer
+ * comes from the same decide() the app uses, so the console cannot disagree
+ * with what the person actually sees.
+ */
+async function featuresForUser(userId: string) {
+  const [flags, memberships, totalUsers] = await Promise.all([
+    storage.listFeatureFlagsForAdmin(),
+    storage.getFeatureFlagMembershipsForUser(userId),
+    storage.countUsers(),
+  ]);
+  const byFlag = new Map(memberships.map((m) => [m.flagId, m]));
+  return flags.map((flag) => {
+    const listed = byFlag.get(flag.id);
+    return {
+      ...featureForAdmin(flag, flag.listedUsers, totalUsers),
+      enabled: decide(flag, Boolean(listed)),
+      listed: Boolean(listed),
+      added_at: listed?.addedAt ?? null,
+      added_by: listed?.addedBy ?? null,
+    };
+  });
+}
+
 export function registerAdminRoutes(app: Express): void {
   const problem = adminConfigProblem();
   if (problem) {
@@ -282,10 +363,174 @@ export function registerAdminRoutes(app: Express): void {
         invoices_without_file: toNumber(row.invoices_without_file),
       }));
 
-      res.json({ ...normaliseUserRow(detail), subscriptions_detail });
+      // Optional: the rest of the person page is worth showing even if the
+      // feature tables are unreadable.
+      let features = null;
+      try {
+        features = await featuresForUser(req.params.id);
+      } catch (error) {
+        console.error("[Admin] Failed to load a user's features:", error);
+      }
+
+      res.json({ ...normaliseUserRow(detail), subscriptions_detail, features });
     } catch (error) {
       console.error("[Admin] Failed to load a user:", error);
       res.status(500).json({ message: "Could not load that user." });
+    }
+  });
+
+  // --- Feature switches -------------------------------------------------
+  //
+  // Every write records an audit row (in the same batch as the change) and
+  // drops the in-memory cache, so the next app request sees the change.
+
+  app.get("/admin/api/features", requireAdmin, async (_req, res) => {
+    try {
+      const [flags, totalUsers] = await Promise.all([
+        storage.listFeatureFlagsForAdmin(),
+        storage.countUsers(),
+      ]);
+      res.json({ features: flags.map((flag) => featureForAdmin(flag, flag.listedUsers, totalUsers)) });
+    } catch (error) {
+      console.error("[Admin] Failed to load features:", error);
+      res.status(500).json({ message: "Could not load the features." });
+    }
+  });
+
+  app.post("/admin/api/features", requireAdmin, requireAdminCsrf, async (req, res) => {
+    try {
+      const key = req.body?.key;
+      if (!isValidFeatureKey(key)) {
+        return res.status(400).json({
+          message: "The key must be 3 to 50 lowercase letters, numbers or underscores, starting with a letter.",
+        });
+      }
+      const details = readFeatureDetails(req.body);
+      if (!details.ok) return res.status(400).json({ message: details.message });
+      if (await storage.getFeatureFlagByKey(key)) {
+        return res.status(409).json({ message: `A feature with the key ${key} already exists.` });
+      }
+
+      const flag = await storage.createFeatureFlag({ key, ...details.value }, adminActor());
+      invalidateFeatureFlags();
+      res.status(201).json({ feature: featureForAdmin(flag, 0, await storage.countUsers()) });
+    } catch (error) {
+      console.error("[Admin] Failed to create a feature:", error);
+      res.status(500).json({ message: "Could not create the feature." });
+    }
+  });
+
+  app.get("/admin/api/features/:id", requireAdmin, async (req, res) => {
+    try {
+      const flag = await storage.getFeatureFlag(req.params.id);
+      if (!flag) return res.status(404).json({ message: "No such feature." });
+      const [listed, totalUsers] = await Promise.all([
+        storage.getFeatureFlagUsersForAdmin(flag.id),
+        storage.countUsers(),
+      ]);
+      res.json({
+        feature: featureForAdmin(flag, listed.length, totalUsers),
+        users: listed.map((u: any) => ({
+          id: u.userId,
+          email: u.email,
+          first_name: u.firstName,
+          last_name: u.lastName,
+          added_at: u.addedAt,
+          added_by: u.addedBy,
+        })),
+      });
+    } catch (error) {
+      console.error("[Admin] Failed to load a feature:", error);
+      res.status(500).json({ message: "Could not load that feature." });
+    }
+  });
+
+  // Name, description and tags. The key is used in code and never changes,
+  // and the rollout has its own route so it cannot change by accident here.
+  app.patch("/admin/api/features/:id", requireAdmin, requireAdminCsrf, async (req, res) => {
+    try {
+      const flag = await storage.getFeatureFlag(req.params.id);
+      if (!flag) return res.status(404).json({ message: "No such feature." });
+      if (req.body?.key !== undefined && req.body.key !== flag.key) {
+        return res.status(400).json({ message: "The key is used in code and can’t be changed." });
+      }
+      if (req.body?.rollout !== undefined) {
+        return res.status(400).json({ message: "Change the rollout with its own switch." });
+      }
+      const details = readFeatureDetails(req.body, flag);
+      if (!details.ok) return res.status(400).json({ message: details.message });
+
+      const updated = await storage.updateFeatureFlagDetails(flag.id, details.value, adminActor());
+      invalidateFeatureFlags();
+      res.json({ feature: updated, message: "Changes saved." });
+    } catch (error) {
+      console.error("[Admin] Failed to edit a feature:", error);
+      res.status(500).json({ message: "Could not save the changes." });
+    }
+  });
+
+  app.post("/admin/api/features/:id/rollout", requireAdmin, requireAdminCsrf, async (req, res) => {
+    try {
+      const rollout = req.body?.rollout;
+      if (!isRollout(rollout)) {
+        return res.status(400).json({ message: "Rollout must be off, selected or everyone." });
+      }
+      const updated = await storage.setFeatureFlagRollout(req.params.id, rollout, adminActor());
+      if (!updated) return res.status(404).json({ message: "No such feature." });
+      invalidateFeatureFlags();
+      const said = rollout === "off" ? "Off for everyone." : rollout === "everyone" ? "On for everyone." : "On for the selected users.";
+      res.json({ feature: updated, message: `${updated.name}: ${said}` });
+    } catch (error) {
+      console.error("[Admin] Failed to change a rollout:", error);
+      res.status(500).json({ message: "Could not change the rollout." });
+    }
+  });
+
+  // Existing users to add, by email or name. Those already listed are left out.
+  app.get("/admin/api/features/:id/user-search", requireAdmin, async (req, res) => {
+    try {
+      const q = String(req.query.q ?? "").trim().slice(0, 100);
+      if (q.length < 2) return res.json({ users: [] });
+      const users = await storage.searchUsersForFeatureFlag(req.params.id, q);
+      res.json({ users });
+    } catch (error) {
+      console.error("[Admin] Failed to search users:", error);
+      res.status(500).json({ message: "Could not search users." });
+    }
+  });
+
+  app.post("/admin/api/features/:id/users", requireAdmin, requireAdminCsrf, async (req, res) => {
+    try {
+      const userIds = req.body?.userIds;
+      if (
+        !Array.isArray(userIds) ||
+        userIds.length === 0 ||
+        userIds.length > 100 ||
+        !userIds.every((id: unknown) => typeof id === "string" && id.length > 0)
+      ) {
+        return res.status(400).json({ message: "Choose at least one user to add." });
+      }
+      const flag = await storage.getFeatureFlag(req.params.id);
+      if (!flag) return res.status(404).json({ message: "No such feature." });
+
+      const added = await storage.addFeatureFlagUsers(flag.id, Array.from(new Set<string>(userIds)), adminActor());
+      invalidateFeatureFlags();
+      res.json({ added, message: added === 1 ? "Added 1 user." : `Added ${added} users.` });
+    } catch (error) {
+      console.error("[Admin] Failed to add users to a feature:", error);
+      res.status(500).json({ message: "Could not add those users." });
+    }
+  });
+
+  app.delete("/admin/api/features/:id/users/:userId", requireAdmin, requireAdminCsrf, async (req, res) => {
+    try {
+      const removed = await storage.removeFeatureFlagUser(req.params.id, req.params.userId, adminActor());
+      if (!removed) return res.status(404).json({ message: "That user is not on this feature’s list." });
+      invalidateFeatureFlags();
+      res.json({ message: "Removed." });
+    } catch (error) {
+      console.error("[Admin] Failed to remove a user from a feature:", error);
+      res.status(500).json({ message: "Could not remove that user." });
     }
   });
 

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, decimal, integer, boolean, index, uniqueIndex, jsonb, check } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, decimal, integer, boolean, index, uniqueIndex, jsonb, check, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -266,6 +266,55 @@ export const subscriptionSuggestions = pgTable("subscription_suggestions", {
   check("provider_fields_sync", sql`(email_provider IS NULL) = (provider_account_id IS NULL)`),
 ]);
 
+/*
+ * Feature switches. A general mechanism: any feature can be gated on a key
+ * here and turned on for no one, a hand-picked list of users, or everyone,
+ * from the admin console. See server/lib/featureFlags.ts.
+ *
+ * These tables are created at startup by storage.ensureFeatureFlagTables()
+ * (db:push is unreliable here), so the DDL there must match these shapes.
+ */
+export const FEATURE_ROLLOUTS = ["off", "selected", "everyone"] as const;
+export type FeatureRollout = (typeof FEATURE_ROLLOUTS)[number];
+
+export const featureFlags = pgTable("feature_flags", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // Used in code. Lowercase snake_case and never changed once created.
+  key: text("key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+  rollout: text("rollout").$type<FeatureRollout>().notNull().default("off"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, () => [
+  check("feature_flags_rollout_check", sql`rollout IN ('off', 'selected', 'everyone')`),
+]);
+
+// Who is on a feature's list. Only consulted when its rollout is 'selected'.
+export const featureFlagUsers = pgTable("feature_flag_users", {
+  flagId: varchar("flag_id").notNull().references(() => featureFlags.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  addedAt: timestamp("added_at").defaultNow().notNull(),
+  addedBy: text("added_by"), // admin email
+}, (table) => [
+  primaryKey({ columns: [table.flagId, table.userId] }),
+  index("idx_feature_flag_users_user").on(table.userId),
+]);
+
+// Every admin change to a feature, one row each.
+export const featureFlagAudit = pgTable("feature_flag_audit", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  flagId: varchar("flag_id").notNull(),
+  actor: text("actor").notNull(), // admin email, or 'system' for the seed
+  action: text("action").notNull(), // created, rollout_changed, user_added, user_removed, details_edited
+  before: jsonb("before"),
+  after: jsonb("after"),
+  at: timestamp("at").defaultNow().notNull(),
+}, (table) => [
+  index("idx_feature_flag_audit_flag").on(table.flagId, table.at),
+]);
+
 export const insertUserSchema = createInsertSchema(users).pick({
   email: true,
   firstName: true,
@@ -455,3 +504,6 @@ export type UpdateGmailAccount = z.infer<typeof updateGmailAccountSchema>;
 export type OutlookAccount = typeof outlookAccounts.$inferSelect;
 export type InsertOutlookAccount = z.infer<typeof insertOutlookAccountSchema>;
 export type UpdateOutlookAccount = z.infer<typeof updateOutlookAccountSchema>;
+export type FeatureFlag = typeof featureFlags.$inferSelect;
+export type FeatureFlagUser = typeof featureFlagUsers.$inferSelect;
+export type FeatureFlagAudit = typeof featureFlagAudit.$inferSelect;
