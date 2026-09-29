@@ -7,7 +7,6 @@ import { useAuth } from "@/hooks/useAuth";
 import { Layout } from "@/components/Layout";
 import { SyncExperience } from "@/components/SyncExperience";
 import Dashboard from "@/pages/dashboard";
-import Subscriptions from "@/pages/subscriptions";
 import Settings from "@/pages/settings";
 import ReviewInbox from "@/pages/review";
 import { Landing } from "@/pages/Landing";
@@ -18,6 +17,12 @@ import NotFound from "@/pages/not-found";
 import VerifyEmail from "@/pages/VerifyEmail";
 import OrgSetup from "@/pages/onboarding/OrgSetup";
 import Connect from "@/pages/onboarding/Connect";
+
+const DashboardPage = () => (
+  <Layout>
+    <Dashboard />
+  </Layout>
+);
 
 function Router() {
   const { user, isAuthenticated, isLoading } = useAuth();
@@ -70,13 +75,14 @@ function Router() {
       ) : (
         <>
           {/* Main app for users who completed onboarding */}
-          <Route path="/" component={() => <Layout><Dashboard /></Layout>} />
-          <Route path="/dashboard" component={() => <Layout><Dashboard /></Layout>} />
-          <Route path="/subscriptions" component={() => <Layout><Subscriptions /></Layout>} />
-          {/* The detail is a drawer over the list, so this route renders the
-              list page and lets it open the drawer from the id. The URL is
-              kept so links, refreshes and the back button still work. */}
-          <Route path="/subscriptions/:id" component={() => <Layout><Subscriptions /></Layout>} />
+          {/* One page for all four: the Subscriptions page was folded into the
+              dashboard, and /subscriptions/:id opens a subscription's drawer over
+              it. The same component each time, so opening a card keeps the
+              search and filters as they were. */}
+          <Route path="/" component={DashboardPage} />
+          <Route path="/dashboard" component={DashboardPage} />
+          <Route path="/subscriptions" component={DashboardPage} />
+          <Route path="/subscriptions/:id" component={DashboardPage} />
           <Route path="/review" component={() => <Layout><ReviewInbox /></Layout>} />
           <Route path="/settings" component={() => <Layout><Settings /></Layout>} />
           {/* Redirect onboarding routes to dashboard for completed users */}

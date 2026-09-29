@@ -9,11 +9,11 @@
  * Violet appears here exactly twice: the brand tile, and the icon on the
  * active row. That is the whole of its job in navigation.
  */
+import { signOut } from "@/lib/signOut";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   LayoutGrid,
-  CreditCard,
   Inbox,
   Settings,
   ChevronLeft,
@@ -26,12 +26,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { queryClient } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
 import type { SafeUser } from "@shared/schema";
 import { Logo } from "@/components/Logo";
@@ -47,14 +45,12 @@ const COLLAPSE_KEY = "verloq.nav.collapsed";
 /** Lucide, 15px inside rows, 2px stroke -- the design's icon rule. */
 const NAVIGATION = [
   { name: "Dashboard", href: "/", icon: LayoutGrid },
-  { name: "Subscriptions", href: "/subscriptions", icon: CreditCard },
   { name: "Review inbox", href: "/review", icon: Inbox },
   { name: "Settings", href: "/settings", icon: Settings },
 ] as const;
 
 export function Sidebar({ user, hasMailbox }: SidebarProps) {
   const [location] = useLocation();
-  const { toast } = useToast();
 
   const [collapsed, setCollapsed] = useState(false);
 
@@ -108,20 +104,14 @@ export function Sidebar({ user, hasMailbox }: SidebarProps) {
   const pendingSuggestionsCount = suggestionsData?.total ?? 0;
 
   const handleLogout = () => {
-    queryClient.clear();
-    toast({
-      title: "Signing out…",
-      description: "You'll be redirected to sign in with a different account.",
-    });
-    setTimeout(() => {
-      window.location.href = "/api/logout";
-    }, 500);
+    void signOut();
   };
 
+  // A name, never the whole email: that was always cut off in this space.
   const displayName =
-    user?.firstName && user?.lastName
-      ? `${user.firstName} ${user.lastName}`
-      : user?.email || "Your account";
+    [user?.firstName, user?.lastName].filter(Boolean).join(" ") ||
+    user?.email?.split("@")[0] ||
+    "Your account";
 
   const initials = (user?.firstName?.[0] ?? user?.email?.[0] ?? "?").toUpperCase();
 
@@ -163,7 +153,11 @@ export function Sidebar({ user, hasMailbox }: SidebarProps) {
       {/* --- Navigation -------------------------------------------------- */}
       <nav className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-0.5">
         {NAVIGATION.map((item) => {
-          const isActive = location === item.href;
+          // The dashboard also owns /subscriptions/:id, the drawer over it.
+          const isActive =
+            item.href === "/"
+              ? location === "/" || location === "/dashboard" || location.startsWith("/subscriptions")
+              : location === item.href;
           const showBadge = item.name === "Review inbox" && pendingSuggestionsCount > 0;
           return (
             <Link
@@ -241,26 +235,16 @@ export function Sidebar({ user, hasMailbox }: SidebarProps) {
                   {initials}
                 </AvatarFallback>
               </Avatar>
+              {/* Name only: the email was always cut off here, and it is on
+                  the Settings page in full. */}
               {!showCollapsed && (
-                <span className="flex-1 min-w-0">
-                  <span className="block truncate text-[12.5px] font-semibold text-ink" data-testid="user-name">
-                    {displayName}
-                  </span>
-                  <span className="block truncate text-[11px] text-muted-foreground" data-testid="user-email">
-                    {user?.email}
-                  </span>
+                <span className="flex-1 min-w-0 truncate text-[12.5px] font-semibold text-ink" data-testid="user-name">
+                  {displayName}
                 </span>
               )}
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" side="top" className="w-52">
-            <DropdownMenuItem asChild>
-              <Link href="/settings" className="flex items-center cursor-pointer">
-                <Settings className="mr-2 h-4 w-4" />
-                Settings
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+          <DropdownMenuContent align="start" side="top" className="w-44">
             <DropdownMenuItem
               onClick={handleLogout}
               className="flex items-center cursor-pointer text-destructive focus:text-destructive"

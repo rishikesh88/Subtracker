@@ -1,6 +1,7 @@
+import { signOut } from "@/lib/signOut";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { User, LogOut, Mail, Calendar, Save, Trash2, RefreshCw, AlertTriangle } from "lucide-react";
+import { User, LogOut, Mail, Calendar, Save, Trash2, RefreshCw, AlertTriangle, Plus, ChevronRight } from "lucide-react";
 import { SiGoogle } from "react-icons/si";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -17,6 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 
 export default function Settings() {
   const { data: user } = useQuery<SafeUser>({
@@ -52,6 +54,7 @@ export default function Settings() {
 
   const totalAccounts = gmailAccounts.length + outlookAccounts.length;
   const canAddMore = totalAccounts < 4;
+  const [addInboxOpen, setAddInboxOpen] = useState(false);
 
   const mailboxes = useMailboxes();
 
@@ -363,19 +366,7 @@ export default function Settings() {
   };
 
   const handleLogout = () => {
-    // Clear all cached data before logout for seamless account switching
-    queryClient.clear();
-
-    // Show signing out feedback
-    toast({
-      title: "Signing out...",
-      description: "You'll be redirected to sign in with a different account.",
-    });
-
-    // Redirect to logout endpoint
-    setTimeout(() => {
-      window.location.href = '/api/logout';
-    }, 500);
+    void signOut();
   };
 
   return (
@@ -497,13 +488,15 @@ export default function Settings() {
         <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="min-w-0">
-              <h2 className="t-label">Email accounts</h2>
+              <h2 className="t-label">Connected inboxes</h2>
               <p className="text-[12px] text-muted-foreground mt-0.5">
-                Connect Gmail and Outlook accounts for subscription tracking (max 4 total)
+                Connect up to 4 Gmail or Outlook inboxes. Each sync reads all of them.
               </p>
             </div>
-            <div className="flex gap-2 flex-none">
-              {mailboxes.hasAny && (
+            {/* With nothing connected, the empty state below carries the two
+                connect buttons; the header adds nothing until then. */}
+            {mailboxes.hasAny && (
+              <div className="flex gap-2 flex-none">
                 <button
                   type="button"
                   onClick={() => syncEmailsMutation.mutate()}
@@ -518,28 +511,19 @@ export default function Settings() {
                   />
                   Sync now
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={handleConnectGmail}
-                disabled={connectGmailMutation.isPending || (gmailAccounts.length >= 2) || !canAddMore}
-                data-testid="connect-gmail-button"
-                className="btn-base btn-secondary"
-              >
-                <SiGoogle size={13} />
-                {connectGmailMutation.isPending ? "Connecting..." : "Gmail"}
-              </button>
-              <button
-                type="button"
-                onClick={handleConnectOutlook}
-                disabled={connectOutlookMutation.isPending || (outlookAccounts.length >= 2) || !canAddMore}
-                data-testid="connect-outlook-button"
-                className="btn-base btn-secondary"
-              >
-                <Mail size={15} strokeWidth={2} />
-                {connectOutlookMutation.isPending ? "Connecting..." : "Outlook"}
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setAddInboxOpen(true)}
+                  disabled={!canAddMore}
+                  title={canAddMore ? undefined : "4 inboxes is the limit"}
+                  data-testid="add-inbox-button"
+                  className="btn-base btn-accent"
+                >
+                  <Plus size={15} strokeWidth={2} />
+                  Add inbox
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="mt-3">
@@ -634,10 +618,70 @@ export default function Settings() {
                     </div>
                   );
                 })}
+                {canAddMore && (
+                  <p className="text-[12.5px] text-muted-foreground border border-dashed border-line rounded-lg px-3 py-2.5">
+                    {4 - totalAccounts} more {4 - totalAccounts === 1 ? "inbox" : "inboxes"} can be connected: a work Gmail, a family Outlook, anything that gets bills.
+                  </p>
+                )}
               </div>
             )}
           </div>
         </section>
+
+        {/* Add inbox: which kind of account. Each provider takes 2 at most. */}
+        <Dialog open={addInboxOpen} onOpenChange={setAddInboxOpen}>
+          <DialogContent className="sm:max-w-[460px]" data-testid="add-inbox-dialog">
+            <div className="flex flex-col gap-1">
+              <DialogTitle className="font-serif text-[26px] font-normal tracking-[-0.02em] leading-tight">
+                Add an inbox
+              </DialogTitle>
+              <DialogDescription className="text-[13px] text-ink-body">
+                Which kind of email account is it?
+              </DialogDescription>
+            </div>
+            <div className="flex flex-col gap-2.5">
+              {[
+                {
+                  key: "gmail",
+                  name: "Gmail",
+                  note: gmailAccounts.length >= 2 ? "2 Gmail inboxes is the limit" : "Gmail and Google Workspace",
+                  full: gmailAccounts.length >= 2,
+                  pending: connectGmailMutation.isPending,
+                  icon: <SiGoogle size={15} className="text-ink-body" />,
+                  connect: handleConnectGmail,
+                },
+                {
+                  key: "outlook",
+                  name: "Outlook",
+                  note: outlookAccounts.length >= 2 ? "2 Outlook inboxes is the limit" : "Outlook, Hotmail and Microsoft 365",
+                  full: outlookAccounts.length >= 2,
+                  pending: connectOutlookMutation.isPending,
+                  icon: <Mail size={16} strokeWidth={2} className="text-ink-body" />,
+                  connect: handleConnectOutlook,
+                },
+              ].map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={option.connect}
+                  disabled={option.full || option.pending}
+                  data-testid={`add-inbox-${option.key}`}
+                  className="flex items-center gap-3.5 h-16 px-4 rounded-[10px] border border-line-firm bg-surface text-left transition-colors hover:bg-[hsl(0,0%,97%)] disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="flex items-center justify-center h-9 w-9 rounded-[9px] bg-line-soft flex-none">{option.icon}</span>
+                  <span className="flex flex-col gap-0.5 flex-1 min-w-0">
+                    <span className="text-[14.5px] font-semibold text-ink">{option.pending ? "Connecting…" : option.name}</span>
+                    <span className="text-[12.5px] text-muted-foreground">{option.note}</span>
+                  </span>
+                  <ChevronRight size={16} strokeWidth={2} className="text-muted-foreground flex-none" />
+                </button>
+              ))}
+            </div>
+            <p className="text-[12px] text-muted-foreground leading-relaxed">
+              Verloq only reads billing emails, and never sends, changes or deletes anything.
+            </p>
+          </DialogContent>
+        </Dialog>
 
         {/* Deleting what was read. Its own card at the foot of the page:
             destructive, and nothing above it should be mistaken for it. */}
