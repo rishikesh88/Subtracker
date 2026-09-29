@@ -19,6 +19,7 @@ import SubscriptionDetail from "@/pages/subscription-detail";
 import { cn } from "@/lib/utils";
 import { filterBucket, formatCurrency, displayCategory } from "@/lib/format";
 import { SubscriptionCard } from "@/components/SubscriptionCard";
+import { useExchangeRates } from "@/hooks/useExchangeRates";
 import { ReviewBanner } from "@/components/ReviewBanner";
 import { type Subscription } from "@shared/schema";
 
@@ -37,6 +38,7 @@ function timeAgo(date: Date): string {
 
 export default function Dashboard() {
   const mailboxes = useMailboxes();
+  const { convert } = useExchangeRates();
   const { toast } = useToast();
   const { user } = useAuth();
   const currentUserId = user?.id;
@@ -287,12 +289,21 @@ export default function Dashboard() {
   // subscriptions array already fetched above; no extra API calls.
   const now = new Date();
   const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  /*
+   * Same rules as the monthly total: only active subscriptions, each amount
+   * converted into the account's currency, and one with no rate left out
+   * rather than added as if it were already in that currency -- which is how
+   * a $50 renewal used to count as 50 rupees here.
+   */
   const dueSoonSubscriptions = subscriptions.filter((sub) => {
-    if (!sub.nextBillingDate) return false;
+    if (sub.status !== "active" || !sub.nextBillingDate) return false;
     const due = new Date(sub.nextBillingDate);
     return !isNaN(due.getTime()) && due >= now && due <= in7Days;
   });
-  const dueSoonTotal = dueSoonSubscriptions.reduce((sum, sub) => sum + (parseFloat(sub.amount) || 0), 0);
+  const dueSoonTotal = dueSoonSubscriptions.reduce((sum, sub) => {
+    const converted = convert(parseFloat(sub.amount) || 0, sub.currency, userCurrency);
+    return converted === null ? sum : sum + converted;
+  }, 0);
   const yearlyRunRate = activeStats.totalMonthly * 12;
 
   const monthLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
