@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { storage } from "./storage";
 import { setupVite, serveStatic, log } from "./vite";
 import { refreshRates } from "./lib/exchangeRates";
+import { resumeHistorySearches } from "./services/historySearch";
 import fs from "fs";
 import path from "path";
 
@@ -139,6 +140,11 @@ app.use((req, res, next) => {
     } catch (error) {
       console.error('❌ Could not set up feature switches:', error);
     }
+
+    // History searches queued (or cut short) before this process started,
+    // for users with the subscription_status switch. After the switches are
+    // set up, since each user's switch is checked. Never throws.
+    void resumeHistorySearches();
 
     // Fill the rate table before the first page asks for a total. This never
     // rejects -- a failure leaves the fallback in place and says so in the log

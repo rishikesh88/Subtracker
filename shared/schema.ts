@@ -144,6 +144,18 @@ export const subscriptions = pgTable("subscriptions", {
   inactiveSource: text("inactive_source"), // email | user
   stillActiveTaps: integer("still_active_taps").default(0).notNull(),
   stillActiveUntil: date("still_active_until"),
+
+  /*
+   * One-time history search (also only for users with `subscription_status`
+   * on; see server/services/historySearch.ts). Null until a search is queued.
+   * Added at startup by storage.ensureSubscriptionStatusTables().
+   */
+  historyStatus: text("history_status"), // pending | running | done | failed
+  historySearchedSince: date("history_searched_since"), // earliest day actually searched
+  historyAttempts: integer("history_attempts").default(0).notNull(),
+  historyError: text("history_error"), // plain words: why it failed, or a note on a skipped search
+  historyStartedAt: timestamp("history_started_at"), // start of the latest attempt
+  historyFinishedAt: timestamp("history_finished_at"),
 }, (table) => [
   index("idx_subscriptions_user_provider").on(table.userId, table.emailProvider),
   index("idx_subscriptions_provider_account").on(table.providerAccountId),
@@ -151,6 +163,7 @@ export const subscriptions = pgTable("subscriptions", {
   check("provider_fields_sync", sql`(email_provider IS NULL) = (provider_account_id IS NULL)`),
   check("subscriptions_lifecycle_status_check", sql`lifecycle_status IS NULL OR lifecycle_status IN ('active', 'needs_review', 'inactive')`),
   check("subscriptions_inactive_source_check", sql`inactive_source IS NULL OR inactive_source IN ('email', 'user')`),
+  check("subscriptions_history_status_check", sql`history_status IS NULL OR history_status IN ('pending', 'running', 'done', 'failed')`),
 ]);
 
 /**
@@ -426,6 +439,12 @@ export const insertSubscriptionSchema = createInsertSchema(subscriptions)
     inactiveSource: true,
     stillActiveTaps: true,
     stillActiveUntil: true,
+    historyStatus: true,
+    historySearchedSince: true,
+    historyAttempts: true,
+    historyError: true,
+    historyStartedAt: true,
+    historyFinishedAt: true,
   })
   .extend({
     nextBillingDate: jsonDate.nullish(),

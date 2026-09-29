@@ -47,7 +47,8 @@ import {
   isValidFeatureKey,
   normaliseTags,
 } from "../lib/featureFlags";
-import { STATUS_FEATURE, statusRowsForAdmin } from "../services/subscriptionStatus";
+import { STATUS_FEATURE, statusRowsForAdmin, statusEnabledFor } from "../services/subscriptionStatus";
+import { queueAllForUser, queueHistorySearch } from "../services/historySearch";
 
 /**
  * Sends an admin page, uncacheable.
@@ -545,6 +546,43 @@ export function registerAdminRoutes(app: Express): void {
     } catch (error) {
       console.error("[Admin] Failed to remove a user from a feature:", error);
       res.status(500).json({ message: "Could not remove that user." });
+    }
+  });
+
+  // --- History search (subscription_status switch only) -----------------
+  //
+  // Queues a look back through a person's billing emails. With a
+  // subscriptionId, that one is searched again even if it was done; without,
+  // every subscription of theirs not already searched is queued. It changes
+  // nothing a user sees, and the search itself runs in the background.
+
+  app.post("/admin/api/users/:id/history-search", requireAdmin, requireAdminCsrf, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.params.id);
+      if (!user) return res.status(404).json({ message: "No such user." });
+      if (!(await statusEnabledFor(user.id))) {
+        return res.status(409).json({ message: "Subscription status is not on for this person." });
+      }
+
+      const subscriptionId = typeof req.body?.subscriptionId === "string" ? req.body.subscriptionId : null;
+      let queued: number;
+      if (subscriptionId) {
+        const sub = await storage.getSubscription(subscriptionId);
+        if (!sub || sub.userId !== user.id) return res.status(404).json({ message: "No such subscription." });
+        queued = await queueHistorySearch(user.id, [sub.id], { force: true });
+      } else {
+        queued = await queueAllForUser(user.id);
+      }
+      console.log(`[Admin] History search queued for ${queued} subscription(s)`);
+      res.json({
+        queued,
+        message: queued === 0
+          ? "Nothing to search: everything is already searched or searching."
+          : `Searching history for ${queued} subscription${queued === 1 ? "" : "s"}.`,
+      });
+    } catch (error) {
+      console.error("[Admin] Failed to queue a history search:", error);
+      res.status(500).json({ message: "Could not start the search." });
     }
   });
 

@@ -30,6 +30,7 @@ import {
   type PaymentSource,
 } from "../lib/statusRules";
 import type { InsertPayment, Subscription, Payment } from "@shared/schema";
+import { historyLabel } from "../lib/historySearchRules";
 
 export const STATUS_FEATURE = "subscription_status";
 
@@ -42,7 +43,7 @@ export function statusEnabledFor(userId: string): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 /** Payment rows for one subscription from the emails linked to it. */
-function paymentsFromEmails(
+export function paymentsFromEmails(
   userId: string,
   subscription: { id: string; currency: string },
   emails: PaymentSourceEmail[],
@@ -81,7 +82,7 @@ function paymentsFromEmails(
  * older one (someone who cancelled, came back and cancelled again); an older
  * one never overwrites a newer.
  */
-async function applyCancellation(
+export async function applyCancellation(
   userId: string,
   subscriptionId: string,
   current: { cancelledAt: string | null; endsOn: string | null } | null,
@@ -335,6 +336,8 @@ export async function statusRowsForAdmin(userId: string) {
         payments_counted: counted.length,
         payments_recorded: mine.length,
         updated_at: sub.lifecycleUpdatedAt,
+        history_status: sub.historyStatus,
+        history_label: historyLabel(sub),
       };
     })
     .sort((a, b) => a.service_name.localeCompare(b.service_name));

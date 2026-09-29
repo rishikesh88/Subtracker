@@ -159,6 +159,32 @@ export class GmailService {
     }
   }
 
+  /**
+   * Message ids for a search, newest first, stopping at `max`. Unlike
+   * getAllMessageIds it does not page through everything, and it throws on
+   * any API error so the caller can tell a failed search from an empty one.
+   * Used by the history search, which reads a few dozen messages at most.
+   */
+  async searchMessageIds(accessToken: string, refreshToken: string, query: string, max: number): Promise<string[]> {
+    const gmail = this.getGmailClient(accessToken, refreshToken);
+    const ids: string[] = [];
+    let pageToken: string | undefined;
+    do {
+      const response: any = await gmail.users.messages.list({
+        userId: 'me',
+        q: query,
+        maxResults: Math.min(Math.max(max - ids.length, 1), 500),
+        pageToken,
+        includeSpamTrash: false,
+      });
+      for (const msg of response.data.messages ?? []) {
+        if (msg.id && ids.length < max) ids.push(msg.id);
+      }
+      pageToken = response.data.nextPageToken ?? undefined;
+    } while (pageToken && ids.length < max);
+    return ids;
+  }
+
   private async getAllMessageIds(gmail: any, query: string): Promise<string[]> {
     const allIds: string[] = [];
     let nextPageToken: string | undefined;

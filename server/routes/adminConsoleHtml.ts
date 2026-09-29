@@ -1055,7 +1055,7 @@ ${head("Verloq Admin")}
 
     // Only while the subscription_status switch is on for this person.
     if (detail.status_payments) {
-      root.appendChild(section("Status and payments (recording quietly)", buildPersonStatus(detail.status_payments)));
+      root.appendChild(section("Status and payments (recording quietly)", buildPersonStatus(detail)));
     }
 
     var syncs = detail.recent_syncs || [];
@@ -1101,9 +1101,39 @@ ${head("Verloq Admin")}
     return Number(m[3]) + " " + MONTHS[Number(m[2]) - 1] + " " + m[1];
   }
 
-  function buildPersonStatus(rows) {
+  /** Queues a history search for this person (one subscription, or all not yet searched). */
+  function queueHistory(detail, subscriptionId) {
+    return apiPost("/admin/api/users/" + encodeURIComponent(detail.id) + "/history-search",
+      subscriptionId ? { subscriptionId: subscriptionId } : {})
+      .then(function (result) {
+        showStatus(result.message || "Queued.", false);
+        return load(true);
+      });
+  }
+
+  function buildPersonStatus(detail) {
+    var rows = detail.status_payments;
     if (rows.length === 0) return emptyCard("No subscriptions yet.");
-    return buildTable(["Service", "Status", "Last payment", "Expected next", "Payments"], rows, function (s) {
+    var wrap = el("div", "stack");
+    wrap.style.gap = "0.75rem";
+
+    var bar = el("div", "person-actions");
+    var searchAll = el("button", "btn btn-outline btn-sm", "Search history for all subscriptions");
+    searchAll.type = "button";
+    searchAll.addEventListener("click", function () {
+      askChoice({
+        title: "Search history?",
+        message: "Looks through the last 12 months of billing emails for every subscription of " +
+          detail.email + " that has not been searched yet, in the background. Nothing they see changes.",
+        confirmLabel: "Search history",
+        destructive: false,
+        run: function () { return queueHistory(detail, null); }
+      });
+    });
+    bar.appendChild(searchAll);
+    wrap.appendChild(bar);
+
+    wrap.appendChild(buildTable(["Service", "Status", "Last payment", "Expected next", "Payments", "History"], rows, function (s) {
       var tr = document.createElement("tr");
       var name = document.createElement("td");
       name.appendChild(el("div", "cell-title", s.service_name));
@@ -1132,8 +1162,29 @@ ${head("Verloq Admin")}
         count.appendChild(el("div", "cell-sub", s.payments_recorded + " recorded"));
       }
       tr.appendChild(count);
+
+      var hist = document.createElement("td");
+      hist.appendChild(el("div", "", s.history_label || "Not searched yet"));
+      if (s.history_status === "done" || s.history_status === "failed") {
+        var again = el("button", "btn btn-ghost btn-sm", "Search again");
+        again.type = "button";
+        again.setAttribute("aria-label", "Search history again for " + s.service_name);
+        again.addEventListener("click", function () {
+          askChoice({
+            title: "Search again?",
+            message: "Looks through the last 12 months of billing emails for " + s.service_name +
+              " again, in the background. Emails already found are not read twice.",
+            confirmLabel: "Search again",
+            destructive: false,
+            run: function () { return queueHistory(detail, s.id); }
+          });
+        });
+        hist.appendChild(again);
+      }
+      tr.appendChild(hist);
       return tr;
-    });
+    }));
+    return wrap;
   }
 
   // --- one person's features --------------------------------------------
