@@ -247,7 +247,7 @@ export function Sidebar({ user, hasMailbox }: SidebarProps) {
           <DropdownMenuContent align="start" side="top" className="w-44">
             <DropdownMenuItem
               onClick={handleLogout}
-              className="flex items-center cursor-pointer text-destructive focus:text-destructive"
+              className="flex items-center cursor-pointer text-destructive focus:bg-destructive-soft focus:text-destructive"
               data-testid="logout-button"
             >
               <LogOut className="mr-2 h-4 w-4" />
