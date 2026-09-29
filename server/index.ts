@@ -119,6 +119,16 @@ app.use((req, res, next) => {
       console.error('❌ Could not make emails unique per account:', error);
     }
 
+    // Feature switches live in tables created here rather than by db:push.
+    // Until this has run every switch reads as off, which is what users
+    // already see, so a failure is logged and the app still serves.
+    try {
+      const { seeded } = await storage.ensureFeatureFlagTables();
+      if (seeded.length > 0) log(`feature switches added: ${seeded.join(', ')}`);
+    } catch (error) {
+      console.error('❌ Could not set up feature switches:', error);
+    }
+
     // Fill the rate table before the first page asks for a total. This never
     // rejects -- a failure leaves the fallback in place and says so in the log
     // -- so it is deliberately not awaited and cannot delay the port opening.

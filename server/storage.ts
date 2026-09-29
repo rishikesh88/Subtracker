@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, type SyncJob, users, syncJobs, subscriptions, emails, screenedMessages, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, type SyncJob, users, syncJobs, subscriptions, emails, screenedMessages, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts, featureFlags, featureFlagUsers, featureFlagAudit, type FeatureFlag, type FeatureRollout } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
 import { eq, and, desc, asc, count, sql, inArray, isNotNull, isNull, ne, gte } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
@@ -110,6 +110,27 @@ export interface IStorage {
   createOutlookAccount(account: InsertOutlookAccount): Promise<OutlookAccount>;
   updateOutlookAccount(id: string, updates: UpdateOutlookAccount): Promise<OutlookAccount | undefined>;
   deleteOutlookAccount(id: string): Promise<boolean>;
+}
+
+/** The switches this release knows about. Seeded if missing; see ensureFeatureFlagTables. */
+const SEED_FEATURE_FLAGS = [
+  {
+    key: 'subscription_status',
+    name: 'Subscription status & payment history',
+    description: 'Marks each subscription Active, Needs review or Inactive, and shows its payment history from the user’s emails.',
+    tags: ['Beta', 'Sync', 'Billing', 'UI'],
+  },
+  {
+    key: 'new_invoice_checks',
+    name: 'New invoice checks',
+    description: 'Looks for new bills and receipts for approved subscriptions around their renewal date.',
+    tags: ['Beta', 'Background', 'Billing'],
+  },
+];
+
+/** The editable part of a switch, as an audit row records it. */
+function flagDetails(flag: { name: string; description: string; tags: string[] }) {
+  return { name: flag.name, description: flag.description, tags: flag.tags };
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1073,6 +1094,297 @@ export class DatabaseStorage implements IStorage {
       END $$;
     `);
     return 'changed';
+  }
+
+  // ---------------------------------------------------------------------
+  // Feature switches
+  //
+  // Read by server/lib/featureFlags.ts and written by the admin console. Every
+  // write here is paired with its audit row in one batch, which neon-http runs
+  // as a single transaction: a change is never recorded without happening, or
+  // made without being recorded.
+  // ---------------------------------------------------------------------
+
+  /**
+   * Create the feature switch tables and seed the known switches.
+   *
+   * Applied at startup for the same reason as ensureEmailsUniquePerAccount:
+   * db:push is not usable here. Every statement is idempotent, so this is safe
+   * on every boot; the seed only inserts keys that are missing, and never
+   * touches a switch an admin has since edited. Must match shared/schema.ts.
+   */
+  async ensureFeatureFlagTables(): Promise<{ seeded: string[] }> {
+    await this.db.execute(sql`
+      CREATE TABLE IF NOT EXISTS feature_flags (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        key text NOT NULL UNIQUE,
+        name text NOT NULL,
+        description text NOT NULL DEFAULT '',
+        tags text[] NOT NULL DEFAULT '{}'::text[],
+        rollout text NOT NULL DEFAULT 'off',
+        created_at timestamp NOT NULL DEFAULT now(),
+        updated_at timestamp NOT NULL DEFAULT now(),
+        CONSTRAINT feature_flags_rollout_check CHECK (rollout IN ('off', 'selected', 'everyone'))
+      )
+    `);
+    await this.db.execute(sql`
+      CREATE TABLE IF NOT EXISTS feature_flag_users (
+        flag_id varchar NOT NULL REFERENCES feature_flags(id) ON DELETE CASCADE,
+        user_id varchar NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        added_at timestamp NOT NULL DEFAULT now(),
+        added_by text,
+        PRIMARY KEY (flag_id, user_id)
+      )
+    `);
+    await this.db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_feature_flag_users_user ON feature_flag_users (user_id)
+    `);
+    await this.db.execute(sql`
+      CREATE TABLE IF NOT EXISTS feature_flag_audit (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        flag_id varchar NOT NULL,
+        actor text NOT NULL,
+        action text NOT NULL,
+        before jsonb,
+        after jsonb,
+        at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await this.db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_feature_flag_audit_flag ON feature_flag_audit (flag_id, at)
+    `);
+
+    const inserted: FeatureFlag[] = await this.db
+      .insert(featureFlags)
+      .values(SEED_FEATURE_FLAGS.map((flag) => ({ ...flag, rollout: 'off' as const })))
+      .onConflictDoNothing({ target: featureFlags.key })
+      .returning();
+
+    if (inserted.length > 0) {
+      await this.db.insert(featureFlagAudit).values(
+        inserted.map((flag) => ({
+          flagId: flag.id,
+          actor: 'system',
+          action: 'created',
+          before: null,
+          after: flagDetails(flag),
+        })),
+      );
+    }
+    return { seeded: inserted.map((flag) => flag.key) };
+  }
+
+  /** Everything isEnabled needs, in two small reads. */
+  async getFeatureFlagSnapshot(): Promise<{
+    flags: { id: string; key: string; rollout: string }[];
+    members: { flagId: string; userId: string }[];
+  }> {
+    const flags = await this.db
+      .select({ id: featureFlags.id, key: featureFlags.key, rollout: featureFlags.rollout })
+      .from(featureFlags);
+    const members = await this.db
+      .select({ flagId: featureFlagUsers.flagId, userId: featureFlagUsers.userId })
+      .from(featureFlagUsers);
+    return { flags, members };
+  }
+
+  async countUsers(): Promise<number> {
+    const rows = await this.db.select({ n: count() }).from(users);
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  /** Every switch, with how many users are on its list. */
+  async listFeatureFlagsForAdmin(): Promise<(FeatureFlag & { listedUsers: number })[]> {
+    const flags: FeatureFlag[] = await this.db.select().from(featureFlags).orderBy(asc(featureFlags.name));
+    const counts = await this.db
+      .select({ flagId: featureFlagUsers.flagId, n: count() })
+      .from(featureFlagUsers)
+      .groupBy(featureFlagUsers.flagId);
+    const byFlag = new Map<string, number>(counts.map((row: any) => [row.flagId, Number(row.n)]));
+    return flags.map((flag) => ({ ...flag, listedUsers: byFlag.get(flag.id) ?? 0 }));
+  }
+
+  async getFeatureFlag(id: string): Promise<FeatureFlag | undefined> {
+    const rows = await this.db.select().from(featureFlags).where(eq(featureFlags.id, id)).limit(1);
+    return rows[0];
+  }
+
+  async getFeatureFlagByKey(key: string): Promise<FeatureFlag | undefined> {
+    const rows = await this.db.select().from(featureFlags).where(eq(featureFlags.key, key)).limit(1);
+    return rows[0];
+  }
+
+  /** The users on a switch's list, newest first. Names and emails only. */
+  async getFeatureFlagUsersForAdmin(flagId: string): Promise<any[]> {
+    return this.db
+      .select({
+        userId: users.id,
+        email: users.email,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        addedAt: featureFlagUsers.addedAt,
+        addedBy: featureFlagUsers.addedBy,
+      })
+      .from(featureFlagUsers)
+      .innerJoin(users, eq(users.id, featureFlagUsers.userId))
+      .where(eq(featureFlagUsers.flagId, flagId))
+      .orderBy(desc(featureFlagUsers.addedAt));
+  }
+
+  /** A user's place on every list they are on: flag id, when, by whom. */
+  async getFeatureFlagMembershipsForUser(userId: string): Promise<{ flagId: string; addedAt: Date; addedBy: string | null }[]> {
+    return this.db
+      .select({ flagId: featureFlagUsers.flagId, addedAt: featureFlagUsers.addedAt, addedBy: featureFlagUsers.addedBy })
+      .from(featureFlagUsers)
+      .where(eq(featureFlagUsers.userId, userId));
+  }
+
+  /**
+   * Existing users whose email or name contains the query, for adding to a
+   * switch's list. Users already on it are left out.
+   */
+  async searchUsersForFeatureFlag(flagId: string, query: string, limit = 8): Promise<any[]> {
+    const pattern = `%${query.replace(/[\\%_]/g, (c) => '\\' + c)}%`;
+    const result = await this.db.execute(sql`
+      SELECT u.id, u.email, u.first_name, u.last_name, u.created_at
+      FROM users u
+      WHERE (
+        u.email ILIKE ${pattern}
+        OR u.first_name ILIKE ${pattern}
+        OR u.last_name ILIKE ${pattern}
+        OR (coalesce(u.first_name, '') || ' ' || coalesce(u.last_name, '')) ILIKE ${pattern}
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM feature_flag_users fu WHERE fu.flag_id = ${flagId} AND fu.user_id = u.id
+      )
+      ORDER BY u.email
+      LIMIT ${limit}
+    `);
+    return ((result as any)?.rows ?? []) as any[];
+  }
+
+  async createFeatureFlag(
+    input: { key: string; name: string; description: string; tags: string[] },
+    actor: string,
+  ): Promise<FeatureFlag> {
+    const id = randomUUID();
+    const [rows] = await this.db.batch([
+      this.db.insert(featureFlags).values({ id, ...input, rollout: 'off' }).returning(),
+      this.db.insert(featureFlagAudit).values({
+        flagId: id,
+        actor,
+        action: 'created',
+        before: null,
+        after: { ...flagDetails(input), key: input.key, rollout: 'off' },
+      }),
+    ]);
+    return rows[0];
+  }
+
+  async updateFeatureFlagDetails(
+    id: string,
+    changes: { name: string; description: string; tags: string[] },
+    actor: string,
+  ): Promise<FeatureFlag | undefined> {
+    const before = await this.getFeatureFlag(id);
+    if (!before) return undefined;
+    const [rows] = await this.db.batch([
+      this.db
+        .update(featureFlags)
+        .set({ ...changes, updatedAt: new Date() })
+        .where(eq(featureFlags.id, id))
+        .returning(),
+      this.db.insert(featureFlagAudit).values({
+        flagId: id,
+        actor,
+        action: 'details_edited',
+        before: flagDetails(before),
+        after: flagDetails(changes),
+      }),
+    ]);
+    return rows[0];
+  }
+
+  async setFeatureFlagRollout(id: string, rollout: FeatureRollout, actor: string): Promise<FeatureFlag | undefined> {
+    const before = await this.getFeatureFlag(id);
+    if (!before) return undefined;
+    if (before.rollout === rollout) return before;
+    const [rows] = await this.db.batch([
+      this.db
+        .update(featureFlags)
+        .set({ rollout, updatedAt: new Date() })
+        .where(eq(featureFlags.id, id))
+        .returning(),
+      this.db.insert(featureFlagAudit).values({
+        flagId: id,
+        actor,
+        action: 'rollout_changed',
+        before: { rollout: before.rollout },
+        after: { rollout },
+      }),
+    ]);
+    return rows[0];
+  }
+
+  /** Adds users to a switch's list. Anyone already on it is skipped. */
+  async addFeatureFlagUsers(flagId: string, userIds: string[], actor: string): Promise<number> {
+    if (userIds.length === 0) return 0;
+    const existing: { id: string; email: string | null }[] = await this.db
+      .select({ id: users.id, email: users.email })
+      .from(users)
+      .where(inArray(users.id, userIds));
+    const already = new Set(
+      (
+        await this.db
+          .select({ userId: featureFlagUsers.userId })
+          .from(featureFlagUsers)
+          .where(and(eq(featureFlagUsers.flagId, flagId), inArray(featureFlagUsers.userId, userIds)))
+      ).map((row: { userId: string }) => row.userId),
+    );
+    const toAdd = existing.filter((user) => !already.has(user.id));
+    if (toAdd.length === 0) return 0;
+
+    await this.db.batch([
+      this.db
+        .insert(featureFlagUsers)
+        .values(toAdd.map((user) => ({ flagId, userId: user.id, addedBy: actor })))
+        .onConflictDoNothing(),
+      this.db.insert(featureFlagAudit).values(
+        toAdd.map((user) => ({
+          flagId,
+          actor,
+          action: 'user_added',
+          before: null,
+          after: { userId: user.id, email: user.email },
+        })),
+      ),
+    ]);
+    return toAdd.length;
+  }
+
+  async removeFeatureFlagUser(flagId: string, userId: string, actor: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ addedAt: featureFlagUsers.addedAt, addedBy: featureFlagUsers.addedBy, email: users.email })
+      .from(featureFlagUsers)
+      .leftJoin(users, eq(users.id, featureFlagUsers.userId))
+      .where(and(eq(featureFlagUsers.flagId, flagId), eq(featureFlagUsers.userId, userId)))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return false;
+
+    await this.db.batch([
+      this.db
+        .delete(featureFlagUsers)
+        .where(and(eq(featureFlagUsers.flagId, flagId), eq(featureFlagUsers.userId, userId))),
+      this.db.insert(featureFlagAudit).values({
+        flagId,
+        actor,
+        action: 'user_removed',
+        before: { userId, email: row.email, addedAt: row.addedAt, addedBy: row.addedBy },
+        after: null,
+      }),
+    ]);
+    return true;
   }
 
   async sweepStuckSyncJobs(): Promise<number> {

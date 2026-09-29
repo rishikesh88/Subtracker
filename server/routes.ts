@@ -27,6 +27,7 @@ import { MicrosoftAuthService } from "./auth/microsoftAuthService";
 import { sendVerificationEmail, generateVerificationCode } from "./services/emailVerificationService";
 import rateLimit from "express-rate-limit";
 import { revokeGoogleToken } from "./lib/oauthRevoke";
+import { enabledKeysFor } from "./lib/featureFlags";
 
 
 // Helper function to get userId from normalized session structure
@@ -1962,6 +1963,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.error("Delete invoice error:", error);
       res.status(500).json({ message: "Failed to delete invoice" });
     }
+  });
+
+  // Which feature switches are on for the signed-in user. Read by the
+  // client's useFeature(); see server/lib/featureFlags.ts. Never fails: a
+  // switch that cannot be read is off.
+  app.get("/api/features", isAuthenticated, async (req: any, res) => {
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ message: "User not authenticated" });
+    }
+    res.set("Cache-Control", "no-store");
+    res.json({ enabled: await enabledKeysFor(userId) });
   });
 
   // Get user settings (currency preference)
