@@ -19,6 +19,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ToastAction } from "@/components/ui/toast";
+import { CURRENCIES } from "@/lib/currencies";
 
 export default function Settings() {
   const { data: user } = useQuery<SafeUser>({
@@ -244,6 +247,42 @@ export default function Settings() {
     deleteOutlookAccountMutation.mutate(accountId);
   };
 
+  const currentCurrency = user?.preferredCurrency || "INR";
+
+  /*
+   * Applies at once, no Save: the change is easy to see and easy to undo.
+   * Stored amounts never change -- each subscription keeps what it was billed
+   * in, and only how totals and cards are shown moves.
+   */
+  const changeCurrencyMutation = useMutation({
+    mutationFn: async ({ code }: { code: string; previous: string }) => {
+      const response = await apiRequest("PATCH", "/api/settings", { preferredCurrency: code });
+      return response.json();
+    },
+    onSuccess: (_data, { code, previous }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey[0]?.toString().startsWith("/api/stats") ?? false,
+      });
+      toast({
+        title: `Now showing amounts in ${code}`,
+        description: "Totals and cards are converted at today's rate. What each receipt charged stays as it was.",
+        action: (
+          <ToastAction altText={`Switch back to ${previous}`} onClick={() => changeCurrencyMutation.mutate({ code: previous, previous: code })}>
+            Undo
+          </ToastAction>
+        ),
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Couldn't change the currency",
+        description: "Nothing was changed. Try again in a moment.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handleConnectGmail = () => {
     connectGmailMutation.mutate();
   };
@@ -430,18 +469,41 @@ export default function Settings() {
             </div>
           </section>
 
-          {/* Detection settings */}
+          {/* Preferences */}
           <section className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
-            <h2 className="t-label mb-3">Detection settings</h2>
+            <h2 className="t-label mb-3">Preferences</h2>
 
+            {/* The currency every total and card is shown in. It used to be
+                fixed text reading INR, whatever the account had chosen, and
+                the only way to change it was the dashboard menu. */}
             <div className="flex items-center justify-between gap-3 pb-3 border-b border-line-soft">
-              <div>
-                <p className="text-[13px] font-medium text-ink-strong">Currency</p>
-                <p className="text-[12px] text-muted-foreground mt-0.5">
-                  Primary currency for subscription tracking
-                </p>
-              </div>
-              <span className="badge-cadence flex-none">INR</span>
+              <label htmlFor="currency-select" className="text-[13px] font-medium text-ink-strong">
+                Currency
+              </label>
+              <Select
+                value={currentCurrency}
+                onValueChange={(code) => changeCurrencyMutation.mutate({ code, previous: currentCurrency })}
+                disabled={changeCurrencyMutation.isPending}
+              >
+                <SelectTrigger id="currency-select" className="w-[230px] h-[38px] flex-none text-[13.5px]" data-testid="currency-select">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CURRENCIES.map((currency) => (
+                    <SelectItem key={currency.code} value={currency.code} data-testid={`currency-option-${currency.code}`}>
+                      <span className="inline-flex items-center gap-2">
+                        {/* AED's symbol is its code; showing it twice reads as a typo. */}
+                        <span className="w-9 font-semibold text-ink-body">
+                          {currency.symbol === currency.code ? "" : currency.symbol}
+                        </span>
+                        <span>
+                          <span className="font-semibold">{currency.code}</span> · {currency.name}
+                        </span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="flex flex-col gap-2 pt-3">

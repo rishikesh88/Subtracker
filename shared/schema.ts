@@ -4,7 +4,8 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Currency enum for validation
-export const currencyEnum = z.enum(["INR", "USD", "EUR", "GBP"]);
+// Must match CURRENCIES in client/src/lib/currencies.ts; its test checks this.
+export const currencyEnum = z.enum(["USD", "EUR", "GBP", "INR", "AED", "CAD", "AUD", "SGD", "JPY", "CNY"]);
 export type Currency = z.infer<typeof currencyEnum>;
 
 // Session storage table - Required for Replit Auth

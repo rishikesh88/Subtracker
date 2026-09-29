@@ -1,6 +1,7 @@
 /* Run: npm run test:currencies */
 import { CURRENCIES, COUNTRIES, CURRENCY_CODES, currencyForCountry } from "./currencies";
 import { SUPPORTED_CURRENCIES } from "../../../server/lib/exchangeRates";
+import { currencyEnum } from "../../../shared/schema";
 
 let passed = 0, failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -32,6 +33,11 @@ check("no country is listed twice", COUNTRIES.length, new Set(COUNTRIES.map((c) 
 /* Every entry has to be displayable, or the picker renders blanks. */
 check("every currency has a name and a symbol",
   CURRENCIES.filter((c) => !c.name || !c.symbol || c.code.length !== 3), []);
+
+/* The server's list decides what Settings may save. It once held only four
+   codes, so choosing AED in Settings would have been refused. */
+check("the server accepts every currency the picker offers",
+  [...CURRENCY_CODES].sort(), [...currencyEnum.options].sort());
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed === 0 ? 0 : 1);
