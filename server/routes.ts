@@ -29,6 +29,7 @@ import rateLimit from "express-rate-limit";
 import { revokeGoogleToken } from "./lib/oauthRevoke";
 import { enabledKeysFor } from "./lib/featureFlags";
 import { statusEnabledFor, markStillActive, markInactive, markActive } from "./services/subscriptionStatus";
+import { queueHistorySearch } from "./services/historySearch";
 
 
 // Helper function to get userId from normalized session structure
@@ -2419,6 +2420,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdSubscriptionIds: result.createdSubscriptionIds,
         approved: result.approved
       });
+
+      // Look back through this subscription's billing emails, once, for users
+      // with the subscription_status switch; a no-op for everyone else. After
+      // the response, so an approval never waits on it; it never throws.
+      if (result.subscriptions.length > 0) {
+        void queueHistorySearch(userId, result.subscriptions.map((s) => s.id));
+      }
     } catch (error) {
       console.error("Error approving suggestions:", error);
       res.status(500).json({ message: "Failed to approve suggestions" });

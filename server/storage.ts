@@ -492,6 +492,8 @@ export class DatabaseStorage implements IStorage {
     userId: string,
     subscription: { id: string; serviceName: string; amount: string; merchantName?: string | null },
     evidenceEmailIds?: string[] | null,
+    /** Only these emails (by row id), however old: a history search's own finds. */
+    onlyEmailIds?: string[],
   ): Promise<{ created: number; skipped: number; emailsWithFiles: number }> {
     const evidence = new Set(evidenceEmailIds ?? []);
 
@@ -510,7 +512,11 @@ export class DatabaseStorage implements IStorage {
         extractedAmount: emails.extractedAmount,
       })
       .from(emails)
-      .where(and(eq(emails.userId, userId), isNotNull(emails.attachmentData)))
+      .where(and(
+        eq(emails.userId, userId),
+        isNotNull(emails.attachmentData),
+        ...(onlyEmailIds ? [inArray(emails.id, onlyEmailIds)] : []),
+      ))
       .orderBy(desc(emails.receivedAt))
       .limit(500);
 
@@ -1485,6 +1491,106 @@ export class DatabaseStorage implements IStorage {
     await this.db.execute(sql`
       CREATE INDEX IF NOT EXISTS idx_payments_user_subscription ON payments (user_id, subscription_id, paid_at)
     `);
+    // One-time history search (server/services/historySearch.ts).
+    await this.db.execute(sql`
+      ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS history_status text,
+        ADD COLUMN IF NOT EXISTS history_searched_since date,
+        ADD COLUMN IF NOT EXISTS history_attempts integer NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS history_error text,
+        ADD COLUMN IF NOT EXISTS history_started_at timestamp,
+        ADD COLUMN IF NOT EXISTS history_finished_at timestamp
+    `);
+    await this.db.execute(sql`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conrelid = 'subscriptions'::regclass AND conname = 'subscriptions_history_status_check'
+        ) THEN
+          ALTER TABLE subscriptions ADD CONSTRAINT subscriptions_history_status_check
+            CHECK (history_status IS NULL OR history_status IN ('pending', 'running', 'done', 'failed'));
+        END IF;
+      END $$;
+    `);
+  }
+
+  // ---------------------------------------------------------------------
+  // History search (also only for users with `subscription_status` on)
+  // ---------------------------------------------------------------------
+
+  /**
+   * Marks subscriptions of this user as waiting for a history search and
+   * returns the ids marked. Without `force`, only ones never searched (or
+   * whose search failed); with it, anything not already queued or running.
+   */
+  async markHistoryPending(userId: string, subscriptionIds: string[], force = false): Promise<string[]> {
+    if (subscriptionIds.length === 0) return [];
+    const eligible = force
+      ? sql`(${subscriptions.historyStatus} IS NULL OR ${subscriptions.historyStatus} IN ('done', 'failed'))`
+      : sql`(${subscriptions.historyStatus} IS NULL OR ${subscriptions.historyStatus} = 'failed')`;
+    const rows = await this.db
+      .update(subscriptions)
+      .set({
+        historyStatus: 'pending',
+        historyAttempts: 0,
+        historyError: null,
+        historyStartedAt: null,
+        historyFinishedAt: null,
+      })
+      .where(and(eq(subscriptions.userId, userId), inArray(subscriptions.id, subscriptionIds), eligible))
+      .returning({ id: subscriptions.id });
+    return rows.map((r: { id: string }) => r.id);
+  }
+
+  /** Writes history-search fields on one of this user's subscriptions. */
+  async updateHistoryFields(
+    id: string,
+    userId: string,
+    fields: Partial<Pick<Subscription,
+      'historyStatus' | 'historySearchedSince' | 'historyAttempts' | 'historyError' | 'historyStartedAt' | 'historyFinishedAt'>>,
+  ): Promise<void> {
+    await this.db
+      .update(subscriptions)
+      .set(fields)
+      .where(and(eq(subscriptions.id, id), eq(subscriptions.userId, userId)));
+  }
+
+  /** Every queued or running search, across all users (read at boot). */
+  async getUnfinishedHistorySearches(): Promise<{
+    id: string; userId: string; historyStatus: string | null; historyAttempts: number; historyStartedAt: Date | null;
+  }[]> {
+    return this.db
+      .select({
+        id: subscriptions.id,
+        userId: subscriptions.userId,
+        historyStatus: subscriptions.historyStatus,
+        historyAttempts: subscriptions.historyAttempts,
+        historyStartedAt: subscriptions.historyStartedAt,
+      })
+      .from(subscriptions)
+      .where(inArray(subscriptions.historyStatus, ['pending', 'running']));
+  }
+
+  /** The senders of the emails linked to one subscription, newest first. */
+  async getLinkedSenders(userId: string, subscriptionId: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ fromEmail: emails.fromEmail })
+      .from(emails)
+      .where(and(eq(emails.userId, userId), eq(emails.subscriptionId, subscriptionId)))
+      .orderBy(desc(emails.receivedAt))
+      .limit(200);
+    return rows.map((r: { fromEmail: string }) => r.fromEmail);
+  }
+
+  /** Invoice rows for files stored on these emails (a history search's finds). */
+  async fileInvoicesForEmails(
+    userId: string,
+    subscription: { id: string; serviceName: string; amount: string; merchantName?: string | null },
+    emailIds: string[],
+  ): Promise<{ created: number; skipped: number; emailsWithFiles: number }> {
+    if (emailIds.length === 0) return { created: 0, skipped: 0, emailsWithFiles: 0 };
+    return this.createInvoicesFromAttachments(userId, subscription, null, emailIds);
   }
 
   /** Inserts payments, skipping any email already recorded for that subscription. */

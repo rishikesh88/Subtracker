@@ -163,6 +163,49 @@ export class OutlookService implements EmailProviderAdapter {
     }
   }
 
+  /**
+   * Message ids matching a Graph $filter, newest first, at most `max`, with
+   * the metadata needed to decide whether to fetch them. Used by the history
+   * search. Refreshes the token once on a 401, like fetchEmailMetadata.
+   * Deliberately no $orderby: Graph refuses some $filter + $orderby pairs.
+   */
+  async searchMessages(
+    accessToken: string,
+    refreshToken: string,
+    filter: string,
+    max: number,
+    onTokenRefresh: (tokens: OAuthTokens) => Promise<void>,
+  ): Promise<{ messages: NormalizedEmailMetadata[]; accessToken: string }> {
+    const run = async (token: string) => {
+      const client = this.createClient(token);
+      const out: NormalizedEmailMetadata[] = [];
+      let request: any = client
+        .api('/me/messages')
+        .select('id,subject,from,receivedDateTime,bodyPreview,hasAttachments')
+        .filter(filter)
+        .top(Math.min(Math.max(max, 1), 100));
+      let response: any = await request.get();
+      for (let page = 0; page < 10; page++) {
+        for (const msg of response.value || []) out.push(this.normalizeEmailMetadata(msg));
+        const next = response['@odata.nextLink'];
+        if (!next || out.length >= max * 5) break;
+        response = await client.api(next).get();
+      }
+      return out;
+    };
+
+    try {
+      return { messages: await run(accessToken), accessToken };
+    } catch (error: any) {
+      if (error?.statusCode === 401) {
+        const newTokens = await this.refreshToken(refreshToken);
+        await onTokenRefresh(newTokens);
+        return { messages: await run(newTokens.access_token), accessToken: newTokens.access_token };
+      }
+      throw error;
+    }
+  }
+
   async fetchFullEmail(
     accessToken: string,
     refreshToken: string,
