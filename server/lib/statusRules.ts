@@ -273,13 +273,17 @@ interface Merged {
  * compared with and is merged on date and uniqueness alone. Records without an amount or a
  * currency are never merged this way.
  *
+ * Two receipts in different currencies are paired the same way (a bank's or
+ * wallet's receipt for the merchant's); the one in the subscription's
+ * currency is kept, else the later one.
+ *
  * One narrow exception: a receipt with no amount (typically a welcome email
  * that says "your payment method has been charged") is not a payment of its
  * own when the same subscription has a counted receipt or card alert with an
  * amount within three days of it. It stays recorded; it is only not counted.
  * A receipt with no amount and no such neighbour counts as before.
  */
-function mergeCharges(payments: LifecyclePayment[]): Merged {
+function mergeCharges(payments: LifecyclePayment[], preferCurrency: string | null = null): Merged {
   const candidates: CountedPayment[] = [];
   payments.forEach((p, ref) => {
     if (!COUNTED_KINDS.has(String(p.kind))) return;
@@ -344,6 +348,46 @@ function mergeCharges(payments: LifecyclePayment[]): Merged {
   }
   kept = kept.filter((k) => !dropped.has(k));
 
+  // Two receipts in different currencies (the merchant's, and a bank's or
+  // wallet's own receipt for the same charge). Same tests as above: within
+  // three days, each the other's only candidate, and the pair's ratio within
+  // 12% of the middle ratio of the pairs of the same two currencies.
+  const rcpts = kept.filter((k) => k.kind === "receipt" && k.amount !== null && currencyOf(k.currency));
+  const rNear = new Map<CountedPayment, CountedPayment[]>();
+  for (const r of rcpts) {
+    for (const o of rcpts) {
+      if (r === o || currencyOf(r.currency) === currencyOf(o.currency)) continue;
+      if (Math.abs(r.day.getTime() - o.day.getTime()) > CROSS_CURRENCY_DAYS * DAY_MS) continue;
+      rNear.set(r, [...(rNear.get(r) ?? []), o]);
+    }
+  }
+  const rPairs: { a: CountedPayment; b: CountedPayment; key: string; ratio: number }[] = [];
+  for (const [r, list] of Array.from(rNear.entries())) {
+    if (list.length !== 1) continue;
+    const o = list[0];
+    if ((rNear.get(o) ?? []).length !== 1) continue;
+    // Each pair once, oriented by currency code so the ratio does not depend on order.
+    if (currencyOf(r.currency)! > currencyOf(o.currency)!) continue;
+    rPairs.push({ a: r, b: o, key: `${currencyOf(r.currency)}|${currencyOf(o.currency)}`, ratio: o.amount! / r.amount! });
+  }
+  const prefer = currencyOf(preferCurrency);
+  const rDropped = new Set<CountedPayment>();
+  for (const pair of rPairs) {
+    const middle = median(rPairs.filter((o) => o.key === pair.key).map((o) => o.ratio));
+    if (Math.abs(pair.ratio / middle - 1) > RATE_TOLERANCE) continue;
+    const { a, b } = pair;
+    let keep: CountedPayment;
+    if (prefer && (currencyOf(a.currency) === prefer) !== (currencyOf(b.currency) === prefer)) {
+      keep = currencyOf(a.currency) === prefer ? a : b;
+    } else if (a.day.getTime() !== b.day.getTime()) {
+      keep = a.day.getTime() > b.day.getTime() ? a : b;
+    } else {
+      keep = (a.ref ?? 0) > (b.ref ?? 0) ? a : b;
+    }
+    rDropped.add(keep === a ? b : a);
+  }
+  kept = kept.filter((k) => !rDropped.has(k));
+
   // A receipt with no amount next to a counted payment with an amount.
   const covered = new Map<CountedPayment, CountedPayment>();
   const withAmount = kept.filter((k) => k.amount !== null);
@@ -371,8 +415,8 @@ function mergeCharges(payments: LifecyclePayment[]): Merged {
  * to say they match; the one exception is a receipt with no amount that sits
  * within three days of a counted payment with an amount (see mergeCharges).
  */
-export function countedPayments(payments: LifecyclePayment[]): CountedPayment[] {
-  return mergeCharges(payments).kept.sort((a, b) => a.day.getTime() - b.day.getTime());
+export function countedPayments(payments: LifecyclePayment[], preferCurrency: string | null = null): CountedPayment[] {
+  return mergeCharges(payments, preferCurrency).kept.sort((a, b) => a.day.getTime() - b.day.getTime());
 }
 
 export interface BillRecord {
@@ -407,9 +451,9 @@ export const BILL_NO_RECEIPT_LABEL = "Bill, receipt not found";
  * due date. Each payment pairs with one bill, the nearest in time first. A
  * bill with no amount cannot be matched.
  */
-export function reconcileBills(payments: LifecyclePayment[], now: Date): BillReconciliation {
+export function reconcileBills(payments: LifecyclePayment[], now: Date, preferCurrency: string | null = null): BillReconciliation {
   const today = toDay(now)!;
-  const { kept, rates } = mergeCharges(payments);
+  const { kept, rates } = mergeCharges(payments, preferCurrency);
   const bills: BillRecord[] = [];
   payments.forEach((p, ref) => {
     if (p.kind !== "invoice") return;
@@ -472,9 +516,9 @@ function explainDay(d: Date): string {
  * not when it does not. Uses the same merging and bill pairing as the counts,
  * so a screen listing the records never disagrees with them. Read only.
  */
-export function explainPayments(payments: LifecyclePayment[], now: Date): PaymentExplanation[] {
-  const merged = mergeCharges(payments);
-  const bills = reconcileBills(payments, now);
+export function explainPayments(payments: LifecyclePayment[], now: Date, preferCurrency: string | null = null): PaymentExplanation[] {
+  const merged = mergeCharges(payments, preferCurrency);
+  const bills = reconcileBills(payments, now, preferCurrency);
   const keptRefs = new Set(merged.kept.map((k) => k.ref));
   const candidateRefs = new Set(merged.candidates.map((c) => c.ref));
   const coveredBy = new Map<number, CountedPayment>();
@@ -713,6 +757,38 @@ const INVOICE = /\b(invoice|bill\s+(is\s+)?(ready|generated|available)|your\s+bi
  * notice, not one of these, and "payment confirmation" is a receipt.)
  */
 const NOT_PAYMENT = /\bconfirm\s+(your\s+)?(\S{1,12}\s+)?(payment|renewal|charge)\b(?!\s+(method|details|information))|\bconfirm\s+renewal\b|\b(payment|charge|transaction)\s+(is\s+)?(still\s+)?pending\b|\bpending\s+(payment|charge|transaction)\b|\bauthenticat(e|ion)\b|\bverify\s+your\s+(payment|card)\b|\baction\s+(is\s+)?required\b|\bneeds?\s+your\s+(approval|confirmation)\b/i;
+/**
+ * A subject that asks the person to confirm or authenticate a payment or
+ * renewal ("Confirm your $23.60 payment to ...", "Action needed: confirm your
+ * ... renewal"). Read from the subject only, so a body that mentions an
+ * invoice cannot turn it into a bill.
+ */
+const CONFIRM_PAYMENT_SUBJECT = /^\s*(?:[\w ]{1,30}:\s*)*confirm\s+your\s+[^:]{0,60}?\b(payment|renewal)\b(?!\s+(method|details|information))/i;
+/** Wording in an attached file that says a payment really was made, which outweighs due wording in the same file. */
+const STRONG_PAID_IN_FILE = new RegExp("\\b(amount\\s+paid|paid\\s+on|payment\\s+received\\s+on)\\b|\\bpaid\\s+(?:on\\s+)?" + DATE_PATTERN + "|(?:^|\\n)[^\\n]{0,40}\\breceipt\\b[^\\n]{0,40}(?:\\n|$)", "i");
+/**
+ * A credit card bill, statement or due reminder. Credit card information is
+ * never read or stored, so such an email is never a payment and a history
+ * search never keeps it. Narrow on purpose: the words "credit card" must sit
+ * next to bill/statement/due wording (or a "pay now" / "credit score" nag), so
+ * an ordinary receipt that says it was paid by credit card is not caught, and
+ * a bank's transaction alert is not caught either.
+ */
+const CC_DUE_WORDS = "(?:bills?|statements?|dues?|outstanding|minimum\\s+(?:amount\\s+)?due|total\\s+(?:amount\\s+)?due|overdue)";
+const CREDIT_CARD_BILL = new RegExp(
+  "\\bcredit\\s*card\\b[^.\\n]{0,40}\\b" + CC_DUE_WORDS + "\\b|" +
+  "\\b" + CC_DUE_WORDS + "\\b[^.\\n]{0,40}\\bcredit\\s*card\\b|" +
+  "\\bcard\\s+statement\\b|" +
+  "\\bcredit\\s*card\\b[^]{0,200}?\\b(?:pay\\s+now|credit\\s+score)\\b|" +
+  "\\b(?:pay\\s+now|credit\\s+score)\\b[^]{0,200}?\\bcredit\\s*card\\b",
+  "i",
+);
+/** Whether an email (subject, and the first 1500 characters of its body) is a credit card bill, statement or due reminder. */
+export function isCreditCardBill(email: { subject?: string | null; content?: string | null }): boolean {
+  return CREDIT_CARD_BILL.test(`${email.subject ?? ""}\n${(email.content ?? "").slice(0, 1500)}`);
+}
+/** A bill reminder ("bill is overdue", "due today", "due in 2 days", "pay now"): a bill, never a receipt. */
+const BILL_REMINDER = /\bbill\b[^.\n]{0,30}\b(?:is\s+|are\s+)?(?:overdue|due)\b|\b(?:is\s+|are\s+)?overdue\b|\bdue\s+(?:today|soon|tomorrow|in\s+\d+\s+days?)\b|\bpay\s+now\b/i;
 const REMINDER = /\b(will\s+be\s+(charged|billed|renewed|debited)|will\s+(auto[-\s]?)?renew|renews\s+(on|in|soon)|upcoming\s+(payment|charge|renewal|bill)|renewal\s+reminder|reminder|trial\s+(ends|ending|expires|is\s+ending)|expir(es|ing)\s+(soon|on|in)|is\s+about\s+to)\b/i;
 const CANCELLED = /\b(cancel(l)?ed|cancel(l)?ation|has\s+ended|will\s+end|subscription\s+ended)\b/i;
 
@@ -734,7 +810,7 @@ function classifyText(text: string, rules: KindRules, strict = false): Verdict {
   if (NOT_PAYMENT.test(text) && !(strict && PAID.test(text))) return "skip";
   if (CARD_ALERT.test(text)) return "card_alert";
   if (PAID.test(text)) return "receipt";
-  if (DUE.test(text) || INVOICE.test(text)) return "invoice";
+  if (DUE.test(text) || INVOICE.test(text) || BILL_REMINDER.test(text)) return "invoice";
   if (REMINDER.test(text)) return "skip";
   if (CANCELLED.test(text)) return "skip";
   return null;
@@ -832,6 +908,8 @@ export function classifyPaymentEmail(email: {
   const snippet = body.slice(0, 600);
   const files = (email.attachmentText ?? "").slice(0, 6000);
 
+  if (isCreditCardBill({ subject, content: body })) return null;
+  if (CONFIRM_PAYMENT_SUBJECT.test(subject)) return null;
   let verdict: Verdict = classifyText(subject, SUBJECT_RULES);
   if (verdict === null || verdict === "invoice") {
     let fromBody: Verdict = classifyText(snippet, BODY_RULES, true);
@@ -843,8 +921,16 @@ export function classifyPaymentEmail(email: {
   }
   if ((verdict === "invoice" || verdict === null) && files) {
     const fromFiles = classifyText(files, BODY_RULES, true);
-    if (fromFiles === "receipt" || fromFiles === "card_alert") verdict = "receipt";
-    else if (verdict === null && (fromFiles === "invoice" || fromFiles === "skip")) verdict = fromFiles;
+    if (fromFiles === "receipt" || fromFiles === "card_alert") {
+      // Words found only in a PDF do not turn a bill into a receipt: a bill
+      // summary says "payment received" for the previous bill. Not when the
+      // email itself says something is due, nor when the PDF says it is due
+      // and has no stronger paid wording (amount paid, paid on, a receipt title).
+      const ownDue = DUE.test(`${subject}\n${body}`);
+      const fileDue = DUE.test(files) && !STRONG_PAID_IN_FILE.test(files);
+      if (ownDue || fileDue) verdict = "invoice";
+      else verdict = "receipt";
+    } else if (verdict === null && (fromFiles === "invoice" || fromFiles === "skip")) verdict = fromFiles;
   }
   if (verdict === "skip") return null;
 
@@ -873,7 +959,7 @@ export function classifyPaymentEmail(email: {
           ? "invoice"
           : "other";
   const paidStatus: PaidStatus =
-    verdict === "receipt" || verdict === "card_alert" ? "paid" : verdict === "invoice" && DUE.test(all) ? "due" : "unclear";
+    verdict === "receipt" || verdict === "card_alert" ? "paid" : verdict === "invoice" && (DUE.test(all) || BILL_REMINDER.test(`${subject}\n${snippet}`)) ? "due" : "unclear";
 
   return {
     kind: verdict,

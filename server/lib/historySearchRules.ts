@@ -18,7 +18,7 @@
 
 import { isIntermediary } from "./evidence";
 import { brandTokens } from "./brandTokens";
-import { classifyPaymentEmail, parseLooseDay } from "./statusRules";
+import { classifyPaymentEmail, isCreditCardBill, parseLooseDay } from "./statusRules";
 
 /** How far back the search reaches. */
 export const HISTORY_DAYS = 365;
@@ -394,7 +394,9 @@ export function keepEmail(
   },
   plan: SenderPlan,
   serviceName: Clues,
-): { keep: true } | { keep: false; why: "other_sender" | "no_keyword" | "not_named" | "wrong_currency" } {
+): { keep: true } | { keep: false; why: "other_sender" | "no_keyword" | "not_named" | "wrong_currency" | "credit_card" } {
+  // Credit card bills are never read or stored: not the email, its PDFs or a payment.
+  if (isCreditCardBill({ subject: email.subject, content: email.text })) return { keep: false, why: "credit_card" };
   if (plan.byName) return keepEmailByName(email, plan.byName);
   const domain = registrableDomain(domainOf(email.fromEmail));
   const owned = plan.owned.includes(domain);
@@ -440,7 +442,8 @@ export function keepEmailByName(
     currency?: string | null;
   },
   byName: { clues: string[]; bodyClues: string[]; currency: string },
-): { keep: true } | { keep: false; why: "other_sender" | "no_keyword" | "not_named" | "wrong_currency" } {
+): { keep: true } | { keep: false; why: "other_sender" | "no_keyword" | "not_named" | "wrong_currency" | "credit_card" } {
+  if (isCreditCardBill({ subject: email.subject, content: email.text })) return { keep: false, why: "credit_card" };
   if (!matchesKeywords(email.subject, email.text)) return { keep: false, why: "no_keyword" };
   const processor = isProcessorSender(email.fromEmail);
   if (isIntermediary(email.fromEmail) && !processor) return { keep: false, why: "other_sender" };
@@ -667,6 +670,7 @@ export function worthSaving(
   now: Date,
   options: { requireWording?: boolean } = {},
 ): "payment" | "cancellation" | null {
+  if (isCreditCardBill({ subject: email.subject, content: email.text })) return null;
   if (
     classifyPaymentEmail(
       { subject: email.subject, content: email.text, amount: email.amount, attachmentText: email.attachmentText },

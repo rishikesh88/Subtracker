@@ -283,5 +283,16 @@ check("unclear subject, PDF says amount paid: saved", worthSaving({ subject: "Au
 check("name search needs wording: an amount alone is not enough", worthSaving({ subject: "Railway", text: "Rs. 649 plans", amount: 649 }, NOW, { requireWording: true }), null);
 check("name search: receipt wording is enough", worthSaving({ subject: "Your receipt from Railway", text: "", amount: 5.9 }, NOW, { requireWording: true }), "payment");
 
+console.log("Credit card bills are never kept");
+{
+  const cc = { subject: "Your credit card bill is due on Mar 30, 2026: Pay now to maintain your credit score", text: "Total amount due Rs 58,317.58" };
+  check("credit card bill: not kept (shared-sender search)", keepEmail({ fromEmail: "no_reply@email.apple.com", ...cc }, applePlan, "iCloud+"), { keep: false, why: "credit_card" });
+  check("credit card bill: not kept (owned sender)", keepEmail({ fromEmail: "info@mailer.netflix.com", ...cc }, netflixPlan, "Netflix"), { keep: false, why: "credit_card" });
+  check("credit card bill: not kept (search by name)", keepEmailByName({ fromEmail: "bills@billpay.in", fromName: "Mobile Postpaid", currency: "INR", ...cc }, { clues: ["Mobile Postpaid"], bodyClues: [], currency: "INR" }), { keep: false, why: "credit_card" });
+  check("credit card bill: not worth saving, even with a PDF-like amount", worthSaving({ ...cc, amount: 58317.58 }, NOW), null);
+  check("credit card bill: not worth saving in a name search either", worthSaving({ ...cc, amount: 58317.58 }, NOW, { requireWording: true }), null);
+  check("a normal receipt is still kept", keepEmail({ fromEmail: "info@mailer.netflix.com", subject: "Your receipt from Netflix", text: "Paid by credit card ending 4242. Amount paid Rs 649" }, netflixPlan, "Netflix"), { keep: true });
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
