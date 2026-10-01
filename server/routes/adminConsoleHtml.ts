@@ -1102,9 +1102,10 @@ ${head("Verloq Admin")}
   }
 
   /** Queues a history search for this person (one subscription, or all not yet searched). */
-  function queueHistory(detail, subscriptionId) {
-    return apiPost("/admin/api/users/" + encodeURIComponent(detail.id) + "/history-search",
-      subscriptionId ? { subscriptionId: subscriptionId } : {})
+  function queueHistory(detail, subscriptionId, fresh) {
+    var body = subscriptionId ? { subscriptionId: subscriptionId } : {};
+    if (fresh) body.fresh = true;
+    return apiPost("/admin/api/users/" + encodeURIComponent(detail.id) + "/history-search", body)
       .then(function (result) {
         showStatus(result.message || "Queued.", false);
         return load(true);
@@ -1131,6 +1132,19 @@ ${head("Verloq Admin")}
       });
     });
     bar.appendChild(searchAll);
+    var searchFresh = el("button", "btn btn-outline btn-sm", "Search all again from scratch");
+    searchFresh.type = "button";
+    searchFresh.addEventListener("click", function () {
+      askChoice({
+        title: "Search everything again from scratch?",
+        message: "Deletes the payments the history search recorded for every subscription of " + detail.email +
+          " (payments from the sync or from approvals are kept), then searches the last 12 months again in the background. Nothing they see changes.",
+        confirmLabel: "Delete and search again",
+        destructive: true,
+        run: function () { return queueHistory(detail, null, true); }
+      });
+    });
+    bar.appendChild(searchFresh);
     wrap.appendChild(bar);
 
     wrap.appendChild(buildTable(["Service", "Status", "Last payment", "Expected next", "Payments", "History"], rows, function (s) {
@@ -1186,6 +1200,20 @@ ${head("Verloq Admin")}
           });
         });
         hist.appendChild(again);
+        var fresh = el("button", "btn btn-ghost btn-sm", "From scratch");
+        fresh.type = "button";
+        fresh.setAttribute("aria-label", "Delete history findings and search again for " + s.service_name);
+        fresh.addEventListener("click", function () {
+          askChoice({
+            title: "Search again from scratch?",
+            message: "Deletes the payments the history search recorded for " + s.service_name +
+              " (payments from the sync or approvals are kept), then searches the last 12 months again in the background.",
+            confirmLabel: "Delete and search again",
+            destructive: true,
+            run: function () { return queueHistory(detail, s.id, true); }
+          });
+        });
+        hist.appendChild(fresh);
       }
       tr.appendChild(hist);
       return tr;

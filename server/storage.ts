@@ -1581,6 +1581,40 @@ export class DatabaseStorage implements IStorage {
     return rows.map((r: { id: string }) => r.id);
   }
 
+  /**
+   * Forgets what the history search recorded for these subscriptions so a
+   * fresh search starts clean: their history-sourced payments, and the emails
+   * only those payments pointed at (a search skips emails already stored, so
+   * leaving them would make the redo find nothing). Payments from the sync or
+   * an approval, and the emails behind them, are kept. Returns how many
+   * payments and emails were removed.
+   */
+  async clearHistoryFindings(userId: string, subscriptionIds: string[]): Promise<{ payments: number; emails: number }> {
+    if (subscriptionIds.length === 0) return { payments: 0, emails: 0 };
+    const rows = await this.db
+      .delete(payments)
+      .where(and(eq(payments.userId, userId), eq(payments.source, 'history'), inArray(payments.subscriptionId, subscriptionIds)))
+      .returning({ emailId: payments.emailId });
+    const emailIds: string[] = Array.from(new Set<string>(rows.map((r: { emailId: string | null }) => r.emailId).filter((id: string | null): id is string => !!id)));
+    let removedEmails = 0;
+    if (emailIds.length > 0) {
+      const stillUsed = await this.db
+        .select({ emailId: payments.emailId })
+        .from(payments)
+        .where(and(eq(payments.userId, userId), inArray(payments.emailId, emailIds)));
+      const keep = new Set(stillUsed.map((r: { emailId: string | null }) => r.emailId));
+      const toDelete = emailIds.filter((id) => !keep.has(id));
+      if (toDelete.length > 0) {
+        const gone = await this.db
+          .delete(emails)
+          .where(and(eq(emails.userId, userId), inArray(emails.id, toDelete)))
+          .returning({ id: emails.id });
+        removedEmails = gone.length;
+      }
+    }
+    return { payments: rows.length, emails: removedEmails };
+  }
+
   /** Writes history-search fields on one of this user's subscriptions. */
   async updateHistoryFields(
     id: string,

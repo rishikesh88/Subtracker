@@ -565,11 +565,20 @@ export function registerAdminRoutes(app: Express): void {
       }
 
       const subscriptionId = typeof req.body?.subscriptionId === "string" ? req.body.subscriptionId : null;
+      // "From scratch" first forgets what an earlier search recorded, so the
+      // new one is not held back by emails it already stored.
+      const fresh = req.body?.fresh === true;
       let queued: number;
       if (subscriptionId) {
         const sub = await storage.getSubscription(subscriptionId);
         if (!sub || sub.userId !== user.id) return res.status(404).json({ message: "No such subscription." });
+        if (fresh) await storage.clearHistoryFindings(user.id, [sub.id]);
         queued = await queueHistorySearch(user.id, [sub.id], { force: true });
+      } else if (fresh) {
+        const ids = (await storage.getSubscriptions(user.id)).map((s) => s.id);
+        const cleared = await storage.clearHistoryFindings(user.id, ids);
+        console.log(`[Admin] History findings cleared: ${cleared.payments} payment(s), ${cleared.emails} email(s)`);
+        queued = await queueHistorySearch(user.id, ids, { force: true });
       } else {
         queued = await queueAllForUser(user.id);
       }
