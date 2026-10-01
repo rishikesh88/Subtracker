@@ -45,6 +45,12 @@ export interface UserPaymentView {
   someBillsOnly: boolean;
   /** The day of a payment that failed since the last counted one, or null. */
   failedOn: string | null;
+  /**
+   * Only when nothing is counted but there are bills (an invoice-only
+   * service): the newest bill's day, amount and currency, so the panel can say
+   * "bills found, no receipt yet". Not a payment; null otherwise.
+   */
+  lastBill: { on: string; amount: string | null; currency: string | null } | null;
 }
 
 export function userPaymentView(
@@ -76,7 +82,18 @@ export function userPaymentView(
       if (!failedOn || day > failedOn) failedOn = day;
     }
   }
-  return { payments, someBillsOnly, failedOn };
+
+  let lastBill: UserPaymentView["lastBill"] = null;
+  if (payments.length === 0) {
+    for (const r of records) {
+      if (r.kind !== "invoice") continue;
+      const on = dayString(r.paidAt);
+      if (!on || (lastBill && on <= lastBill.on)) continue;
+      const n = r.amount === null || r.amount === undefined ? NaN : Number(r.amount);
+      lastBill = { on, amount: Number.isFinite(n) ? n.toFixed(2) : null, currency: r.currency ?? null };
+    }
+  }
+  return { payments, someBillsOnly, failedOn, lastBill };
 }
 
 // ---------------------------------------------------------------------------
