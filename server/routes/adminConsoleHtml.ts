@@ -387,7 +387,67 @@ const baseStyles = `
   .match[aria-pressed="true"] { background: hsl(var(--muted)); }
 
   .person-head { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; justify-content: space-between; }
-  .payment-list summary { cursor: pointer; font-weight: 500; padding: 0.25rem 0; }
+  /* --- Status and payments: master list and detail ------------------------ */
+  .pay-cols { display: grid; grid-template-columns: 20rem minmax(0, 1fr); gap: 1.25rem; align-items: start; }
+  @media (max-width: 56.25rem) { .pay-cols { grid-template-columns: minmax(0, 1fr); } }
+  .pay-master {
+    display: flex; flex-direction: column; gap: 0.375rem; padding: 0.75rem;
+    border: 1px solid hsl(var(--border)); border-radius: var(--radius);
+    background: hsl(var(--muted) / .35);
+  }
+  .pay-master-title {
+    margin: 0; padding: 0 0.375rem 0.375rem;
+    font-size: 0.75rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+    color: hsl(var(--muted-foreground));
+  }
+  .pay-item {
+    display: flex; flex-direction: column; gap: 0.25rem; width: 100%;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid transparent; border-radius: calc(var(--radius) - 2px);
+    background: hsl(var(--background)); color: hsl(var(--foreground));
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  .pay-item:hover { background: hsl(var(--accent)); }
+  .pay-item[aria-current="true"] { background: hsl(var(--muted)); border-color: hsl(var(--foreground)); }
+  .pay-item:focus-visible, .pay-toggle:focus-visible {
+    outline: none; box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring));
+  }
+  .pay-item-top, .pay-item-meta { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+  .pay-item-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .pay-item-meta { font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
+  .pay-detail { display: flex; flex-direction: column; gap: 1rem; min-width: 0; }
+  .pay-detail-head { display: flex; flex-wrap: wrap; gap: 0.75rem 1rem; align-items: flex-start; justify-content: space-between; }
+  .pay-detail-title { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
+  .pay-detail-title h3 { font-size: 1.25rem; letter-spacing: -0.01em; }
+  .pay-line { margin: 0.25rem 0 0; color: hsl(var(--muted-foreground)); }
+  .pay-filters { display: flex; flex-wrap: wrap; gap: 0.5rem 0.75rem; align-items: center; }
+  .pay-filters .pill-btn { height: 1.875rem; padding: 0 0.75rem; }
+  .pay-searched { margin-left: auto; font-size: 0.8125rem; color: hsl(var(--muted-foreground)); }
+  @media (max-width: 56.25rem) { .pay-searched { margin-left: 0; flex-basis: 100%; } }
+  .pay-table { table-layout: fixed; min-width: 40rem; }
+  .pay-table th { height: 2.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: .05em; }
+  .pay-table td { padding: 0.625rem 1rem; }
+  .pay-table .col-date { width: 8rem; }
+  .pay-table .col-amount { width: 6.5rem; text-align: right; }
+  .pay-table .col-status { width: 10rem; }
+  .pay-table .col-source { width: 5.5rem; }
+  .pay-table .pay-what, .pay-table .pay-subject {
+    display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .pay-table .pay-what { font-weight: 500; }
+  .pay-table .pay-subject { font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
+  .pay-table .pay-note { margin-top: 0.125rem; font-size: 0.75rem; color: hsl(var(--muted-foreground)); }
+  .pay-table tr.pay-row { cursor: pointer; }
+  .pay-table tr.pay-row:hover { background: hsl(var(--muted) / .5); }
+  .pay-toggle {
+    padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer;
+    border-radius: 4px; font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  .pay-more td { background: hsl(var(--muted) / .35); }
+  .pay-facts { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: 0.25rem 1rem; margin: 0; }
+  .pay-facts dt { color: hsl(var(--muted-foreground)); }
+  .pay-facts dd { margin: 0; overflow-wrap: anywhere; }
+  .pay-hint { margin: 0; font-size: 0.8125rem; color: hsl(var(--muted-foreground)); }
   .person-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
   /* --- Dialog ------------------------------------------------------------ */
@@ -1113,6 +1173,13 @@ ${head("Verloq Admin")}
       });
   }
 
+  /** The admin's view of each person: which subscription is selected, kept across re-draws. */
+  var statusSelection = {};
+  var KIND_WORDS = {
+    receipt: "Receipt", invoice: "Bill", card_alert: "Bank alert",
+    failed: "Failed payment", refund: "Refund", pause: "Access paused"
+  };
+
   function buildPersonStatus(detail) {
     var rows = detail.status_payments;
     if (rows.length === 0) return emptyCard("No subscriptions yet.");
@@ -1148,46 +1215,76 @@ ${head("Verloq Admin")}
     bar.appendChild(searchFresh);
     wrap.appendChild(bar);
 
-    wrap.appendChild(buildTable(["Service", "Status", "Last payment", "Expected next", "Payments", "History"], rows, function (s) {
-      var tr = document.createElement("tr");
-      var name = document.createElement("td");
-      name.appendChild(el("div", "cell-title", s.service_name));
-      name.appendChild(el("div", "cell-sub", s.frequency));
-      tr.appendChild(name);
+    var cols = el("div", "pay-cols");
+    wrap.appendChild(cols);
+    var chosen = statusSelection[detail.id];
+    var selIndex = 0;
+    rows.forEach(function (r, i) { if (r.id === chosen) selIndex = i; });
+    var filterMode = "all";
+    var openRows = {};
 
-      var st = document.createElement("td");
+    function badgeFor(s) {
       var spec = LIFECYCLE[s.lifecycle_status];
-      st.appendChild(spec
-        ? el("span", "badge " + spec.cls, spec.label)
-        : el("span", "badge badge-muted", "Not worked out yet"));
+      var b = el("span", "badge badge-dot " + (spec ? spec.cls : "badge-muted"), spec ? spec.label : "Not worked out yet");
+      return b;
+    }
+
+    function draw(focusIndex) {
+      clear(cols);
+      var s = rows[selIndex];
+
+      // Left: the person's subscriptions.
+      var master = el("nav", "pay-master");
+      master.setAttribute("aria-label", "Subscriptions");
+      master.appendChild(el("h3", "pay-master-title", "Subscriptions · " + rows.length));
+      var buttons = [];
+      rows.forEach(function (r, i) {
+        var item = el("button", "pay-item");
+        item.type = "button";
+        if (i === selIndex) item.setAttribute("aria-current", "true");
+        var top = el("span", "pay-item-top");
+        top.appendChild(el("span", "pay-item-name", r.service_name));
+        top.appendChild(badgeFor(r));
+        item.appendChild(top);
+        var meta = el("span", "pay-item-meta");
+        meta.appendChild(el("span", "", r.frequency));
+        meta.appendChild(el("span", "", "Last paid " + (r.last_payment_at ? fmtDay(r.last_payment_at) : "—")));
+        item.appendChild(meta);
+        item.addEventListener("click", function () {
+          if (i === selIndex) return;
+          selIndex = i;
+          statusSelection[detail.id] = r.id;
+          filterMode = "all";
+          openRows = {};
+          draw(i);
+        });
+        buttons.push(item);
+        master.appendChild(item);
+      });
+      cols.appendChild(master);
+
+      // Right: the chosen subscription.
+      var panel = el("div", "pay-detail");
+      var head = el("div", "pay-detail-head");
+      var headText = el("div");
+      var title = el("div", "pay-detail-title");
+      title.appendChild(el("h3", "", s.service_name));
+      title.appendChild(badgeFor(s));
+      headText.appendChild(title);
       var why = [];
       if (s.reason) why.push(s.reason);
+      why.push("last payment " + (s.last_payment_at ? fmtDay(s.last_payment_at) : "—"));
+      why.push("next expected " + (s.expected_next_payment_at ? fmtDay(s.expected_next_payment_at) : "—"));
       if (s.ends_on) why.push("access ends " + fmtDay(s.ends_on));
-      if (s.inactive_since) why.push("since " + fmtDay(s.inactive_since) + (s.inactive_source ? " (" + s.inactive_source + ")" : ""));
+      if (s.inactive_since) why.push("inactive since " + fmtDay(s.inactive_since) + (s.inactive_source ? " (" + s.inactive_source + ")" : ""));
       if (s.still_active_taps > 0) why.push("Still active tapped " + plural(s.still_active_taps, "time", "times"));
-      if (why.length) st.appendChild(el("div", "cell-sub", why.join(" · ")));
-      tr.appendChild(st);
+      if (s.last_bill_at && !s.last_payment_at) why.push("last bill " + fmtDay(s.last_bill_at));
+      headText.appendChild(el("p", "pay-line", why.join(" · ")));
+      head.appendChild(headText);
 
-      tr.appendChild(el("td", "num nowrap", s.last_payment_at ? fmtDay(s.last_payment_at) : "—"));
-      tr.appendChild(el("td", "num nowrap", s.expected_next_payment_at ? fmtDay(s.expected_next_payment_at) : "—"));
-
-      var count = document.createElement("td");
-      count.appendChild(el("div", "num", String(s.payments_counted)));
-      if (s.payments_recorded !== s.payments_counted) {
-        count.appendChild(el("div", "cell-sub", s.payments_recorded + " recorded"));
-      }
-      tr.appendChild(count);
-
-      var hist = document.createElement("td");
-      hist.appendChild(el("div", "", s.history_label || "Not searched yet"));
-      (s.history_details || []).forEach(function (line) {
-        hist.appendChild(el("div", "cell-sub", line));
-      });
-      if (s.last_bill_at && !s.last_payment_at) {
-        hist.appendChild(el("div", "cell-sub", "Last bill " + fmtDay(s.last_bill_at)));
-      }
       if (s.history_status === "done" || s.history_status === "failed") {
-        var again = el("button", "btn btn-ghost btn-sm", "Search again");
+        var acts = el("div", "person-actions");
+        var again = el("button", "btn btn-outline btn-sm", "Search again");
         again.type = "button";
         again.setAttribute("aria-label", "Search history again for " + s.service_name);
         again.addEventListener("click", function () {
@@ -1200,8 +1297,8 @@ ${head("Verloq Admin")}
             run: function () { return queueHistory(detail, s.id); }
           });
         });
-        hist.appendChild(again);
-        var fresh = el("button", "btn btn-ghost btn-sm", "From scratch");
+        acts.appendChild(again);
+        var fresh = el("button", "btn btn-outline btn-sm", "From scratch");
         fresh.type = "button";
         fresh.setAttribute("aria-label", "Delete history findings and search again for " + s.service_name);
         fresh.addEventListener("click", function () {
@@ -1214,37 +1311,143 @@ ${head("Verloq Admin")}
             run: function () { return queueHistory(detail, s.id, true); }
           });
         });
-        hist.appendChild(fresh);
+        acts.appendChild(fresh);
+        head.appendChild(acts);
       }
-      tr.appendChild(hist);
-      return tr;
-    }));
+      panel.appendChild(head);
 
-    // Every recorded payment under each subscription, newest first. Read only.
-    rows.forEach(function (s) {
       var list = s.payment_list || [];
-      if (list.length === 0) return;
-      var details = el("details", "payment-list");
-      details.appendChild(el("summary", "", s.service_name + " - Payments (" + list.length + ")"));
-      var headers = ["Date", "Kind", "Document", "Paid", "Counts", "Amount", "Source", "Email subject"];
-      details.appendChild(buildTable(headers, list, function (p) {
-        var tr = document.createElement("tr");
-        tr.appendChild(el("td", "num nowrap", fmtDay(p.paid_at)));
-        tr.appendChild(el("td", "", p.kind));
-        tr.appendChild(el("td", "", p.document_type || "—"));
-        tr.appendChild(el("td", "", p.paid_status || "—"));
-        var counts = document.createElement("td");
-        counts.appendChild(el("div", "", p.counted ? "yes" : "no"));
-        counts.appendChild(el("div", "cell-sub", p.note));
-        tr.appendChild(counts);
-        tr.appendChild(el("td", "num nowrap", p.amount === null ? "—" : p.amount + (p.currency ? " " + p.currency : "")));
-        tr.appendChild(el("td", "", p.source));
-        var subject = p.subject || "";
-        tr.appendChild(el("td", "cell-sub", subject ? (subject.length > 80 ? subject.slice(0, 80) + "…" : subject) : "—"));
-        return tr;
-      }));
-      wrap.appendChild(details);
-    });
+      var nCounted = list.filter(function (p) { return p.counted; }).length;
+      var filters = el("div", "pay-filters");
+      filters.setAttribute("role", "group");
+      filters.setAttribute("aria-label", "Filter payments");
+      var table = null;
+      var fillRows = function () {};
+      [["all", "All", list.length], ["counted", "Counted", nCounted], ["not", "Not counted", list.length - nCounted]].forEach(function (f) {
+        var b = el("button", "pill-btn", f[1] + " " + f[2]);
+        b.type = "button";
+        b.setAttribute("aria-pressed", String(filterMode === f[0]));
+        b.addEventListener("click", function () {
+          filterMode = f[0];
+          Array.prototype.forEach.call(filters.querySelectorAll(".pill-btn"), function (x) { x.setAttribute("aria-pressed", "false"); });
+          b.setAttribute("aria-pressed", "true");
+          fillRows();
+        });
+        filters.appendChild(b);
+      });
+      var searched = (s.history_label || "Not searched yet");
+      if (/^Since /.test(searched)) searched = "Searched " + searched.charAt(0).toLowerCase() + searched.slice(1);
+      var bits = [searched].concat(s.history_details || []);
+      filters.appendChild(el("span", "pay-searched", bits.join(" · ")));
+      panel.appendChild(filters);
+
+      if (list.length === 0) {
+        panel.appendChild(emptyCard("No payments recorded yet. Run a history search."));
+      } else {
+        var box = el("div", "table-container");
+        var scroll = el("div", "table-scroll");
+        table = el("table", "pay-table");
+        var thead = el("thead");
+        var htr = el("tr");
+        [["Date", "col-date"], ["What", ""], ["Amount", "col-amount"], ["Status", "col-status"], ["Source", "col-source"]].forEach(function (h) {
+          var th = el("th", h[1], h[0]);
+          th.scope = "col";
+          htr.appendChild(th);
+        });
+        thead.appendChild(htr);
+        table.appendChild(thead);
+        var tbody = el("tbody");
+        table.appendChild(tbody);
+        scroll.appendChild(table);
+        box.appendChild(scroll);
+        panel.appendChild(box);
+        panel.appendChild(el("p", "pay-hint", "Select a row to see why it counts, or doesn’t, and the full email subject."));
+
+        fillRows = function () {
+          clear(tbody);
+          var shown = 0;
+          list.forEach(function (p, idx) {
+            if (filterMode === "counted" && !p.counted) return;
+            if (filterMode === "not" && p.counted) return;
+            shown++;
+            appendPaymentRows(tbody, p, idx);
+          });
+          if (shown === 0) {
+            var tr = el("tr");
+            var td = el("td", "muted", "No payments in this view.");
+            td.colSpan = 5;
+            tr.appendChild(td);
+            tbody.appendChild(tr);
+          }
+        };
+        var appendPaymentRows = function (tbody, p, idx) {
+          var tr = el("tr", "pay-row");
+          var more = null;
+          var toggle = el("button", "pay-toggle", fmtDay(p.paid_at));
+          toggle.type = "button";
+          toggle.setAttribute("aria-expanded", String(!!openRows[idx]));
+          function flip() {
+            openRows[idx] = !openRows[idx];
+            toggle.setAttribute("aria-expanded", String(openRows[idx]));
+            more.hidden = !openRows[idx];
+          }
+          tr.addEventListener("click", function (e) { if (e.target !== toggle) flip(); });
+          toggle.addEventListener("click", flip);
+          var dateTd = el("td");
+          dateTd.appendChild(toggle);
+          tr.appendChild(dateTd);
+
+          var what = el("td");
+          what.appendChild(el("span", "pay-what", KIND_WORDS[p.kind] || "Welcome or other"));
+          if (p.subject) {
+            var sub = el("span", "pay-subject", p.subject);
+            sub.title = p.subject;
+            what.appendChild(sub);
+          }
+          tr.appendChild(what);
+
+          tr.appendChild(el("td", "num nowrap col-amount", p.amount === null ? "—" : p.amount + (p.currency ? " " + p.currency : "")));
+
+          var st = el("td");
+          var chip;
+          if (p.counted) chip = el("span", "badge badge-success", "Counted");
+          else if (p.kind === "invoice") chip = el("span", "badge " + (/not found/.test(p.note || "") ? "badge-warning" : "badge-info"), "Bill");
+          else chip = el("span", "badge badge-muted", "Not counted");
+          if (p.note) { st.title = p.note; chip.title = p.note; }
+          st.appendChild(chip);
+          if (!p.counted && p.note) st.appendChild(el("div", "pay-note", p.note));
+          tr.appendChild(st);
+
+          tr.appendChild(el("td", "", p.source));
+          tbody.appendChild(tr);
+
+          more = el("tr", "pay-more");
+          more.hidden = !openRows[idx];
+          var mtd = el("td");
+          mtd.colSpan = 5;
+          var dl = el("dl", "pay-facts");
+          [
+            ["Email subject", p.subject || "—"],
+            ["Kind", p.kind],
+            ["Document type", p.document_type || "—"],
+            ["Paid status", p.paid_status || "—"],
+            ["Amount", p.amount === null ? "—" : p.amount + (p.currency ? " " + p.currency : "")],
+            ["Source", p.source],
+            [p.counted ? "Why it counts" : "Why it doesn’t count", p.note || "—"]
+          ].forEach(function (f) {
+            dl.appendChild(el("dt", "", f[0]));
+            dl.appendChild(el("dd", "", f[1]));
+          });
+          mtd.appendChild(dl);
+          more.appendChild(mtd);
+          tbody.appendChild(more);
+        };
+        fillRows();
+      }
+      cols.appendChild(panel);
+      if (typeof focusIndex === "number") buttons[focusIndex].focus();
+    }
+    draw();
     return wrap;
   }
 
