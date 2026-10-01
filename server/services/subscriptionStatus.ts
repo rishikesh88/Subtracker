@@ -357,10 +357,10 @@ export async function statusRowsForAdmin(userId: string) {
     .map((sub) => {
       const mine = allPayments.filter((p) => p.subscriptionId === sub.id);
       const asRules = mine.map((p) => ({ paidAt: p.paidAt, dueOn: p.dueOn, amount: p.amount, currency: p.currency, kind: p.kind }));
-      const counted = countedPayments(asRules);
+      const counted = countedPayments(asRules, sub.currency);
       const now = new Date();
-      const bills = reconcileBills(asRules, now);
-      const why = explainPayments(asRules, now);
+      const bills = reconcileBills(asRules, now, sub.currency);
+      const why = explainPayments(asRules, now, sub.currency);
       // Every record, newest first. Subject lines only, cut short; no email bodies.
       const payment_list = mine
         .map((p, i) => ({

@@ -387,6 +387,72 @@ const baseStyles = `
   .match[aria-pressed="true"] { background: hsl(var(--muted)); }
 
   .person-head { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; justify-content: space-between; }
+
+  /* --- Person page: header, summary tiles, tabs ---------------------------- */
+  .person-page { gap: 1.25rem; }
+  .person-head { align-items: center; }
+  .person-id { display: flex; align-items: center; gap: 1rem; min-width: 0; }
+  .person-who { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+  .person-who .cell-sub { overflow-wrap: anywhere; }
+  .person-title { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.625rem; }
+  .person-title h2 { margin: 0; font-size: 1.25rem; font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+  .avatar {
+    display: inline-flex; align-items: center; justify-content: center; flex: none;
+    width: 2.75rem; height: 2.75rem; border-radius: 9999px;
+    background: hsl(var(--info) / .14); color: hsl(var(--info));
+    font-size: 1rem; font-weight: 600;
+  }
+  .btn-outline-destructive { color: hsl(var(--destructive)); border-color: hsl(var(--destructive) / .45); }
+  .btn-outline-destructive:hover { background: hsl(var(--destructive) / .1); color: hsl(var(--destructive)); }
+  @media (prefers-color-scheme: dark) { .btn-outline-destructive, .btn-outline-destructive:hover { color: hsl(0 90% 72%); } }
+  .tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.875rem; }
+  @media (max-width: 56.25rem) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 34rem) { .tiles { grid-template-columns: minmax(0, 1fr); } }
+  .tile {
+    display: flex; flex-direction: column; gap: 0.25rem; min-width: 0;
+    padding: 0.875rem 1rem;
+    border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) + 2px);
+    background: hsl(var(--card));
+  }
+  .tile-label { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: hsl(var(--muted-foreground)); }
+  .tile-value { font-size: 1.25rem; font-weight: 600; }
+  .tile-sub { font-size: 0.8125rem; color: hsl(var(--muted-foreground)); overflow-wrap: anywhere; }
+  .tabs-wrap { max-width: 100%; overflow-x: auto; padding: 2px; margin: -2px; }
+  .tabs {
+    display: inline-flex; gap: 0.125rem; padding: 0.25rem;
+    background: hsl(var(--muted)); border-radius: calc(var(--radius) + 2px);
+  }
+  .tab {
+    display: inline-flex; align-items: center; gap: 0.375rem; flex: none;
+    padding: 0.5rem 1rem; border: 0; border-radius: calc(var(--radius) - 1px);
+    background: transparent; color: hsl(var(--muted-foreground));
+    font: inherit; font-size: 0.875rem; font-weight: 500; white-space: nowrap; cursor: pointer;
+  }
+  .tab:hover { color: hsl(var(--foreground)); }
+  .tab[aria-selected="true"] {
+    background: hsl(var(--background)); color: hsl(var(--foreground));
+    box-shadow: 0 1px 2px rgba(15,23,42,.12);
+  }
+  .tab-count { font-weight: 400; color: hsl(var(--muted-foreground)); }
+  .tab:focus-visible, .tab-panel:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring));
+  }
+  .tab-panel { border-radius: var(--radius); }
+  .tab-panel thead tr { background: hsl(var(--muted)); }
+  .tab-panel th {
+    height: 2.5rem; padding: 0 1.25rem;
+    font-size: 0.75rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .tab-panel td { padding: 0.875rem 1.25rem; }
+  .notice {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.625rem;
+    padding: 0.75rem 1rem; border-radius: calc(var(--radius) + 2px);
+    background: hsl(var(--warning) / .14); color: hsl(var(--warning));
+    font-size: 0.875rem; overflow-wrap: anywhere;
+  }
+  .notice strong { font-weight: 600; }
+  @media (max-width: 640px) { .tab-panel td { padding: 0.75rem; } .tab-panel th { padding: 0 0.75rem; } }
   /* --- Status and payments: master list and detail ------------------------ */
   .pay-cols { display: grid; grid-template-columns: 20rem minmax(0, 1fr); gap: 1.25rem; align-items: start; }
   @media (max-width: 56.25rem) { .pay-cols { grid-template-columns: minmax(0, 1fr); } }
@@ -1031,115 +1097,268 @@ ${head("Verloq Admin")}
 
   // --- the person view --------------------------------------------------
 
+  // The tab chosen for each person, kept across re-draws (search again, add or remove a feature).
+  var personTabs = {};
+  var TAB_IDS = ["features", "mailboxes", "subscriptions", "status", "sync"];
+
+  function initialsOf(detail) {
+    var parts = [detail.first_name, detail.last_name].filter(Boolean);
+    var text = parts.length ? parts.map(function (p) { return p.charAt(0); }).join("") : (detail.email || "?").charAt(0);
+    return text.toUpperCase().slice(0, 2);
+  }
+
+  function mailboxNeedsReconnect(m) { return m.sync_status === "error"; }
+
+  function newestSync(syncs) {
+    var best = null;
+    syncs.forEach(function (j) {
+      if (!j.started_at) return;
+      if (!best || new Date(j.started_at).getTime() > new Date(best.started_at).getTime()) best = j;
+    });
+    return best;
+  }
+
+  function buildTile(label, value, sub) {
+    var tile = el("div", "tile");
+    tile.appendChild(el("span", "tile-label", label));
+    tile.appendChild(el("span", "tile-value", value));
+    if (sub) tile.appendChild(el("span", "tile-sub", sub));
+    return tile;
+  }
+
+  function buildPersonTiles(detail) {
+    var tiles = el("div", "tiles");
+    var subs = detail.subscriptions_detail || [];
+    var mailboxes = detail.mailboxes || [];
+    var syncs = detail.recent_syncs || [];
+
+    var subSub = "";
+    if (detail.status_payments) {
+      var active = 0, review = 0;
+      detail.status_payments.forEach(function (r) {
+        if (r.lifecycle_status === "active") active++;
+        else if (r.lifecycle_status === "needs_review") review++;
+      });
+      var bits = [];
+      if (active) bits.push(active + " active");
+      if (review) bits.push(review + " needs review");
+      subSub = bits.join(", ");
+    }
+    tiles.appendChild(buildTile("Subscriptions", String(subs.length), subSub));
+
+    var broken = mailboxes.filter(mailboxNeedsReconnect).length;
+    tiles.appendChild(buildTile("Mailboxes", String(mailboxes.length),
+      broken ? broken + (broken === 1 ? " needs" : " need") + " reconnect" : (mailboxes.length ? "All connected" : "None connected")));
+
+    var last = newestSync(syncs);
+    var lastSub = "No sync recorded";
+    if (last) {
+      lastSub = last.status === "succeeded" ? "Done, " + plural(last.emails_processed || 0, "email", "emails")
+        : last.status === "failed" ? "Failed"
+        : String(last.status || "");
+    }
+    tiles.appendChild(buildTile("Last sync", last ? fmtDate(last.started_at) : "Never", lastSub));
+
+    var feats = detail.features;
+    if (!feats) {
+      tiles.appendChild(buildTile("Features on", "—", "Could not load"));
+    } else {
+      var on = feats.filter(function (f) { return f.enabled; });
+      tiles.appendChild(buildTile("Features on", on.length + " of " + feats.length,
+        on.length ? on.map(function (f) { return f.name; }).join(", ") : "None on"));
+    }
+    return tiles;
+  }
+
+  function buildPersonMailboxes(detail) {
+    var mailboxes = detail.mailboxes || [];
+    if (!mailboxes.length) return emptyCard("No mailbox connected.");
+    var wrap = el("div", "stack");
+    wrap.style.gap = "0.75rem";
+    var broken = mailboxes.filter(mailboxNeedsReconnect);
+    if (broken.length) {
+      var note = el("div", "notice");
+      note.setAttribute("role", "status");
+      note.appendChild(el("strong", "", broken.length === 1 ? "1 mailbox needs reconnecting." : broken.length + " mailboxes need reconnecting."));
+      note.appendChild(el("span", "", broken.map(function (m) { return m.address; }).join(", ") + (broken.length === 1 ? " stopped syncing." : " stopped syncing.")));
+      wrap.appendChild(note);
+    }
+    wrap.appendChild(buildTable(["Provider", "Address", "Last sync", "Status"], mailboxes, function (m) {
+      var tr = document.createElement("tr");
+      tr.appendChild(el("td", "", m.provider === "gmail" ? "Gmail" : "Outlook"));
+      tr.appendChild(el("td", "cell-title", m.address));
+      var last = document.createElement("td");
+      last.appendChild(el("div", "nowrap", fmtDate(m.last_sync)));
+      if (m.last_sync) last.appendChild(el("div", "cell-sub", fmtRelative(m.last_sync)));
+      tr.appendChild(last);
+      var status = document.createElement("td");
+      var bad = mailboxNeedsReconnect(m);
+      status.appendChild(el("span", "badge " + (bad ? "badge-destructive" : "badge-muted"), m.sync_status || "idle"));
+      if (bad && m.sync_error) {
+        var err = el("div", "cell-sub", m.sync_error);
+        err.style.color = "hsl(var(--destructive))";
+        status.appendChild(err);
+      }
+      tr.appendChild(status);
+      return tr;
+    }));
+    return wrap;
+  }
+
+  function buildPersonSubscriptions(detail) {
+    var subs = detail.subscriptions_detail || [];
+    if (!subs.length) return emptyCard("Nothing found yet.");
+    return buildTable(["Service", "Amount", "Frequency", "Status", "Next billing", "Invoices"], subs, function (s) {
+      var tr = document.createElement("tr");
+      tr.appendChild(el("td", "cell-title", s.service_name));
+      tr.appendChild(el("td", "num nowrap", s.currency + " " + s.amount));
+      tr.appendChild(el("td", "", s.frequency));
+      tr.appendChild(el("td", "", s.status));
+      tr.appendChild(el("td", "num nowrap", fmtDate(s.next_billing_date)));
+      var inv = document.createElement("td");
+      inv.appendChild(el("div", "num", String(s.invoices || 0)));
+      if (s.invoices_without_file > 0) {
+        inv.appendChild(el("div", "cell-sub", s.invoices_without_file + " with no file"));
+      }
+      tr.appendChild(inv);
+      return tr;
+    });
+  }
+
+  function buildPersonSyncs(detail) {
+    var syncs = detail.recent_syncs || [];
+    if (!syncs.length) return emptyCard("No sync has been recorded for this account yet.");
+    return buildTable(["Status", "Started", "Emails", "Suggestions", "Detail"], syncs, function (j) {
+      var tr = document.createElement("tr");
+      var cls = j.status === "succeeded" ? "badge-success"
+        : j.status === "failed" ? "badge-destructive"
+        : "badge-warning";
+      var st = document.createElement("td");
+      st.appendChild(el("span", "badge " + cls, j.status));
+      tr.appendChild(st);
+      var started = document.createElement("td");
+      started.appendChild(el("div", "nowrap", fmtDate(j.started_at)));
+      started.appendChild(el("div", "cell-sub", fmtRelative(j.started_at)));
+      tr.appendChild(started);
+      tr.appendChild(el("td", "num", String(j.emails_processed || 0)));
+      tr.appendChild(el("td", "num", String(j.suggestions_generated || 0)));
+      tr.appendChild(el("td", "cell-sub", j.error || j.trigger_source || "—"));
+      return tr;
+    });
+  }
+
   function buildPerson(detail) {
     var root = document.createElement("div");
-    root.className = "stack";
+    root.className = "stack person-page";
 
     var back = el("button", "back", "← All people");
     back.type = "button";
     back.addEventListener("click", function () { go("list"); });
     root.appendChild(back);
 
-    var headCard = el("div", "card");
-    var headBody = el("div", "card-body person-head");
-
-    var who = document.createElement("div");
-    var title = el("h2", "", personName(detail));
-    who.appendChild(title);
-    who.appendChild(el("div", "cell-sub", detail.email));
+    var head = el("div", "person-head");
+    var identity = el("div", "person-id");
+    var avatar = el("span", "avatar", initialsOf(detail));
+    avatar.setAttribute("aria-hidden", "true");
+    identity.appendChild(avatar);
+    var who = el("div", "person-who");
+    var titleRow = el("div", "person-title");
+    var hasName = personName(detail) !== "No name given";
+    titleRow.appendChild(el("h2", "", hasName ? personName(detail) : detail.email));
+    titleRow.appendChild(el("span", "badge badge-dot " + (detail.email_verified ? "badge-success" : "badge-muted"),
+      detail.email_verified ? "Verified" : "Not verified"));
+    who.appendChild(titleRow);
     var meta = [];
+    if (hasName) meta.push(detail.email);
     if (detail.organization_name) meta.push(detail.organization_name);
     meta.push("Joined " + fmtDate(detail.created_at));
-    meta.push(detail.email_verified ? "Verified" : "Not verified");
     who.appendChild(el("div", "cell-sub", meta.join(" · ")));
-    headBody.appendChild(who);
+    identity.appendChild(who);
+    head.appendChild(identity);
 
     var actions = el("div", "person-actions");
     var clearBtn = el("button", "btn btn-outline", "Clear data");
     clearBtn.type = "button";
     clearBtn.addEventListener("click", function () { askConfirm(detail, "clear"); });
-    var deleteBtn = el("button", "btn btn-destructive", "Delete user");
+    var deleteBtn = el("button", "btn btn-outline btn-outline-destructive", "Delete user");
     deleteBtn.type = "button";
     deleteBtn.addEventListener("click", function () { askConfirm(detail, "delete"); });
     actions.appendChild(clearBtn);
     actions.appendChild(deleteBtn);
-    headBody.appendChild(actions);
+    head.appendChild(actions);
+    root.appendChild(head);
 
-    headCard.appendChild(headBody);
-    root.appendChild(headCard);
+    root.appendChild(buildPersonTiles(detail));
 
-    root.appendChild(section("Features", buildPersonFeatures(detail)));
+    // The tabs replace the old stacked sections. Status is only offered while
+    // the subscription_status switch is on for this person.
+    var tabs = [
+      { id: "features", label: "Features", count: detail.features ? detail.features.length : null, build: buildPersonFeatures },
+      { id: "mailboxes", label: "Mailboxes", count: (detail.mailboxes || []).length, build: buildPersonMailboxes },
+      { id: "subscriptions", label: "Subscriptions", count: (detail.subscriptions_detail || []).length, build: buildPersonSubscriptions }
+    ];
+    if (detail.status_payments) tabs.push({ id: "status", label: "Status and payments", count: null, build: buildPersonStatus });
+    tabs.push({ id: "sync", label: "Sync history", count: (detail.recent_syncs || []).length, build: buildPersonSyncs });
 
-    // Each section is full width and stacked. Nothing sits beside anything
-    // else, which is what broke the previous layout.
-    var mailboxes = detail.mailboxes || [];
-    root.appendChild(section("Mailboxes", mailboxes.length
-      ? buildTable(["Provider", "Address", "Last sync", "Status"], mailboxes, function (m) {
-          var tr = document.createElement("tr");
-          tr.appendChild(el("td", "", m.provider === "gmail" ? "Gmail" : "Outlook"));
-          tr.appendChild(el("td", "", m.address));
-          var last = document.createElement("td");
-          last.appendChild(el("div", "nowrap", fmtDate(m.last_sync)));
-          if (m.last_sync) last.appendChild(el("div", "cell-sub", fmtRelative(m.last_sync)));
-          tr.appendChild(last);
-          var status = document.createElement("td");
-          var bad = m.sync_status === "error";
-          status.appendChild(el("span", "badge " + (bad ? "badge-destructive" : "badge-muted"), m.sync_status || "idle"));
-          if (bad && m.sync_error) {
-            var err = el("div", "cell-sub", m.sync_error);
-            err.style.color = "hsl(var(--destructive))";
-            status.appendChild(err);
-          }
-          tr.appendChild(status);
-          return tr;
-        })
-      : emptyCard("No mailbox connected.")));
+    var current = personTabs[detail.id];
+    if (!tabs.some(function (t) { return t.id === current; })) current = "subscriptions";
 
-    var subs = detail.subscriptions_detail || [];
-    root.appendChild(section("Subscriptions", subs.length
-      ? buildTable(["Service", "Amount", "Frequency", "Status", "Next billing", "Invoices"], subs, function (s) {
-          var tr = document.createElement("tr");
-          tr.appendChild(el("td", "cell-title", s.service_name));
-          tr.appendChild(el("td", "num nowrap", s.currency + " " + s.amount));
-          tr.appendChild(el("td", "", s.frequency));
-          tr.appendChild(el("td", "", s.status));
-          tr.appendChild(el("td", "num nowrap", fmtDate(s.next_billing_date)));
-          var inv = document.createElement("td");
-          inv.appendChild(el("div", "num", String(s.invoices || 0)));
-          if (s.invoices_without_file > 0) {
-            inv.appendChild(el("div", "cell-sub", s.invoices_without_file + " with no file"));
-          }
-          tr.appendChild(inv);
-          return tr;
-        })
-      : emptyCard("Nothing found yet.")));
+    var tabWrap = el("div", "tabs-wrap");
+    var tablist = el("div", "tabs");
+    tablist.setAttribute("role", "tablist");
+    tablist.setAttribute("aria-label", "About " + (hasName ? personName(detail) : detail.email));
+    var panel = el("div", "tab-panel");
+    panel.id = "person-panel";
+    panel.setAttribute("role", "tabpanel");
+    panel.tabIndex = 0;
+    var buttons = [];
 
-    // Only while the subscription_status switch is on for this person.
-    if (detail.status_payments) {
-      root.appendChild(section("Status and payments (recording quietly)", buildPersonStatus(detail)));
+    function select(id, focus) {
+      current = id;
+      personTabs[detail.id] = id;
+      var tab = null;
+      buttons.forEach(function (b, i) {
+        var on = tabs[i].id === id;
+        b.setAttribute("aria-selected", String(on));
+        b.tabIndex = on ? 0 : -1;
+        if (on) { tab = b; panel.setAttribute("aria-labelledby", b.id); }
+      });
+      clear(panel);
+      panel.appendChild(tabs.filter(function (t) { return t.id === id; })[0].build(detail));
+      if (focus && tab) tab.focus();
+      try {
+        // Keeps the tab in the address without navigating, so it can be linked.
+        var hash = "#" + encodeURIComponent(detail.id) + "?tab=" + id;
+        if (location.hash !== hash) history.replaceState(null, "", hash);
+        route = routeFromHash();
+      } catch (e) {}
     }
 
-    var syncs = detail.recent_syncs || [];
-    root.appendChild(section("Recent syncs", syncs.length
-      ? buildTable(["Status", "Started", "Emails", "Suggestions", "Detail"], syncs, function (j) {
-          var tr = document.createElement("tr");
-          var cls = j.status === "succeeded" ? "badge-success"
-            : j.status === "failed" ? "badge-destructive"
-            : "badge-warning";
-          var st = document.createElement("td");
-          st.appendChild(el("span", "badge " + cls, j.status));
-          tr.appendChild(st);
-          var started = document.createElement("td");
-          started.appendChild(el("div", "nowrap", fmtDate(j.started_at)));
-          started.appendChild(el("div", "cell-sub", fmtRelative(j.started_at)));
-          tr.appendChild(started);
-          tr.appendChild(el("td", "num", String(j.emails_processed || 0)));
-          tr.appendChild(el("td", "num", String(j.suggestions_generated || 0)));
-          tr.appendChild(el("td", "cell-sub", j.error || j.trigger_source || "—"));
-          return tr;
-        })
-      : emptyCard("No sync has been recorded for this account yet.")));
-
+    tabs.forEach(function (t, i) {
+      var b = el("button", "tab", t.label);
+      b.type = "button";
+      b.id = "person-tab-" + t.id;
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-controls", "person-panel");
+      if (t.count !== null) b.appendChild(el("span", "tab-count", String(t.count)));
+      b.addEventListener("click", function () { select(t.id, false); });
+      b.addEventListener("keydown", function (e) {
+        var next = -1;
+        if (e.key === "ArrowRight") next = (i + 1) % tabs.length;
+        else if (e.key === "ArrowLeft") next = (i + tabs.length - 1) % tabs.length;
+        else if (e.key === "Home") next = 0;
+        else if (e.key === "End") next = tabs.length - 1;
+        if (next < 0) return;
+        e.preventDefault();
+        select(tabs[next].id, true);
+      });
+      buttons.push(b);
+      tablist.appendChild(b);
+    });
+    tabWrap.appendChild(tablist);
+    root.appendChild(tabWrap);
+    root.appendChild(panel);
+    select(current, false);
     return root;
   }
 
@@ -2186,6 +2405,8 @@ ${head("Verloq Admin")}
     if (r === "list") return { view: "people" };
     if (r === "features") return { view: "features" };
     if (r.indexOf("features/") === 0) return { view: "feature", id: decodeURIComponent(r.slice(9)) };
+    var tabbed = /^(.+)\\?tab=([a-z]+)$/.exec(r);
+    if (tabbed) return { view: "person", id: decodeURIComponent(tabbed[1]), tab: tabbed[2] };
     return { view: "person", id: r };
   }
 
@@ -2194,7 +2415,10 @@ ${head("Verloq Admin")}
 
   function applyRoute() {
     route = routeFromHash();
-    var view = parseRoute(route).view;
+    var parsed = parseRoute(route);
+    var view = parsed.view;
+    // A linked tab (#<id>?tab=mailboxes) is only taken if it is one we know.
+    if (view === "person" && parsed.tab && TAB_IDS.indexOf(parsed.tab) !== -1) personTabs[parsed.id] = parsed.tab;
     var onFeatures = view === "features" || view === "feature";
     if (onFeatures) { navFeatures.setAttribute("aria-current", "page"); navPeople.removeAttribute("aria-current"); }
     else { navPeople.setAttribute("aria-current", "page"); navFeatures.removeAttribute("aria-current"); }
