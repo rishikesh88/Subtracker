@@ -17,12 +17,13 @@
  */
 
 import { isIntermediary } from "./evidence";
+import { brandTokens } from "./brandTokens";
 import { classifyPaymentEmail, parseLooseDay } from "./statusRules";
 
 /** How far back the search reaches. */
 export const HISTORY_DAYS = 365;
 /** At most this many new messages are read for one subscription, across all mailboxes. */
-export const MAX_MESSAGES_PER_SUBSCRIPTION = 60;
+export const MAX_MESSAGES_PER_SUBSCRIPTION = 150;
 /** A failed attempt is tried again this many times before the row reads 'failed'. */
 export const MAX_RETRIES = 3;
 /** The wait between one failed attempt starting and the next one. */
@@ -41,6 +42,7 @@ const KEYWORD_RE = /\b(receipt|invoice|payment|renewal|renew(ed|s)?|charged|bill
 export const NOTE_ADDED_BY_HAND = "added by hand";
 export const NOTE_NO_SENDER = "no sender to search";
 export const NOTE_NAME_TOO_GENERIC = "only a shared sender and the name is too short to match";
+export const NOTE_BANK_ALERTS_ONLY = "Found through bank alerts only";
 
 // ---------------------------------------------------------------------------
 // Senders
@@ -89,6 +91,14 @@ export interface SenderPlan {
   shared: string[];
   /** Exact addresses seen, for Outlook, whose filter cannot match a domain. */
   addresses: string[];
+  /**
+   * Set when there is no sender to search and the company is looked for by
+   * name instead (see decideSearch). `clues` are the names to search for;
+   * `bodyClues` (plan names such as "Hobby plan") only help recognise an email
+   * that was found through the others. `currency` is the subscription's: an
+   * email in another currency is not this subscription's.
+   */
+  byName?: { clues: string[]; bodyClues: string[]; currency: string };
 }
 
 /**
@@ -164,12 +174,24 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** Does this email's subject or text name the subscription? */
+type Clues = string | null | undefined | (string | null | undefined)[];
+
+/** The needles for one name or a list of names, without repeats. */
+function needlesFor(clues: Clues): string[] {
+  const list = Array.isArray(clues) ? clues : [clues];
+  const out: string[] = [];
+  for (const clue of list) {
+    for (const needle of nameNeedles(clue)) if (!out.includes(needle)) out.push(needle);
+  }
+  return out;
+}
+
+/** Does this email's subject or text name the subscription (under any of its names)? */
 export function namesSubscription(
   email: { subject?: string | null; text?: string | null },
-  serviceName: string | null | undefined,
+  clues: Clues,
 ): boolean {
-  const needles = nameNeedles(serviceName);
+  const needles = needlesFor(clues);
   if (needles.length === 0) return false;
   const haystack = " " + normaliseText(`${email.subject ?? ""} ${email.text ?? ""}`) + " ";
   return needles.some((needle) => {
@@ -181,12 +203,76 @@ export function namesSubscription(
 }
 
 /** The words Gmail is given to narrow a shared sender to this subscription. */
-export function nameSearchTerm(serviceName: string | null | undefined): string | null {
-  const needles = nameNeedles(serviceName);
-  if (needles.length === 0) return null;
-  // The shortest distinctive needle, with '+' dropped: Gmail ignores it anyway.
-  const pick = needles[needles.length - 1].replace(/\+/g, "").trim();
-  return pick ? `"${pick}"` : null;
+export function nameSearchTerm(clues: Clues): string | null {
+  const list = Array.isArray(clues) ? clues : [clues];
+  const picks: string[] = [];
+  for (const clue of list) {
+    const needles = nameNeedles(clue);
+    if (needles.length === 0) continue;
+    // The shortest distinctive needle, with '+' dropped: Gmail ignores it anyway.
+    const pick = needles[needles.length - 1].replace(/\+/g, "").trim();
+    if (pick && !picks.includes(pick)) picks.push(pick);
+  }
+  if (picks.length === 0) return null;
+  return picks.length === 1 ? `"${picks[0]}"` : `(${picks.map((p) => `"${p}"`).join(" OR ")})`;
+}
+
+// ---------------------------------------------------------------------------
+// Name clues
+// ---------------------------------------------------------------------------
+
+/** Words that make a name a plan rather than a company ("Hobby plan", "Pro", "Premium annual"). */
+const PLAN_WORDS = new Set([
+  "plan", "tier", "hobby", "free", "pro", "plus", "premium", "basic", "standard", "starter", "team", "teams",
+  "business", "individual", "family", "student", "personal", "monthly", "yearly", "annual", "weekly",
+  "subscription", "membership", "max", "lite", "ultra", "essentials", "unlimited", "enterprise", "the", "a", "and",
+]);
+
+/** A name made only of plan words: it says which plan, not which company. */
+export function isPlanName(name: string | null | undefined): boolean {
+  const words = normaliseText(String(name ?? "").replace(/\([^)]*\)/g, " ")).split(" ").filter(Boolean);
+  return words.length > 0 && words.every((w) => PLAN_WORDS.has(w));
+}
+
+export interface NameClues {
+  /** Names to search for, in order, never too generic and never a plan name. */
+  search: string[];
+  /** Plan names: they may help recognise an email body, never start a search. */
+  bodyOnly: string[];
+}
+
+/**
+ * The names a subscription has gone by, in the order they are tried: the
+ * merchant name the detector read, the name it was approved under, its name
+ * now, then the names it has had since (oldest first). Repeats (ignoring case)
+ * are dropped. A name too generic to tell one company from another is dropped
+ * (nameTooGeneric); a plan name goes to `bodyOnly`.
+ */
+export function buildNameClues(input: {
+  merchantName: string | null | undefined;
+  serviceName: string | null | undefined;
+  remembered: { name: string; origin: string }[];
+}): NameClues {
+  const ordered: (string | null | undefined)[] = [
+    input.merchantName,
+    ...input.remembered.filter((r) => r.origin === "approval").map((r) => r.name),
+    input.serviceName,
+    ...input.remembered.filter((r) => r.origin !== "approval").map((r) => r.name),
+  ];
+  const seen = new Set<string>();
+  const out: NameClues = { search: [], bodyOnly: [] };
+  for (const raw of ordered) {
+    const name = (raw ?? "").trim();
+    const key = normaliseText(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (isPlanName(name)) {
+      out.bodyOnly.push(name);
+    } else if (!nameTooGeneric(name)) {
+      out.search.push(name);
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,12 +287,50 @@ export function buildGmailQuery(domains: string[], nameTerm: string | null = nul
 }
 
 /** The Gmail queries for a plan: brand domains as they are, shared ones narrowed by name. */
-export function gmailQueriesFor(plan: SenderPlan, serviceName: string, days = HISTORY_DAYS): string[] {
+export function gmailQueriesFor(plan: SenderPlan, serviceName: Clues, days = HISTORY_DAYS): string[] {
   const queries: string[] = [];
+  if (plan.byName) {
+    const query = buildNameGmailQuery(plan.byName.clues, days);
+    return query ? [query] : [];
+  }
   if (plan.owned.length > 0) queries.push(buildGmailQuery(plan.owned, null, days));
   const term = nameSearchTerm(serviceName);
   if (plan.shared.length > 0 && term) queries.push(buildGmailQuery(plan.shared, term, days));
   return queries;
+}
+
+/**
+ * `("railway" OR from:railway) newer_than:365d (receipt OR ...)`: a search by
+ * company name, for a subscription with no sender to search. Gmail matches a
+ * quoted word in the subject, the body and the sender's name; `from:` adds the
+ * address. Which of what comes back is kept is decided by keepEmailByName.
+ */
+export function buildNameGmailQuery(clues: string[], days = HISTORY_DAYS): string | null {
+  const terms: string[] = [];
+  for (const clue of clues) {
+    const needles = nameNeedles(clue);
+    if (needles.length === 0) continue;
+    const pick = needles[needles.length - 1].replace(/\+/g, "").trim();
+    if (!pick) continue;
+    const term = pick.includes(" ") ? `"${pick}"` : `("${pick}" OR from:${pick})`;
+    if (!terms.includes(term)) terms.push(term);
+  }
+  if (terms.length === 0) return null;
+  const keywords = `(${HISTORY_KEYWORDS.join(" OR ")})`;
+  return [`(${terms.join(" OR ")})`, `newer_than:${days}d`, keywords].filter(Boolean).join(" ");
+}
+
+/** Graph $filter for a name search: subject only, since Graph cannot match a sender's name or domain. */
+export function buildOutlookNameFilter(clues: string[], since: Date): string | null {
+  const parts: string[] = [];
+  for (const clue of clues) {
+    const needles = nameNeedles(clue);
+    if (needles.length === 0) continue;
+    const pick = needles[needles.length - 1].replace(/\+/g, "").replace(/'/g, "''").trim();
+    if (pick) parts.push(`contains(subject,'${pick}')`);
+  }
+  if (parts.length === 0) return null;
+  return `receivedDateTime ge ${since.toISOString()} and (${Array.from(new Set(parts)).join(" or ")})`;
 }
 
 /** The earliest moment the search covers. */
@@ -257,13 +381,21 @@ export function selectNewMessageIds(
 /**
  * Whether a fetched email belongs to this subscription: it is from one of the
  * domains searched, talks about billing, and -- for a shared sender -- names
- * the subscription.
+ * the subscription (under any name it has had). A search by name has its own
+ * rules; see keepEmailByName.
  */
 export function keepEmail(
-  email: { fromEmail: string | null | undefined; subject: string | null | undefined; text: string | null | undefined },
+  email: {
+    fromEmail: string | null | undefined;
+    fromName?: string | null;
+    subject: string | null | undefined;
+    text: string | null | undefined;
+    currency?: string | null;
+  },
   plan: SenderPlan,
-  serviceName: string,
-): { keep: true } | { keep: false; why: "other_sender" | "no_keyword" | "not_named" } {
+  serviceName: Clues,
+): { keep: true } | { keep: false; why: "other_sender" | "no_keyword" | "not_named" | "wrong_currency" } {
+  if (plan.byName) return keepEmailByName(email, plan.byName);
   const domain = registrableDomain(domainOf(email.fromEmail));
   const owned = plan.owned.includes(domain);
   const shared = plan.shared.includes(domain);
@@ -272,6 +404,66 @@ export function keepEmail(
   if (shared && !namesSubscription({ subject: email.subject, text: email.text }, serviceName)) {
     return { keep: false, why: "not_named" };
   }
+  return { keep: true };
+}
+
+/** Payment processors whose receipts carry the merchant's name rather than their own. */
+const PROCESSOR_SENDERS = ["stripe.com", "paddle.com", "chargebee.com", "recurly.com", "fastspring.com", "2checkout.com", "gocardless.com"];
+
+export function isProcessorSender(address: string | null | undefined): boolean {
+  const domain = domainOf(address);
+  return PROCESSOR_SENDERS.some((d) => domain === d || domain.endsWith(`.${d}`));
+}
+
+const compact = (value: string | null | undefined) => (value ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * Whether an email found by company name is this subscription's:
+ *
+ * - it talks about billing;
+ * - banks, card issuers and mail relays are never a source of company
+ *   identity, however the name appears in their mail (a card alert "spent at
+ *   Netflix" says nothing about who sends Netflix's mail);
+ * - the sender's display name or address contains one of the names, or -- for
+ *   a payment processor such as Stripe, which sends under its own address --
+ *   the display name, subject or body names the company ("Receipt from
+ *   Railway Corporation"); a plan name in the body helps there too;
+ * - and the email's currency is the subscription's. This is what keeps a
+ *   same-named company in another country (Indian Railways) out.
+ */
+export function keepEmailByName(
+  email: {
+    fromEmail: string | null | undefined;
+    fromName?: string | null;
+    subject: string | null | undefined;
+    text: string | null | undefined;
+    currency?: string | null;
+  },
+  byName: { clues: string[]; bodyClues: string[]; currency: string },
+): { keep: true } | { keep: false; why: "other_sender" | "no_keyword" | "not_named" | "wrong_currency" } {
+  if (!matchesKeywords(email.subject, email.text)) return { keep: false, why: "no_keyword" };
+  const processor = isProcessorSender(email.fromEmail);
+  if (isIntermediary(email.fromEmail) && !processor) return { keep: false, why: "other_sender" };
+
+  const needles = needlesFor(byName.clues);
+  const display = ` ${normaliseText(email.fromName ?? "")} `;
+  const address = compact(email.fromEmail);
+  const fromSender = needles.some((needle) => {
+    const re = new RegExp(`(^|[^a-z0-9+])${escapeRe(needle)}(?=[^a-z0-9+]|$)`);
+    const c = compact(needle);
+    return re.test(display) || (c.length >= 5 && address.includes(c));
+  });
+  if (!fromSender) {
+    if (!processor) return { keep: false, why: "other_sender" };
+    const named = namesSubscription(
+      { subject: email.subject, text: `${email.fromName ?? ""} ${email.text ?? ""}` },
+      [...byName.clues, ...byName.bodyClues],
+    );
+    if (!named) return { keep: false, why: "not_named" };
+  }
+
+  const currency = (email.currency ?? "").trim().toUpperCase();
+  if (!currency || currency !== byName.currency.trim().toUpperCase()) return { keep: false, why: "wrong_currency" };
   return { keep: true };
 }
 
@@ -285,22 +477,151 @@ export type SearchDecision =
 
 /**
  * A subscription with nothing linked to it and no merchant address was added
- * by hand: there is no sender to search. One whose only senders are shared
+ * by hand: there is nothing to search from. One whose only senders are shared
  * needs a name distinctive enough to pick its receipts out.
+ *
+ * One with emails linked to it but no sender to search (all of them bank
+ * alerts, say) is searched by company name instead, when it has at least one
+ * name that is not too generic or a plan name: see keepEmailByName for what is
+ * kept from that.
  */
 export function decideSearch(input: {
   serviceName: string;
   linkedFromEmails: (string | null | undefined)[];
   merchantEmail: string | null | undefined;
+  /** Every name it has had; defaults to the current one alone. */
+  clues?: NameClues;
+  currency?: string;
 }): SearchDecision {
+  const clues = input.clues ?? buildNameClues({ merchantName: null, serviceName: input.serviceName, remembered: [] });
   const hasLinked = input.linkedFromEmails.some((a) => domainOf(a));
   if (!hasLinked && !domainOf(input.merchantEmail)) return { search: false, note: NOTE_ADDED_BY_HAND };
   const plan = planSenders([...input.linkedFromEmails, input.merchantEmail]);
-  if (plan.owned.length === 0 && plan.shared.length === 0) return { search: false, note: NOTE_NO_SENDER };
-  if (plan.owned.length === 0 && nameTooGeneric(input.serviceName)) {
+  if (plan.owned.length === 0 && plan.shared.length === 0) {
+    if (clues.search.length === 0) return { search: false, note: NOTE_NO_SENDER };
+    return {
+      search: true,
+      plan: {
+        owned: [],
+        shared: [],
+        addresses: [],
+        byName: { clues: clues.search, bodyClues: clues.bodyOnly, currency: input.currency ?? "INR" },
+      },
+    };
+  }
+  if (plan.owned.length === 0 && clues.search.length === 0 && nameTooGeneric(input.serviceName)) {
     return { search: false, note: NOTE_NAME_TOO_GENERIC };
   }
   return { search: true, plan };
+}
+
+// ---------------------------------------------------------------------------
+// Companies with several subscriptions
+// ---------------------------------------------------------------------------
+
+export interface CompanySub {
+  id: string;
+  serviceName: string;
+  merchantName: string | null;
+  merchantEmail: string | null;
+  amount: string | number;
+  currency: string;
+  /** The senders of the emails linked to it. */
+  senders: string[];
+}
+
+/**
+ * What names a company: the registrable domains of its senders (banks, card
+ * issuers, processors and the shared Apple/Google/Amazon/PayPal senders do
+ * not name one) and the brand word at the head of its name.
+ */
+export function companyKeys(sub: CompanySub): string[] {
+  const keys = new Set<string>();
+  for (const address of [...sub.senders, sub.merchantEmail]) {
+    const domain = domainOf(address);
+    if (!domain || isIntermediary(address) || isSharedSender(domain)) continue;
+    keys.add(`domain:${registrableDomain(domain)}`);
+  }
+  for (const token of brandTokens(sub.merchantName, sub.serviceName).slice(0, 1)) {
+    if (!SHARED_BRAND_WORDS.has(token)) keys.add(`name:${token}`);
+  }
+  return Array.from(keys);
+}
+
+/** The other subscriptions of the same company, in a fixed order (by id). */
+export function siblingsOf(sub: CompanySub, all: CompanySub[]): CompanySub[] {
+  const mine = new Set(companyKeys(sub));
+  return all
+    .filter((other) => other.id !== sub.id && companyKeys(other).some((k) => mine.has(k)))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** Whether an amount is this subscription's price: same currency, within one unit or 5%. */
+export function priceFits(
+  email: { amount: number | string | null | undefined; currency?: string | null },
+  sub: { amount: string | number; currency: string },
+): boolean {
+  const amount = email.amount === null || email.amount === undefined || email.amount === "" ? NaN : Number(email.amount);
+  const price = Number(sub.amount);
+  if (!isFinite(amount) || !isFinite(price) || amount <= 0) return false;
+  const currency = (email.currency ?? "").trim().toUpperCase();
+  if (currency && currency !== sub.currency.trim().toUpperCase()) return false;
+  return Math.abs(amount - price) <= Math.max(1, price * 0.05);
+}
+
+/**
+ * Which subscription of a company an email is about, by its price: the one
+ * whose price is nearest among those it fits (ties to the lower id), or null
+ * when none fits. It looks only at the email and the group, so the answer is
+ * the same whichever subscription is being searched.
+ */
+export function assignByPrice(
+  email: { amount: number | string | null | undefined; currency?: string | null },
+  group: { id: string; amount: string | number; currency: string }[],
+): string | null {
+  const amount = Number(email.amount);
+  const fits = group
+    .filter((sub) => priceFits(email, sub))
+    .sort((a, b) => Math.abs(Number(a.amount) - amount) - Math.abs(Number(b.amount) - amount) || a.id.localeCompare(b.id));
+  return fits.length > 0 ? fits[0].id : null;
+}
+
+// ---------------------------------------------------------------------------
+// How far back the search really got
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a finished search really reached. When the message budget ran out
+ * before the window was covered (`truncated`), the search only got back as far
+ * as the oldest email it read, and says so rather than claiming twelve months.
+ */
+export function searchCoverage(input: {
+  since: Date;
+  truncated: boolean;
+  oldestRead: Date | null;
+  max?: number;
+}): { searchedSince: string; partial: boolean; note: string | null } {
+  const windowStart = dayStringOf(input.since);
+  if (!input.truncated || !input.oldestRead || isNaN(input.oldestRead.getTime())) {
+    return { searchedSince: windowStart, partial: false, note: null };
+  }
+  const reached = dayStringOf(input.oldestRead);
+  // Never claim more than the window, even if an odd date came back.
+  const searchedSince = reached < windowStart ? windowStart : reached;
+  return {
+    searchedSince,
+    partial: true,
+    note: `Partial: read newest ${input.max ?? MAX_MESSAGES_PER_SUBSCRIPTION} emails, back to ${monthYear(searchedSince)}`,
+  };
+}
+
+function dayStringOf(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function monthYear(day: string): string {
+  const m = /^(\d{4})-(\d{2})/.exec(day);
+  return m ? `${MONTHS[Number(m[2]) - 1]} ${m[1]}` : day;
 }
 
 // ---------------------------------------------------------------------------
@@ -342,10 +663,19 @@ export function datedCancellation(
  * and only counted.
  */
 export function worthSaving(
-  email: { subject?: string | null; text?: string | null; amount?: number | string | null },
+  email: { subject?: string | null; text?: string | null; amount?: number | string | null; attachmentText?: string | null },
   now: Date,
+  options: { requireWording?: boolean } = {},
 ): "payment" | "cancellation" | null {
-  if (classifyPaymentEmail({ subject: email.subject, content: email.text, amount: email.amount }, now)) return "payment";
+  if (
+    classifyPaymentEmail(
+      { subject: email.subject, content: email.text, amount: email.amount, attachmentText: email.attachmentText },
+      now,
+      options,
+    )
+  ) {
+    return "payment";
+  }
   if (datedCancellation(email, now)) return "cancellation";
   return null;
 }
@@ -430,12 +760,18 @@ export function describeFailure(error: unknown): string {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** The admin console's "History" cell. */
-export function historyLabel(row: {
+export interface HistoryRow {
   historyStatus: string | null;
   historySearchedSince: string | Date | null;
   historyError: string | null;
-}): string {
+  historyPartial?: boolean | null;
+  historyRead?: number | null;
+  historySaved?: number | null;
+  historySkipped?: number | null;
+}
+
+/** The admin console's "History" cell: the headline. */
+export function historyLabel(row: HistoryRow): string {
   switch (row.historyStatus) {
     case "pending":
     case "running":
@@ -447,9 +783,27 @@ export function historyLabel(row: {
       const m = /^(\d{4})-(\d{2})/.exec(
         row.historySearchedSince instanceof Date ? row.historySearchedSince.toISOString() : String(row.historySearchedSince),
       );
-      return m ? `Since ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : "Searched";
+      const since = m ? `Since ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : "Searched";
+      return row.historyPartial ? `Partial, ${since.toLowerCase()}` : since;
     }
     default:
       return "Not searched yet";
   }
+}
+
+/**
+ * The smaller lines under the headline: what was read, saved and left out,
+ * and any note. `billsNoReceipt` comes from the payments, not the search.
+ */
+export function historyDetails(row: HistoryRow, billsNoReceipt = 0): string[] {
+  if (row.historyStatus !== "done" || !row.historySearchedSince) return [];
+  const lines: string[] = [];
+  const counts: string[] = [];
+  if (row.historyRead !== null && row.historyRead !== undefined) counts.push(`${row.historyRead} read`);
+  if (row.historySaved !== null && row.historySaved !== undefined) counts.push(`${row.historySaved} saved`);
+  if (billsNoReceipt > 0) counts.push(`${billsNoReceipt} ${billsNoReceipt === 1 ? "bill" : "bills"} with no receipt`);
+  if (counts.length) lines.push(counts.join(" · "));
+  if ((row.historySkipped ?? 0) > 0) lines.push(`${row.historySkipped} skipped (no matching price)`);
+  if (row.historyError) lines.push(row.historyError);
+  return lines;
 }

@@ -14,7 +14,10 @@
  *   the grace date, the person has not said "still active", and it is not
  *   paused. Anything we are unsure about stays Active: a false "Needs review"
  *   costs trust, a missed one costs nothing that the next receipt won't fix.
- * - Failed payments and refunds are not payments.
+ * - Failed payments and refunds are not payments. Neither is a bill (an
+ *   invoice that is not shown as paid), a pending or "please confirm" notice.
+ *   Only receipts and card alerts count; a bill counts only through the
+ *   receipt that pairs with it.
  * - A cancellation makes it Inactive once access has ended; until then it is
  *   Active with the date access ends.
  * - A payment dated after it went Inactive brings it back.
@@ -66,7 +69,10 @@ export const REASON_TEXT: Record<LifecycleReason, string> = {
 type DayLike = Date | string | null | undefined;
 
 export interface LifecyclePayment {
+  /** For a bill (kind 'invoice'), the day the email arrived. */
   paidAt: DayLike;
+  /** A bill's due date, when the email states one. */
+  dueOn?: DayLike;
   /** null means the email did not show an amount; it still counts. */
   amount: number | string | null;
   currency: string | null;
@@ -95,6 +101,8 @@ export interface LifecycleResult {
   endsOn: string | null;
   inactiveSince: string | null;
   inactiveSource: InactiveSource | null;
+  /** The newest bill that no receipt has paired with yet (open or not), for "Last bill". */
+  lastBillAt: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,9 +196,23 @@ export function graceEnd(lastPayment: Date, frequency: string | null | undefined
 // Payments
 // ---------------------------------------------------------------------------
 
-const COUNTED_KINDS = new Set(["receipt", "invoice", "card_alert"]);
+/**
+ * Only a receipt or a bank's card alert is a payment. An invoice is a bill:
+ * it says what is owed, not that it was paid. (An invoice whose own text says
+ * it was paid is read as a receipt before it gets here; see classifyPaymentEmail.)
+ */
+const COUNTED_KINDS = new Set(["receipt", "card_alert"]);
 /** When two records are one charge, the merchant's receipt is the one kept. */
-const KIND_PREFERENCE: Record<string, number> = { receipt: 0, invoice: 1, card_alert: 2 };
+const KIND_PREFERENCE: Record<string, number> = { receipt: 0, card_alert: 1 };
+
+/** How far a foreign-currency receipt and a card alert may be apart and still be one charge. */
+const CROSS_CURRENCY_DAYS = 3;
+/** How far a derived exchange rate may be from a pair's own ratio. */
+const RATE_TOLERANCE = 0.12;
+/** A receipt can arrive this long before a bill's date ... */
+const BILL_RECEIPT_BEFORE_DAYS = 3;
+/** ... and this long after the bill's date (or its due date, when stated). */
+const BILL_RECEIPT_AFTER_DAYS = 20;
 
 function amountOf(p: LifecyclePayment): number | null {
   if (p.amount === null || p.amount === undefined || p.amount === "") return null;
@@ -204,6 +226,11 @@ function sameCurrency(a: string | null, b: string | null): boolean {
   return a.trim().toUpperCase() === b.trim().toUpperCase();
 }
 
+function currencyOf(c: string | null): string | null {
+  const v = (c ?? "").trim().toUpperCase();
+  return v || null;
+}
+
 export interface CountedPayment {
   day: Date;
   amount: number | null;
@@ -211,18 +238,36 @@ export interface CountedPayment {
   kind: string;
 }
 
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+interface Merged {
+  kept: CountedPayment[];
+  /** card-alert amount per unit of receipt amount, keyed "RECEIPTCUR>ALERTCUR", from the pairs merged. */
+  rates: Map<string, number>;
+}
+
 /**
- * The payments that count, oldest first: receipts, invoices and card alerts,
- * never failed payments, refunds or pauses, and never a zero charge (a free
- * trial's "receipt" is not a payment).
+ * The charges that count, before they are sorted for use.
  *
- * One charge, one payment: two records of the same amount (within one unit of
- * currency) within three days are the same charge -- a receipt and the card
- * alert for it, or the same receipt arriving in two inboxes -- and count once,
- * keeping the receipt over the invoice over the card alert. Records without an
- * amount are never merged, since there is nothing to say they match.
+ * Same currency: two records of the same amount (within one unit) within
+ * three days are one charge, keeping the receipt over the card alert.
+ *
+ * Different currencies: a receipt in a foreign currency and the card alert
+ * for it (in the card's currency) are one charge when they are within three
+ * days of each other and unambiguous -- the receipt has exactly one alert
+ * candidate and the alert exactly one receipt. No exchange rates are
+ * available here, so the amounts cannot be compared directly. Instead, when a
+ * subscription has several such pairs, each pair's ratio (alert amount per
+ * receipt amount) must be within 12% of the middle ratio of all the pairs
+ * of the same two currencies (counting its own); a lone pair has nothing to be
+ * compared with and is merged on date and uniqueness alone. Records without an amount or a
+ * currency are never merged this way.
  */
-export function countedPayments(payments: LifecyclePayment[]): CountedPayment[] {
+function mergeCharges(payments: LifecyclePayment[]): Merged {
   const candidates: CountedPayment[] = [];
   for (const p of payments) {
     if (!COUNTED_KINDS.has(String(p.kind))) continue;
@@ -238,7 +283,7 @@ export function countedPayments(payments: LifecyclePayment[]): CountedPayment[] 
       (KIND_PREFERENCE[a.kind] ?? 9) - (KIND_PREFERENCE[b.kind] ?? 9) || a.day.getTime() - b.day.getTime(),
   );
 
-  const kept: CountedPayment[] = [];
+  let kept: CountedPayment[] = [];
   for (const c of candidates) {
     const duplicate =
       c.amount !== null &&
@@ -251,7 +296,130 @@ export function countedPayments(payments: LifecyclePayment[]): CountedPayment[] 
       );
     if (!duplicate) kept.push(c);
   }
-  return kept.sort((a, b) => a.day.getTime() - b.day.getTime());
+
+  // Foreign-currency receipt + card alert.
+  const receipts = kept.filter((k) => k.kind === "receipt" && k.amount !== null && currencyOf(k.currency));
+  const alerts = kept.filter((k) => k.kind === "card_alert" && k.amount !== null && currencyOf(k.currency));
+  const near = new Map<CountedPayment, CountedPayment[]>();
+  const alertNear = new Map<CountedPayment, CountedPayment[]>();
+  for (const r of receipts) {
+    for (const a of alerts) {
+      if (currencyOf(r.currency) === currencyOf(a.currency)) continue;
+      if (Math.abs(r.day.getTime() - a.day.getTime()) > CROSS_CURRENCY_DAYS * DAY_MS) continue;
+      near.set(r, [...(near.get(r) ?? []), a]);
+      alertNear.set(a, [...(alertNear.get(a) ?? []), r]);
+    }
+  }
+  const pairs: { receipt: CountedPayment; alert: CountedPayment; key: string; ratio: number }[] = [];
+  for (const [r, list] of Array.from(near.entries())) {
+    if (list.length !== 1) continue;
+    const a = list[0];
+    if ((alertNear.get(a) ?? []).length !== 1) continue;
+    pairs.push({ receipt: r, alert: a, key: `${currencyOf(r.currency)}>${currencyOf(a.currency)}`, ratio: a.amount! / r.amount! });
+  }
+  const dropped = new Set<CountedPayment>();
+  const rates = new Map<string, number>();
+  const accepted: typeof pairs = [];
+  for (const pair of pairs) {
+    const middle = median(pairs.filter((o) => o.key === pair.key).map((o) => o.ratio));
+    if (Math.abs(pair.ratio / middle - 1) > RATE_TOLERANCE) continue;
+    dropped.add(pair.alert);
+    accepted.push(pair);
+  }
+  for (const key of Array.from(new Set(accepted.map((p) => p.key)))) {
+    rates.set(key, median(accepted.filter((p) => p.key === key).map((p) => p.ratio)));
+  }
+  kept = kept.filter((k) => !dropped.has(k));
+  return { kept, rates };
+}
+
+/**
+ * The payments that count, oldest first: receipts and card alerts, never
+ * invoices (bills), failed payments, refunds or pauses, and never a zero
+ * charge (a free trial's "receipt" is not a payment).
+ *
+ * One charge, one payment: see mergeCharges for when two records are one
+ * charge. Records without an amount are never merged, since there is nothing
+ * to say they match.
+ */
+export function countedPayments(payments: LifecyclePayment[]): CountedPayment[] {
+  return mergeCharges(payments).kept.sort((a, b) => a.day.getTime() - b.day.getTime());
+}
+
+export interface BillRecord {
+  day: Date;
+  dueOn: Date | null;
+  amount: number | null;
+  currency: string | null;
+}
+
+export interface BillReconciliation {
+  /** Bills a receipt or card alert paid: they show once, as that payment. */
+  paired: number;
+  /** Old bills nothing paired with: "Bill, receipt not found". Not payments. */
+  noReceipt: BillRecord[];
+  /** Recent bills still inside the window a receipt may yet arrive in. */
+  open: BillRecord[];
+}
+
+/** Plain words for the list of payments (and what a later screen shows). */
+export const BILL_NO_RECEIPT_LABEL = "Bill, receipt not found";
+
+/**
+ * Pairs bills with the payments that paid them. A receipt (or card alert)
+ * belongs to a bill when the amount is the same (within one unit, same
+ * currency; across currencies only when an exchange rate was derived from this
+ * subscription's own receipt/alert pairs, within 12%) and it is dated from 3
+ * days before the bill to 20 days after the later of the bill's date and its
+ * due date. Each payment pairs with one bill, the nearest in time first. A
+ * bill with no amount cannot be matched.
+ */
+export function reconcileBills(payments: LifecyclePayment[], now: Date): BillReconciliation {
+  const today = toDay(now)!;
+  const { kept, rates } = mergeCharges(payments);
+  const bills: BillRecord[] = [];
+  for (const p of payments) {
+    if (p.kind !== "invoice") continue;
+    const day = toDay(p.paidAt);
+    if (!day) continue;
+    bills.push({ day, dueOn: toDay(p.dueOn), amount: amountOf(p), currency: p.currency ?? null });
+  }
+  bills.sort((a, b) => a.day.getTime() - b.day.getTime());
+
+  const amountsFit = (bill: BillRecord, pay: CountedPayment): boolean => {
+    if (bill.amount === null || pay.amount === null) return false;
+    const bc = currencyOf(bill.currency), pc = currencyOf(pay.currency);
+    if (!bc || !pc || bc === pc) return Math.abs(bill.amount - pay.amount) <= 1;
+    const forward = rates.get(`${bc}>${pc}`);
+    const backward = rates.get(`${pc}>${bc}`);
+    const expected = forward !== undefined ? bill.amount * forward : backward !== undefined ? bill.amount / backward : null;
+    return expected !== null && Math.abs(pay.amount - expected) <= pay.amount * RATE_TOLERANCE;
+  };
+
+  const used = new Set<CountedPayment>();
+  const result: BillReconciliation = { paired: 0, noReceipt: [], open: [] };
+  for (const bill of bills) {
+    const anchor = bill.dueOn && bill.dueOn.getTime() > bill.day.getTime() ? bill.dueOn : bill.day;
+    const from = bill.day.getTime() - BILL_RECEIPT_BEFORE_DAYS * DAY_MS;
+    const to = anchor.getTime() + BILL_RECEIPT_AFTER_DAYS * DAY_MS;
+    let best: CountedPayment | null = null;
+    for (const pay of kept) {
+      if (used.has(pay) || pay.day.getTime() < from || pay.day.getTime() > to || !amountsFit(bill, pay)) continue;
+      const gap = Math.abs(pay.day.getTime() - bill.day.getTime());
+      const bestGap = best ? Math.abs(best.day.getTime() - bill.day.getTime()) : Infinity;
+      // The receipt is preferred over a card alert when equally near.
+      if (gap < bestGap || (gap === bestGap && best && pay.kind === "receipt" && best.kind !== "receipt")) best = pay;
+    }
+    if (best) {
+      used.add(best);
+      result.paired++;
+    } else if (to < today.getTime()) {
+      result.noReceipt.push(bill);
+    } else {
+      result.open.push(bill);
+    }
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +438,7 @@ export function computeLifecycle(input: LifecycleInput, now: Date): LifecycleRes
     endsOn: null as string | null,
     inactiveSince: null as string | null,
     inactiveSource: null as InactiveSource | null,
+    lastBillAt: lastBillDay(input.payments, now),
   };
   const result = (status: LifecycleStatus, reason: LifecycleReason, extra: Partial<LifecycleResult> = {}): LifecycleResult => ({
     status,
@@ -358,6 +527,14 @@ export function computeLifecycle(input: LifecycleInput, now: Date): LifecycleRes
   return result("needs_review", "no_recent_payment");
 }
 
+/** The newest bill nothing has paid yet, as a day. */
+function lastBillDay(payments: LifecyclePayment[], now: Date): string | null {
+  const open = reconcileBills(payments, now);
+  const all = [...open.noReceipt, ...open.open];
+  if (all.length === 0) return null;
+  return dayString(new Date(Math.max(...all.map((b) => b.day.getTime()))));
+}
+
 /** A refund at least as large as the last payment, on or after it. */
 function fullyRefunded(payments: LifecyclePayment[], last: CountedPayment | null): boolean {
   if (!last || last.amount === null) return false;
@@ -420,32 +597,69 @@ export function stillActiveUntil(
 interface KindRules { failed: RegExp; refund: RegExp; pause: RegExp }
 
 const SUBJECT_RULES: KindRules = {
-  failed: /\b(payment|charge|transaction|renewal)\s+(has\s+)?(failed|declined|unsuccessful|was\s+declined|did\s+not\s+go\s+through)|\b(card|payment)\s+(was\s+)?declined|could\s*n[o']?t\s+(process|charge)|could\s+not\s+(process|charge)|unable\s+to\s+(process|charge)|update\s+your\s+payment\s+(method|details|information)|payment\s+issue|past\s+due/i,
+  failed: /\b(payment|charge|transaction|renewal)\s+(of\s+\S+\s+)?(has\s+)?(failed|declined|unsuccessful|was\s+declined|did\s+not\s+go\s+through)|\b(card|payment)\s+(was\s+)?declined|could\s*n[o']?t\s+(process|charge)|could\s+not\s+(process|charge)|unable\s+to\s+(process|charge)|update\s+your\s+payment\s+(method|details|information)|payment\s+issue|past\s+due/i,
   refund: /\brefund(ed|s)?\b/i,
   pause: /\bpaused\b|\bpause\s+(confirmed|confirmation)\b/i,
 };
 
 const BODY_RULES: KindRules = {
-  failed: /\b(payment|charge|renewal)\s+(has\s+)?(failed|was\s+declined|was\s+unsuccessful)|could\s*n[o']?t\s+(process|charge)|could\s+not\s+(process|charge)|unable\s+to\s+(process|charge)\s+your/i,
+  failed: /\b(payment|charge|renewal)\s+(of\s+\S+\s+)?(has\s+)?(failed|was\s+declined|was\s+unsuccessful)|could\s*n[o']?t\s+(process|charge)|could\s+not\s+(process|charge)|unable\s+to\s+(process|charge)\s+your/i,
   refund: /\brefund\s+(has\s+been|was|is\s+being)\s+(issued|processed|initiated|approved)|we('ve|\s+have)\s+(issued\s+(you\s+)?a\s+refund|refunded)|(has|have)\s+been\s+refunded|was\s+refunded/i,
   pause: /\b(has\s+been|is\s+now|was)\s+paused|\bpaused\s+(until|till|through)|we('ve|\s+have)\s+paused/i,
 };
 
 const CARD_ALERT = /\b(spent\s+(on|at|using)|debited|transaction\s+alert|txn)\b/i;
-const RECEIPT = /\b(receipt|payment\s+(received|confirmation|successful|confirmed|complete)|thank\s+you\s+for\s+your\s+(payment|purchase|order)|thanks\s+for\s+your\s+(payment|purchase|order)|you('ve|\s+have)\s+(been\s+)?(paid|charged)|has\s+been\s+(charged|renewed|paid)|was\s+(charged|renewed|paid)|successfully\s+(renewed|paid|charged)|order\s+confirmation|we('ve|\s+have)\s+charged|amount\s+paid|paid\s+on)\b/i;
+
+const DATE_PATTERN = "([A-Z][a-z]+\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{4}|\\d{1,2}(?:st|nd|rd|th)?\\s+[A-Z][a-z]+\\.?,?\\s+\\d{4}|\\d{4}-\\d{2}-\\d{2})";
+
+/*
+ * Paid or due. Two word lists, read together with the document type.
+ *
+ * PAID: the email, or the file attached to it, says money was received.
+ * "receipt" itself counts: a receipt is by definition for something paid.
+ * DUE: it says money is still owed -- a bill. A bill is an invoice that is
+ * not shown as paid, and does not count as a payment.
+ */
+const PAID = new RegExp(
+  "\\b(receipt|payment\\s+(received|confirmation|successful|confirmed|complete|made)|" +
+  "(we('ve|\\s+have)\\s+)?received\\s+(a|your)\\s+payment|thank\\s+you\\s+for\\s+your\\s+(payment|purchase|order)|" +
+  "thanks\\s+for\\s+your\\s+(payment|purchase|order)|you('ve|\\s+have)\\s+(been\\s+)?(paid|charged)|" +
+  "has\\s+been\\s+(charged|renewed|paid)|was\\s+(charged|renewed|paid)|successfully\\s+(renewed|paid|charged)|" +
+  "order\\s+confirmation|we('ve|\\s+have)\\s+charged|amount\\s+paid|paid\\s+on|invoice\\s+paid|status:?\\s*paid)\\b|" +
+  "\\bpaid\\s+(?:on\\s+)?" + DATE_PATTERN,
+  "i",
+);
+const DUE = /\b(amount\s+due|total\s+(amount\s+)?(payable|due)|amount\s+payable|due\s+date|payment\s+due|due\s+(on|by)|pay\s+(by|before)|balance\s+due|bill\s+(is\s+)?(ready|generated|available)|your\s+bill|bill\s+for\s+your|bill\s+for\s+the\s+month)\b/i;
 const INVOICE = /\b(invoice|bill\s+(is\s+)?(ready|generated|available)|your\s+bill|statement)\b/i;
+/**
+ * Notices that look like billing mail but are not a payment: a bank asking to
+ * confirm or authenticate a charge, a charge still pending, a renewal waiting
+ * for the person to confirm it. ("confirm your payment method" is an account
+ * notice, not one of these, and "payment confirmation" is a receipt.)
+ */
+const NOT_PAYMENT = /\bconfirm\s+(your\s+)?(\S{1,12}\s+)?(payment|renewal|charge)\b(?!\s+(method|details|information))|\bconfirm\s+renewal\b|\b(payment|charge|transaction)\s+(is\s+)?(still\s+)?pending\b|\bpending\s+(payment|charge|transaction)\b|\bauthenticat(e|ion)\b|\bverify\s+your\s+(payment|card)\b|\baction\s+(is\s+)?required\b|\bneeds?\s+your\s+(approval|confirmation)\b/i;
 const REMINDER = /\b(will\s+be\s+(charged|billed|renewed|debited)|will\s+(auto[-\s]?)?renew|renews\s+(on|in|soon)|upcoming\s+(payment|charge|renewal|bill)|renewal\s+reminder|reminder|trial\s+(ends|ending|expires|is\s+ending)|expir(es|ing)\s+(soon|on|in)|is\s+about\s+to)\b/i;
 const CANCELLED = /\b(cancel(l)?ed|cancel(l)?ation|has\s+ended|will\s+end|subscription\s+ended)\b/i;
 
 const PAUSED_UNTIL = /\bpaused?\b[^.]{0,60}?\b(?:until|till|through)\s+([A-Z][a-z]+\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4}|\d{1,2}(?:st|nd|rd|th)?\s+[A-Z][a-z]+\.?,?\s+\d{4}|\d{4}-\d{2}-\d{2})/i;
+const PAID_ON = new RegExp("\\bpaid\\s+(?:on\\s+)?" + DATE_PATTERN, "i");
+const DUE_ON = new RegExp("\\b(?:due\\s+date|due\\s+on|due\\s+by|pay\\s+by)\\s*:?\\s*" + DATE_PATTERN, "i");
 
-function classifyText(text: string, rules: KindRules): PaymentKind | "skip" | null {
+type Verdict = PaymentKind | "skip" | null;
+
+/**
+ * One piece of text, read for what it says about a payment. `strict` marks a
+ * body (as opposed to a subject), where a "please confirm" wording is only
+ * believed when nothing in it says the payment was received.
+ */
+function classifyText(text: string, rules: KindRules, strict = false): Verdict {
   if (rules.failed.test(text)) return "failed";
   if (rules.refund.test(text)) return "refund";
   if (rules.pause.test(text)) return "pause";
+  if (NOT_PAYMENT.test(text) && !(strict && PAID.test(text))) return "skip";
   if (CARD_ALERT.test(text)) return "card_alert";
-  if (RECEIPT.test(text)) return "receipt";
-  if (INVOICE.test(text)) return "invoice";
+  if (PAID.test(text)) return "receipt";
+  if (DUE.test(text) || INVOICE.test(text)) return "invoice";
   if (REMINDER.test(text)) return "skip";
   if (CANCELLED.test(text)) return "skip";
   return null;
@@ -466,39 +680,132 @@ export function parseLooseDay(text: string | null | undefined, now: Date = new D
 }
 
 /**
- * What kind of payment an email records, from its subject and the start of
- * its body, or null when it records none (a renewal reminder, a cancellation
- * notice, a newsletter). Simple word rules only; no model is asked.
+ * The day a receipt was paid: the "Paid <date>" in its text when it has one
+ * and it is plausible (up to 45 days before the email, never after the day
+ * after it), else the day the email arrived. A receipt often arrives a day
+ * after the charge.
+ */
+export function paidDay(receivedDay: string, paidOn: string | null): string {
+  if (!paidOn) return receivedDay;
+  const gap = (toDay(receivedDay)!.getTime() - toDay(paidOn)!.getTime()) / DAY_MS;
+  return gap >= -1 && gap <= 45 ? paidOn : receivedDay;
+}
+
+export type DocumentType = "invoice" | "receipt" | "other";
+export type PaidStatus = "paid" | "due" | "unclear";
+
+export interface PaymentReading {
+  kind: PaymentKind;
+  pausedUntil: string | null;
+  /** What the document is called: an invoice, a receipt, or neither. */
+  documentType: DocumentType;
+  /** Whether it shows the money as received, still owed, or does not say. */
+  paidStatus: PaidStatus;
+  /** "Paid <date>" from the text, when it has one. */
+  paidOn: string | null;
+  /** A bill's due date from the text, when it has one. */
+  dueOn: string | null;
+}
+
+/** The words of an email's attachments (file names and the text read from PDFs), as one string. */
+export function attachmentTextOf(attachmentData: string | null | undefined, perFile = 2000): string {
+  if (!attachmentData) return "";
+  try {
+    const list = JSON.parse(attachmentData)?.attachments;
+    if (!Array.isArray(list)) return "";
+    return list
+      .map((a: any) => `${a?.filename ?? ""}\n${typeof a?.extractedText === "string" ? a.extractedText.slice(0, perFile) : ""}`)
+      .join("\n")
+      .trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * What an email says about a payment, from its subject, the start of its
+ * body and, when those are unclear, the text of its attached files; null when
+ * it records none (a renewal reminder, a cancellation notice, a "please
+ * confirm" or pending notice, a newsletter). Simple word rules only.
+ *
+ * Two labels come out of it. The document type (invoice, receipt) is what the
+ * paper is called; paid status (paid, due, unclear) is what it says about the
+ * money. Only the second decides whether it is a payment: an invoice whose
+ * text says paid is a receipt (kind 'receipt'); a bill that says amount due
+ * or total payable is an invoice (kind 'invoice', not counted); an invoice
+ * that says neither stays an invoice until a receipt turns up.
  *
  * The subject is read first and on its own, because a receipt's body often
  * mentions the next renewal ("your plan renews on 5 Nov") and would otherwise
- * read as a reminder. The body is only consulted when the subject says
- * nothing either way. An email the rules cannot place counts as a receipt
- * when it shows an amount -- it was linked to the subscription as evidence of
- * a charge in the first place.
+ * read as a reminder. The body, then the attachments, are only consulted when
+ * the subject says nothing either way -- or says "invoice", which is
+ * consulted further for a "paid" in the text. An email the rules cannot place
+ * counts as a receipt when it shows an amount, unless `requireWording` is set
+ * (a search by company name, where an amount alone proves nothing).
  */
 export function classifyPaymentEmail(email: {
   subject?: string | null;
   content?: string | null;
   amount?: number | string | null;
-}, now: Date = new Date()): { kind: PaymentKind; pausedUntil: string | null } | null {
+  attachmentText?: string | null;
+}, now: Date = new Date(), options: { requireWording?: boolean } = {}): PaymentReading | null {
   const subject = email.subject ?? "";
-  const snippet = (email.content ?? "").slice(0, 600);
+  const body = (email.content ?? "").slice(0, 1500);
+  // Failures, refunds and pauses keep being read from the first 600
+  // characters only: that is where the news is, and a footer further down
+  // ("see our refund policy") must not turn a receipt into one.
+  const snippet = body.slice(0, 600);
+  const files = (email.attachmentText ?? "").slice(0, 6000);
 
-  let verdict = classifyText(subject, SUBJECT_RULES);
-  if (verdict === null) verdict = classifyText(snippet, BODY_RULES);
+  let verdict: Verdict = classifyText(subject, SUBJECT_RULES);
+  if (verdict === null || verdict === "invoice") {
+    let fromBody: Verdict = classifyText(snippet, BODY_RULES, true);
+    // A "paid" further down the body still counts.
+    if ((fromBody === null || fromBody === "invoice") && PAID.test(body)) fromBody = "receipt";
+    if (verdict === null) verdict = fromBody;
+    // A subject that only says "invoice": the text decides if it was paid.
+    else if (fromBody === "receipt") verdict = "receipt";
+  }
+  if ((verdict === "invoice" || verdict === null) && files) {
+    const fromFiles = classifyText(files, BODY_RULES, true);
+    if (fromFiles === "receipt" || fromFiles === "card_alert") verdict = "receipt";
+    else if (verdict === null && (fromFiles === "invoice" || fromFiles === "skip")) verdict = fromFiles;
+  }
   if (verdict === "skip") return null;
 
   if (verdict === null) {
+    if (options.requireWording) return null;
     const amount = email.amount === null || email.amount === undefined || email.amount === "" ? null : Number(email.amount);
     if (amount === null || !isFinite(amount) || amount <= 0) return null;
     verdict = "receipt";
   }
 
+  const all = `${subject}\n${body}\n${files}`;
   let pausedUntil: string | null = null;
   if (verdict === "pause") {
     const m = PAUSED_UNTIL.exec(subject + "\n" + snippet);
     pausedUntil = m ? parseLooseDay(m[1], now) : null;
   }
-  return { kind: verdict, pausedUntil };
+
+  const hasInvoiceWord = /\binvoice\b/i.test(all);
+  const hasReceiptWord = /\breceipt\b/i.test(all);
+  const documentType: DocumentType =
+    verdict === "card_alert" || verdict === "failed" || verdict === "refund" || verdict === "pause"
+      ? "other"
+      : hasReceiptWord || (verdict === "receipt" && !hasInvoiceWord)
+        ? "receipt"
+        : hasInvoiceWord || verdict === "invoice"
+          ? "invoice"
+          : "other";
+  const paidStatus: PaidStatus =
+    verdict === "receipt" || verdict === "card_alert" ? "paid" : verdict === "invoice" && DUE.test(all) ? "due" : "unclear";
+
+  return {
+    kind: verdict,
+    pausedUntil,
+    documentType,
+    paidStatus,
+    paidOn: paidStatus === "paid" ? parseLooseDay(PAID_ON.exec(all)?.[1] ?? null, now) : null,
+    dueOn: verdict === "invoice" ? parseLooseDay(DUE_ON.exec(all)?.[1] ?? null, now) : null,
+  };
 }

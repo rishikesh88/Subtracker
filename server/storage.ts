@@ -1,4 +1,4 @@
-import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, type SyncJob, users, syncJobs, subscriptions, emails, screenedMessages, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts, featureFlags, featureFlagUsers, featureFlagAudit, type FeatureFlag, type FeatureRollout, payments, type Payment, type InsertPayment } from "@shared/schema";
+import { type User, type InsertUser, type UpsertUser, type Subscription, type InsertSubscription, type Email, type InsertEmail, type UpdateUser, type SubscriptionSuggestion, type InsertSubscriptionSuggestion, type Invoice, type InsertInvoice, type GmailAccount, type InsertGmailAccount, type UpdateGmailAccount, type OutlookAccount, type InsertOutlookAccount, type UpdateOutlookAccount, type SyncJob, users, syncJobs, subscriptions, emails, screenedMessages, subscriptionSuggestions, invoices, gmailAccounts, outlookAccounts, featureFlags, featureFlagUsers, featureFlagAudit, type FeatureFlag, type FeatureRollout, payments, type Payment, type InsertPayment, subscriptionNameHistory } from "@shared/schema";
 import { drizzle } from 'drizzle-orm/neon-http';
 import { eq, and, desc, asc, count, sql, inArray, isNotNull, isNull, ne, gte } from 'drizzle-orm';
 import { neon } from '@neondatabase/serverless';
@@ -12,6 +12,7 @@ import { invoiceExtractor } from "./services/invoiceExtractor";
 import { encryptFields, decryptFields } from "./lib/tokenCrypto";
 import { revokeGoogleToken } from "./lib/oauthRevoke";
 import { looksLikeBill } from "./lib/billingEmail";
+import { attachmentTextOf } from "./lib/statusRules";
 import { ObjectStorageService } from "./objectStorage";
 
 /**
@@ -116,6 +117,8 @@ export interface IStorage {
 export interface ApprovedForStatus {
   subscriptionId: string;
   currency: string;
+  /** The name the suggestion was approved under, remembered as a search clue. */
+  approvedName?: string | null;
   evidenceEmailIds: string[];
   cancelledOn: string | null;
   accessEndsOn: string | null;
@@ -129,6 +132,8 @@ export interface PaymentSourceEmail {
   receivedAt: Date | string;
   extractedAmount: string | null;
   extractedCurrency: string | null;
+  /** File names and the text read from PDFs attached to it, an extra source for reading a payment. */
+  attachmentText?: string | null;
 }
 
 /** The switches this release knows about. Seeded if missing; see ensureFeatureFlagTables. */
@@ -1513,6 +1518,35 @@ export class DatabaseStorage implements IStorage {
         END IF;
       END $$;
     `);
+    // Counts and honesty about how far back the search got, the bill/receipt
+    // labels on payments, and the names a subscription has had.
+    await this.db.execute(sql`
+      ALTER TABLE subscriptions
+        ADD COLUMN IF NOT EXISTS history_read integer,
+        ADD COLUMN IF NOT EXISTS history_saved integer,
+        ADD COLUMN IF NOT EXISTS history_skipped integer NOT NULL DEFAULT 0,
+        ADD COLUMN IF NOT EXISTS history_partial boolean NOT NULL DEFAULT false
+    `);
+    await this.db.execute(sql`
+      ALTER TABLE payments
+        ADD COLUMN IF NOT EXISTS document_type text,
+        ADD COLUMN IF NOT EXISTS paid_status text,
+        ADD COLUMN IF NOT EXISTS due_on date
+    `);
+    await this.db.execute(sql`
+      CREATE TABLE IF NOT EXISTS subscription_name_history (
+        id varchar PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id varchar NOT NULL,
+        subscription_id varchar NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+        name text NOT NULL,
+        origin text NOT NULL DEFAULT 'rename',
+        created_at timestamp NOT NULL DEFAULT now()
+      )
+    `);
+    await this.db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_subscription_name_history
+        ON subscription_name_history (subscription_id, lower(name))
+    `);
   }
 
   // ---------------------------------------------------------------------
@@ -1537,6 +1571,10 @@ export class DatabaseStorage implements IStorage {
         historyError: null,
         historyStartedAt: null,
         historyFinishedAt: null,
+        historyRead: null,
+        historySaved: null,
+        historySkipped: 0,
+        historyPartial: false,
       })
       .where(and(eq(subscriptions.userId, userId), inArray(subscriptions.id, subscriptionIds), eligible))
       .returning({ id: subscriptions.id });
@@ -1548,7 +1586,8 @@ export class DatabaseStorage implements IStorage {
     id: string,
     userId: string,
     fields: Partial<Pick<Subscription,
-      'historyStatus' | 'historySearchedSince' | 'historyAttempts' | 'historyError' | 'historyStartedAt' | 'historyFinishedAt'>>,
+      'historyStatus' | 'historySearchedSince' | 'historyAttempts' | 'historyError' | 'historyStartedAt' | 'historyFinishedAt' |
+      'historyRead' | 'historySaved' | 'historySkipped' | 'historyPartial'>>,
   ): Promise<void> {
     await this.db
       .update(subscriptions)
@@ -1581,6 +1620,50 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(emails.receivedAt))
       .limit(200);
     return rows.map((r: { fromEmail: string }) => r.fromEmail);
+  }
+
+  /** The senders of the emails linked to each of this user's subscriptions (newest first, up to 200 each). */
+  async getLinkedSendersBySubscription(userId: string): Promise<Map<string, string[]>> {
+    const rows = await this.db
+      .select({ subscriptionId: emails.subscriptionId, fromEmail: emails.fromEmail })
+      .from(emails)
+      .where(and(eq(emails.userId, userId), isNotNull(emails.subscriptionId)))
+      .orderBy(desc(emails.receivedAt))
+      .limit(5000);
+    const bySub = new Map<string, string[]>();
+    for (const row of rows as { subscriptionId: string; fromEmail: string }[]) {
+      const list = bySub.get(row.subscriptionId) ?? [];
+      if (list.length < 200) list.push(row.fromEmail);
+      bySub.set(row.subscriptionId, list);
+    }
+    return bySub;
+  }
+
+  /**
+   * Remembers a name a subscription has had (a rename's old name, or the name
+   * it was approved under). Names repeat ignoring case, kept once.
+   */
+  async rememberSubscriptionName(
+    userId: string,
+    subscriptionId: string,
+    name: string,
+    origin: 'approval' | 'rename',
+  ): Promise<void> {
+    const clean = name.trim();
+    if (!clean) return;
+    await this.db
+      .insert(subscriptionNameHistory)
+      .values({ userId, subscriptionId, name: clean, origin })
+      .onConflictDoNothing();
+  }
+
+  /** The names remembered for a subscription, oldest first. */
+  async getRememberedNames(userId: string, subscriptionId: string): Promise<{ name: string; origin: string }[]> {
+    return this.db
+      .select({ name: subscriptionNameHistory.name, origin: subscriptionNameHistory.origin })
+      .from(subscriptionNameHistory)
+      .where(and(eq(subscriptionNameHistory.userId, userId), eq(subscriptionNameHistory.subscriptionId, subscriptionId)))
+      .orderBy(asc(subscriptionNameHistory.createdAt));
   }
 
   /** Invoice rows for files stored on these emails (a history search's finds). */
@@ -1624,13 +1707,15 @@ export class DatabaseStorage implements IStorage {
       .select({
         id: emails.id,
         subject: emails.subject,
-        content: sql<string | null>`left(${emails.content}, 600)`,
+        content: sql<string | null>`left(${emails.content}, 1500)`,
         receivedAt: emails.receivedAt,
         extractedAmount: emails.extractedAmount,
         extractedCurrency: emails.extractedCurrency,
+        attachmentData: sql<string | null>`CASE WHEN length(${emails.attachmentData}) <= 400000 THEN ${emails.attachmentData} END`,
       })
       .from(emails)
-      .where(and(eq(emails.userId, userId), inArray(emails.gmailId, gmailIds)));
+      .where(and(eq(emails.userId, userId), inArray(emails.gmailId, gmailIds)))
+      .then((rows: any[]) => rows.map(({ attachmentData, ...rest }) => ({ ...rest, attachmentText: attachmentTextOf(attachmentData) })));
   }
 
   /**
@@ -1639,9 +1724,10 @@ export class DatabaseStorage implements IStorage {
    */
   async getLinkedEmailsWithoutPayments(userId: string): Promise<(PaymentSourceEmail & { subscriptionId: string; subscriptionCurrency: string })[]> {
     const result = await this.db.execute(sql`
-      SELECT e.id, e.subject, left(e.content, 600) AS content,
+      SELECT e.id, e.subject, left(e.content, 1500) AS content,
              to_char(e.received_at, 'YYYY-MM-DD') AS received_day,
              e.extracted_amount, e.extracted_currency,
+             CASE WHEN length(e.attachment_data) <= 400000 THEN e.attachment_data END AS attachment_data,
              s.id AS subscription_id, s.currency AS subscription_currency
       FROM emails e
       JOIN subscriptions s ON s.id = e.subscription_id AND s.user_id = ${userId}
@@ -1658,6 +1744,7 @@ export class DatabaseStorage implements IStorage {
       receivedAt: row.received_day,
       extractedAmount: row.extracted_amount,
       extractedCurrency: row.extracted_currency,
+      attachmentText: attachmentTextOf(row.attachment_data),
       subscriptionId: row.subscription_id,
       subscriptionCurrency: row.subscription_currency,
     }));
@@ -2280,6 +2367,7 @@ export class DatabaseStorage implements IStorage {
         approvedForStatus.push({
           subscriptionId: createdSubscription.id,
           currency: createdSubscription.currency,
+          approvedName: suggestion.serviceName,
           evidenceEmailIds: suggestion.evidenceEmailIds ?? [],
           cancelledOn: suggestion.cancelledOn ?? null,
           accessEndsOn: suggestion.accessEndsOn ?? null,

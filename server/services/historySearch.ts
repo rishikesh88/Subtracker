@@ -32,7 +32,7 @@ import { GmailService } from "./gmail";
 import { OutlookService } from "./outlook";
 import { EmailParser } from "./emailParser";
 import { storeInvoiceAttachment } from "../lib/invoiceAttachment";
-import { classifyPaymentEmail, dayString } from "../lib/statusRules";
+import { attachmentTextOf, classifyPaymentEmail, dayString } from "../lib/statusRules";
 import {
   statusEnabledFor,
   paymentsFromEmails,
@@ -44,8 +44,12 @@ import {
   RETRY_DELAY_MS,
   STALE_RUNNING_MS,
   SYNC_POLL_MS,
+  NOTE_BANK_ALERTS_ONLY,
   afterAttempt,
+  assignByPrice,
+  buildNameClues,
   buildOutlookFilter,
+  buildOutlookNameFilter,
   datedCancellation,
   decideSearch,
   describeFailure,
@@ -57,9 +61,13 @@ import {
   keepEmail,
   matchesKeywords,
   registrableDomain,
+  searchCoverage,
   searchSince,
+  siblingsOf,
   selectNewMessageIds,
   worthSaving,
+  type CompanySub,
+  type NameClues,
   type SenderPlan,
 } from "../lib/historySearchRules";
 import type { Subscription, Email } from "@shared/schema";
@@ -284,6 +292,10 @@ async function searchOne(userId: string, sub: Subscription): Promise<void> {
       historySearchedSince: outcome.searchedSince,
       historyError: outcome.note,
       historyFinishedAt: new Date(),
+      historyRead: outcome.read,
+      historySaved: outcome.saved,
+      historySkipped: outcome.skipped,
+      historyPartial: outcome.partial,
     });
     if (outcome.searchedSince) {
       try {
@@ -331,21 +343,66 @@ interface Tally {
   notPayment: number;
   saved: number;
   duplicate: number;
+  /** Payment emails of a company with several subscriptions where no subscription's price fits. */
+  skipped: number;
+  /** ... and ones that fit a different subscription of the same company. */
+  otherSubscription: number;
+}
+
+interface Outcome {
+  searchedSince: string | null;
+  note: string | null;
+  read: number | null;
+  saved: number | null;
+  skipped: number;
+  partial: boolean;
+}
+
+const NOT_SEARCHED = { read: null, saved: null, skipped: 0, partial: false };
+
+/** The subscription as the company-matching rules see it. */
+function asCompanySub(sub: Subscription, senders: string[]): CompanySub {
+  return {
+    id: sub.id,
+    serviceName: sub.serviceName,
+    merchantName: sub.merchantName,
+    merchantEmail: sub.merchantEmail,
+    amount: sub.amount,
+    currency: sub.currency,
+    senders,
+  };
 }
 
 async function searchSubscription(
   userId: string,
   sub: Subscription,
   now: Date,
-): Promise<{ searchedSince: string | null; note: string | null }> {
-  const linked = await storage.getLinkedSenders(userId, sub.id);
-  const decision = decideSearch({ serviceName: sub.serviceName, linkedFromEmails: linked, merchantEmail: sub.merchantEmail });
+): Promise<Outcome> {
+  const [linked, remembered] = await Promise.all([
+    storage.getLinkedSenders(userId, sub.id),
+    storage.getRememberedNames(userId, sub.id),
+  ]);
+  const clues = buildNameClues({ merchantName: sub.merchantName, serviceName: sub.serviceName, remembered });
+  const decision = decideSearch({
+    serviceName: sub.serviceName,
+    linkedFromEmails: linked,
+    merchantEmail: sub.merchantEmail,
+    clues,
+    currency: sub.currency,
+  });
   if (!decision.search) {
     console.log(`${LOG} "${sub.serviceName}": not searched (${decision.note})`);
-    return { searchedSince: null, note: decision.note };
+    return { searchedSince: null, note: decision.note, ...NOT_SEARCHED };
   }
   const plan = decision.plan;
   const since = searchSince(now);
+
+  // Other subscriptions of the same company: an email is assigned to the one
+  // whose price fits, the same whichever of them is searched first.
+  const [allSubs, sendersBySub] = await Promise.all([storage.getSubscriptions(userId), storage.getLinkedSendersBySubscription(userId)]);
+  const mine = asCompanySub(sub, linked);
+  const siblings = siblingsOf(mine, allSubs.map((s) => asCompanySub(s, sendersBySub.get(s.id) ?? [])));
+  const group = siblings.length > 0 ? [mine, ...siblings] : [];
 
   const [gmailAccounts, outlookAccounts, stored] = await Promise.all([
     storage.getGmailAccounts(userId),
@@ -372,15 +429,20 @@ async function searchSubscription(
   const checkSync = async () => {
     if (await isSyncRunning(userId)) throw new SyncStarted();
   };
-  const tally: Tally = { listed: 0, fetched: 0, notKept: 0, notPayment: 0, saved: 0, duplicate: 0 };
+  const tally: Tally = { listed: 0, fetched: 0, notKept: 0, notPayment: 0, saved: 0, duplicate: 0, skipped: 0, otherSubscription: 0 };
   const saved: Email[] = [];
   let budget = MAX_MESSAGES_PER_SUBSCRIPTION;
+  const reach = { truncated: false, oldest: null as Date | null };
+  const ctx: SearchContext = { userId, sub, plan, clues, group, since, stored, tally, saved, reach, checkSync };
 
   try {
     for (const mailbox of mailboxes) {
-      if (budget <= 0) break;
+      // Out of budget with a mailbox still to read: the window is not covered.
+      if (budget <= 0) {
+        reach.truncated = true;
+        break;
+      }
       await checkSync();
-      const ctx = { userId, sub, plan, since, stored, tally, saved, checkSync };
       budget -= mailbox.kind === "gmail"
         ? await searchGmail(ctx, mailbox.account, budget)
         : await searchOutlook(ctx, mailbox.account, budget);
@@ -392,21 +454,64 @@ async function searchSubscription(
     console.log(
       `${LOG} "${sub.serviceName}": ${tally.listed} listed, ${tally.fetched} read, ` +
       `${tally.notKept} not about it, ${tally.notPayment} not a payment by the rules (skipped), ${tally.saved} saved` +
-      (tally.duplicate ? `, ${tally.duplicate} already stored` : ""),
+      (tally.duplicate ? `, ${tally.duplicate} already stored` : "") +
+      (tally.skipped ? `, ${tally.skipped} skipped (no matching price)` : "") +
+      (tally.otherSubscription ? `, ${tally.otherSubscription} for another subscription of the company` : ""),
     );
   }
 
-  return { searchedSince: dayString(since), note: null };
+  const coverage = searchCoverage({ since, truncated: reach.truncated, oldestRead: reach.oldest });
+  let note = coverage.note;
+  if (!note) {
+    try {
+      // Everything found came from bank card alerts, none from the company.
+      const kinds = new Set((await storage.getPaymentsForSubscription(sub.id, userId)).map((p) => p.kind));
+      if (kinds.has("card_alert") && !kinds.has("receipt") && !kinds.has("invoice")) note = NOTE_BANK_ALERTS_ONLY;
+    } catch (error) {
+      console.error(`${LOG} Could not check where the payments came from (non-fatal):`, describeFailure(error));
+    }
+  }
+  return {
+    searchedSince: coverage.searchedSince,
+    note,
+    read: tally.fetched,
+    saved: tally.saved,
+    skipped: tally.skipped,
+    partial: coverage.partial,
+  };
+}
+
+/** A fetched message's date counts toward how far back the search got. */
+function noteReached(ctx: SearchContext, receivedAt: Date | null | undefined): void {
+  if (!receivedAt || isNaN(receivedAt.getTime())) return;
+  if (!ctx.reach.oldest || receivedAt < ctx.reach.oldest) ctx.reach.oldest = receivedAt;
+}
+
+/**
+ * For a company with several subscriptions: is this email this subscription's
+ * (by price)? 'other' means it fits a sibling, whose own search will take it;
+ * 'none' means no subscription of the company fits, and it is counted as skipped.
+ */
+function belongsHere(ctx: SearchContext, amount: number | null | undefined, currency: string | null | undefined): "here" | "other" | "none" {
+  if (ctx.group.length === 0) return "here";
+  const id = assignByPrice({ amount, currency }, ctx.group);
+  if (id === null) return "none";
+  return id === ctx.sub.id ? "here" : "other";
 }
 
 interface SearchContext {
   userId: string;
   sub: Subscription;
   plan: SenderPlan;
+  clues: NameClues;
+  /** This subscription and the other subscriptions of its company; empty when it is the only one. */
+  group: CompanySub[];
   since: Date;
   stored: Set<string>;
   tally: Tally;
   saved: Email[];
+  /** Set when messages were left unread for want of budget, with the oldest date actually read. */
+  reach: { truncated: boolean; oldest: Date | null };
   checkSync: () => Promise<void>;
 }
 
@@ -446,12 +551,20 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
     });
   }
 
+  const names = [...ctx.clues.search, ...ctx.clues.bodyOnly];
+  const byName = Boolean(ctx.plan.byName);
   let read = 0;
-  for (const query of gmailQueriesFor(ctx.plan, ctx.sub.serviceName)) {
-    if (budget - read <= 0) break;
+  for (const query of gmailQueriesFor(ctx.plan, names)) {
+    if (budget - read <= 0) {
+      ctx.reach.truncated = true;
+      break;
+    }
     const listed = await gmailService.searchMessageIds(accessToken, account.refreshToken, query, LIST_LIMIT);
     ctx.tally.listed += listed.length;
-    const ids = selectNewMessageIds(listed, ctx.stored, budget - read);
+    const fresh = selectNewMessageIds(listed, ctx.stored, Number.MAX_SAFE_INTEGER);
+    const ids = fresh.slice(0, budget - read);
+    // Messages left unread, or a listing cut off at its limit: the window is not covered.
+    if (fresh.length > ids.length || listed.length >= LIST_LIMIT) ctx.reach.truncated = true;
     if (ids.length === 0) continue;
     read += ids.length;
     // Counted as seen now, so a second query or mailbox never reads them again.
@@ -464,15 +577,35 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
     for (const msg of messages) {
       if (!msg?.id) continue;
       const parsed = parser.parseEmail(msg);
-      const verdict = keepEmail({ fromEmail: parsed.fromEmail, subject: parsed.subject, text: parsed.content }, ctx.plan, ctx.sub.serviceName);
+      const receivedAt = isNaN(parsed.receivedAt.getTime())
+        ? new Date(Number(msg.internalDate) || Date.now())
+        : parsed.receivedAt;
+      noteReached(ctx, receivedAt);
+      const verdict = keepEmail(
+        { fromEmail: parsed.fromEmail, fromName: parsed.fromName, subject: parsed.subject, text: parsed.content, currency: parsed.extractedCurrency },
+        ctx.plan,
+        names,
+      );
       if (!verdict.keep) {
         ctx.tally.notKept++;
         continue;
       }
       // A PDF is kept whatever the words say: every invoice file is stored.
+      // (Not in a search by name, where the words must say it: a found file is
+      // downloaded and stored, and nothing but the name links it to the person.)
       const hasPdf = hasPdfPart(msg.payload);
-      if (!hasPdf && !worthSaving({ subject: parsed.subject, text: parsed.content, amount: parsed.extractedAmount ?? null }, new Date())) {
+      if (
+        !(hasPdf && !byName) &&
+        !worthSaving({ subject: parsed.subject, text: parsed.content, amount: parsed.extractedAmount ?? null }, new Date(), { requireWording: byName })
+      ) {
         ctx.tally.notPayment++;
+        continue;
+      }
+      // A company with several subscriptions: the one whose price fits takes it.
+      const here = belongsHere(ctx, parsed.extractedAmount, parsed.extractedCurrency);
+      if (here !== "here") {
+        if (here === "none") ctx.tally.skipped++;
+        else ctx.tally.otherSubscription++;
         continue;
       }
       await ctx.checkSync();
@@ -482,9 +615,6 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
         const result = await gmailService.processAttachments(gmail, msg.id, msg, ctx.userId);
         if (result.attachments.length > 0) attachmentData = JSON.stringify(result);
       }
-      const receivedAt = isNaN(parsed.receivedAt.getTime())
-        ? new Date(Number(msg.internalDate) || Date.now())
-        : parsed.receivedAt;
 
       await saveFound(ctx, {
         userId: ctx.userId,
@@ -531,13 +661,18 @@ function asGmailShaped(email: { subject: string; from: string; receivedAt: Date;
 
 /** Returns how many messages it read. */
 async function searchOutlook(ctx: SearchContext, account: any, budget: number): Promise<number> {
+  const byName = Boolean(ctx.plan.byName);
+  const names = [...ctx.clues.search, ...ctx.clues.bodyOnly];
   const addresses = ctx.plan.addresses
     .filter((a) => {
       const d = registrableDomain(domainOf(a));
       return ctx.plan.owned.includes(d) || ctx.plan.shared.includes(d);
     })
     .slice(0, MAX_OUTLOOK_ADDRESSES);
-  if (addresses.length === 0) return 0;
+  const filter = ctx.plan.byName
+    ? buildOutlookNameFilter(ctx.plan.byName.clues, ctx.since)
+    : addresses.length > 0 ? buildOutlookFilter(addresses, ctx.since) : null;
+  if (!filter) return 0;
 
   const outlookService = new OutlookService();
   const parser = new EmailParser();
@@ -560,13 +695,16 @@ async function searchOutlook(ctx: SearchContext, account: any, budget: number): 
     await onTokenRefresh(tokens);
   }
 
-  const found = await outlookService.searchMessages(
-    accessToken,
-    refreshToken,
-    buildOutlookFilter(addresses, ctx.since),
-    budget,
-    onTokenRefresh,
-  );
+  let found: Awaited<ReturnType<typeof outlookService.searchMessages>>;
+  try {
+    found = await outlookService.searchMessages(accessToken, refreshToken, filter, budget, onTokenRefresh);
+  } catch (error) {
+    // A search by name is a best effort: Graph may refuse a filter on a
+    // field it cannot match, and that must not fail the whole search.
+    if (!byName) throw error;
+    console.warn(`${LOG} Outlook name search failed (non-fatal): ${describeFailure(error)}`);
+    return 0;
+  }
   accessToken = found.accessToken;
   ctx.tally.listed += found.messages.length;
 
@@ -574,7 +712,10 @@ async function searchOutlook(ctx: SearchContext, account: any, budget: number): 
     .filter((m) => matchesKeywords(m.subject, m.snippet))
     .sort((a, b) => b.internalDate - a.internalDate)
     .map((m) => m.id);
-  const ids = selectNewMessageIds(candidates, ctx.stored, budget);
+  const fresh = selectNewMessageIds(candidates, ctx.stored, Number.MAX_SAFE_INTEGER);
+  const ids = fresh.slice(0, budget);
+  // Left unread for want of budget, or a listing cut off at its limit (five pages' worth per message of budget).
+  if (fresh.length > ids.length || found.messages.length >= budget * 5) ctx.reach.truncated = true;
   for (const id of ids) ctx.stored.add(id);
 
   for (const id of ids) {
@@ -583,15 +724,29 @@ async function searchOutlook(ctx: SearchContext, account: any, budget: number): 
       await onTokenRefresh(tokens);
     });
     ctx.tally.fetched++;
-    const verdict = keepEmail({ fromEmail: email.fromEmail, subject: email.subject, text: email.body }, ctx.plan, ctx.sub.serviceName);
+    noteReached(ctx, email.receivedAt);
+    const parsed = parser.parseEmail(asGmailShaped(email));
+    const verdict = keepEmail(
+      { fromEmail: email.fromEmail, fromName: email.fromName, subject: email.subject, text: email.body, currency: parsed.extractedCurrency },
+      ctx.plan,
+      names,
+    );
     if (!verdict.keep) {
       ctx.tally.notKept++;
       continue;
     }
-    const parsed = parser.parseEmail(asGmailShaped(email));
     const hasPdf = (email.attachments ?? []).some((a) => /pdf/i.test(a.mimeType) || /\.pdf$/i.test(a.filename));
-    if (!hasPdf && !worthSaving({ subject: email.subject, text: email.body, amount: parsed.extractedAmount ?? null }, new Date())) {
+    if (
+      !(hasPdf && !byName) &&
+      !worthSaving({ subject: email.subject, text: email.body, amount: parsed.extractedAmount ?? null }, new Date(), { requireWording: byName })
+    ) {
       ctx.tally.notPayment++;
+      continue;
+    }
+    const here = belongsHere(ctx, parsed.extractedAmount, parsed.extractedCurrency);
+    if (here !== "here") {
+      if (here === "none") ctx.tally.skipped++;
+      else ctx.tally.otherSubscription++;
       continue;
     }
     await ctx.checkSync();
@@ -645,10 +800,12 @@ async function recordFinds(userId: string, sub: Subscription, saved: Email[], no
     const sources: PaymentSourceEmail[] = saved.map((e) => ({
       id: e.id,
       subject: e.subject,
-      content: e.content ? e.content.slice(0, 600) : null,
+      content: e.content ? e.content.slice(0, 1500) : null,
       receivedAt: e.receivedAt,
       extractedAmount: e.extractedAmount,
       extractedCurrency: e.extractedCurrency,
+      // The PDFs' words help read a payment whose subject and body are unclear.
+      attachmentText: attachmentTextOf(e.attachmentData),
     }));
     const rows = paymentsFromEmails(userId, { id: sub.id, currency: sub.currency }, sources, "history", now);
     const recorded = await storage.insertPayments(rows);
@@ -667,7 +824,7 @@ async function recordFinds(userId: string, sub: Subscription, saved: Email[], no
       // Only emails the rules do not read as a payment: a receipt's small
       // print ("if you cancel, it will not renew and ends on ...") is not a
       // cancellation.
-      if (classifyPaymentEmail({ subject: email.subject, content: email.content, amount: email.extractedAmount }, now)) continue;
+      if (classifyPaymentEmail({ subject: email.subject, content: email.content, amount: email.extractedAmount, attachmentText: attachmentTextOf(email.attachmentData) }, now)) continue;
       const found = datedCancellation({ subject: email.subject, text: email.content }, now);
       if (!found) continue;
       await applyCancellation(userId, sub.id, current, found.cancelledOn, found.accessEndsOn);

@@ -23,14 +23,16 @@ import {
   computeLifecycle,
   countedPayments,
   dayString,
+  paidDay,
   parseLooseDay,
+  reconcileBills,
   stillActiveUntil,
   REASON_TEXT,
   type LifecycleReason,
   type PaymentSource,
 } from "../lib/statusRules";
 import type { InsertPayment, Subscription, Payment } from "@shared/schema";
-import { historyLabel } from "../lib/historySearchRules";
+import { historyDetails, historyLabel } from "../lib/historySearchRules";
 
 export const STATUS_FEATURE = "subscription_status";
 
@@ -57,20 +59,27 @@ export function paymentsFromEmails(
     const amount = email.extractedAmount === null || email.extractedAmount === undefined || email.extractedAmount === ""
       ? null
       : Number(email.extractedAmount);
-    const verdict = classifyPaymentEmail({ subject: email.subject, content: email.content, amount }, now);
+    const verdict = classifyPaymentEmail(
+      { subject: email.subject, content: email.content, amount, attachmentText: email.attachmentText },
+      now,
+    );
     if (!verdict) continue;
     const hasAmount = amount !== null && isFinite(amount);
     rows.push({
       userId,
       subscriptionId: subscription.id,
       emailId: email.id,
-      paidAt,
+      // A receipt is dated by the "Paid <date>" in it; anything else by its email.
+      paidAt: verdict.kind === "receipt" ? paidDay(paidAt, verdict.paidOn) : paidAt,
       amount: hasAmount ? amount!.toFixed(2) : null,
       // The email's own currency where it has one; the subscription's only
       // when there is an amount for it to describe.
       currency: email.extractedCurrency || (hasAmount ? subscription.currency : null),
       kind: verdict.kind,
       pausedUntil: verdict.pausedUntil,
+      documentType: verdict.documentType,
+      paidStatus: verdict.paidStatus,
+      dueOn: verdict.dueOn,
       source,
     });
   }
@@ -115,12 +124,34 @@ export async function recordAfterApproval(userId: string, approved: ApprovedForS
       if (!sub) continue;
       const emails = await storage.getEmailsForPayments(userId, item.evidenceEmailIds);
       recorded += await storage.insertPayments(paymentsFromEmails(userId, { id: sub.id, currency: sub.currency }, emails, "approval", now));
+      if (item.approvedName) await storage.rememberSubscriptionName(userId, sub.id, item.approvedName, "approval");
       await applyCancellation(userId, sub.id, sub, item.cancelledOn, item.accessEndsOn);
     }
     console.log(`[Status] Approval: ${recorded} payment(s) recorded for ${approved.length} subscription(s)`);
     await recomputeForUser(userId, now);
   } catch (error) {
     console.error("[Status] Recording after approval failed (non-fatal):", error);
+  }
+}
+
+/**
+ * After a subscription is renamed: remember the name it had, so a later
+ * history search can still look for it. Only for users with the switch on;
+ * never throws.
+ */
+export async function rememberOldName(
+  userId: string,
+  subscriptionId: string,
+  oldName: string | null | undefined,
+  newName: string | null | undefined,
+): Promise<void> {
+  try {
+    const before = (oldName ?? "").trim();
+    if (!before || before.toLowerCase() === (newName ?? "").trim().toLowerCase()) return;
+    if (!(await statusEnabledFor(userId))) return;
+    await storage.rememberSubscriptionName(userId, subscriptionId, before, "rename");
+  } catch (error) {
+    console.error("[Status] Could not remember an old name (non-fatal):", error);
   }
 }
 
@@ -249,6 +280,7 @@ export async function recomputeForUser(userId: string, now = new Date(), onlyIds
           currency: p.currency,
           kind: p.kind,
           pausedUntil: p.pausedUntil,
+          dueOn: p.dueOn,
         })),
         cancellation: sub.cancelledAt || sub.endsOn ? { cancelledAt: sub.cancelledAt, endsOn: sub.endsOn } : null,
         overrides: {
@@ -319,7 +351,9 @@ export async function statusRowsForAdmin(userId: string) {
   return subs
     .map((sub) => {
       const mine = allPayments.filter((p) => p.subscriptionId === sub.id);
-      const counted = countedPayments(mine.map((p) => ({ paidAt: p.paidAt, amount: p.amount, currency: p.currency, kind: p.kind })));
+      const asRules = mine.map((p) => ({ paidAt: p.paidAt, dueOn: p.dueOn, amount: p.amount, currency: p.currency, kind: p.kind }));
+      const counted = countedPayments(asRules);
+      const bills = reconcileBills(asRules, new Date());
       const reason = sub.lifecycleReason as LifecycleReason | null;
       return {
         id: sub.id,
@@ -338,6 +372,11 @@ export async function statusRowsForAdmin(userId: string) {
         updated_at: sub.lifecycleUpdatedAt,
         history_status: sub.historyStatus,
         history_label: historyLabel(sub),
+        history_details: historyDetails(sub, bills.noReceipt.length),
+        bills_no_receipt: bills.noReceipt.length,
+        last_bill_at: bills.noReceipt.length + bills.open.length > 0
+          ? day(new Date(Math.max(...[...bills.noReceipt, ...bills.open].map((b) => b.day.getTime()))))
+          : null,
       };
     })
     .sort((a, b) => a.service_name.localeCompare(b.service_name));

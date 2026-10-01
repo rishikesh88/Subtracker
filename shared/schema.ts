@@ -156,6 +156,10 @@ export const subscriptions = pgTable("subscriptions", {
   historyError: text("history_error"), // plain words: why it failed, or a note on a skipped search
   historyStartedAt: timestamp("history_started_at"), // start of the latest attempt
   historyFinishedAt: timestamp("history_finished_at"),
+  historyRead: integer("history_read"), // emails read in the latest search
+  historySaved: integer("history_saved"), // emails kept from it
+  historySkipped: integer("history_skipped").default(0).notNull(), // payment emails of a multi-subscription company with no matching price
+  historyPartial: boolean("history_partial").default(false).notNull(), // the message budget ran out before the window was covered
 }, (table) => [
   index("idx_subscriptions_user_provider").on(table.userId, table.emailProvider),
   index("idx_subscriptions_provider_account").on(table.providerAccountId),
@@ -325,6 +329,9 @@ export const payments = pgTable("payments", {
   currency: text("currency"),
   kind: text("kind").$type<(typeof PAYMENT_KINDS)[number]>().notNull(),
   pausedUntil: date("paused_until"),
+  documentType: text("document_type"), // invoice | receipt | other: what the email's document is called
+  paidStatus: text("paid_status"), // paid | due | unclear: what it says about the money
+  dueOn: date("due_on"), // a bill's due date, when the email states one
   source: text("source").$type<(typeof PAYMENT_SOURCES)[number]>().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
@@ -333,6 +340,24 @@ export const payments = pgTable("payments", {
   index("idx_payments_user_subscription").on(table.userId, table.subscriptionId, table.paidAt),
   check("payments_kind_check", sql`kind IN ('receipt', 'invoice', 'card_alert', 'failed', 'refund', 'pause')`),
   check("payments_source_check", sql`source IN ('sync', 'approval', 'history')`),
+]);
+
+/*
+ * Names a subscription has had (feature switch `subscription_status`): the
+ * one it was approved under and each one before a rename. The history search
+ * uses them as clues when looking for its emails. Created at startup by
+ * storage.ensureSubscriptionStatusTables(), which must match this.
+ */
+export const subscriptionNameHistory = pgTable("subscription_name_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  subscriptionId: varchar("subscription_id").notNull().references(() => subscriptions.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  origin: text("origin").default("rename").notNull(), // approval | rename
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => [
+  // One row per name per subscription, ignoring case.
+  uniqueIndex("uq_subscription_name_history").on(table.subscriptionId, sql`lower(${table.name})`),
 ]);
 
 /*
@@ -445,6 +470,10 @@ export const insertSubscriptionSchema = createInsertSchema(subscriptions)
     historyError: true,
     historyStartedAt: true,
     historyFinishedAt: true,
+    historyRead: true,
+    historySaved: true,
+    historySkipped: true,
+    historyPartial: true,
   })
   .extend({
     nextBillingDate: jsonDate.nullish(),
@@ -594,5 +623,6 @@ export type UpdateOutlookAccount = z.infer<typeof updateOutlookAccountSchema>;
 export type FeatureFlag = typeof featureFlags.$inferSelect;
 export type FeatureFlagUser = typeof featureFlagUsers.$inferSelect;
 export type FeatureFlagAudit = typeof featureFlagAudit.$inferSelect;
+export type SubscriptionNameHistory = typeof subscriptionNameHistory.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type InsertPayment = typeof payments.$inferInsert;

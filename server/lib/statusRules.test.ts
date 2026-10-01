@@ -3,6 +3,10 @@ import {
   computeLifecycle,
   countedPayments,
   classifyPaymentEmail,
+  attachmentTextOf,
+  paidDay,
+  reconcileBills,
+  BILL_NO_RECEIPT_LABEL,
   stillActiveUntil,
   parseLooseDay,
   graceEnd,
@@ -187,6 +191,154 @@ check("added by hand (no payments): never flagged", sr(run({ frequency: "yearly"
   check("one charge, three records: the receipt is kept", [mixed.length, mixed[0].kind], [1, "receipt"]);
   check("same amount four days apart: two charges", countedPayments([pay("2026-09-01", 499), pay("2026-09-05", 499)]).length, 2);
   check("amounts two units apart: two charges", countedPayments([pay("2026-09-10", 499), pay("2026-09-10", 501.5)]).length, 2);
+}
+
+
+/* --- PR 3b: bills, receipts and notices ---------------------------------- */
+const read = (e: Parameters<typeof classifyPaymentEmail>[0], opts?: { requireWording?: boolean }) => classifyPaymentEmail(e, NOW, opts);
+const kindOf = (e: Parameters<typeof classifyPaymentEmail>[0]) => read(e)?.kind ?? null;
+
+console.log("Only receipts and card alerts count");
+check("an invoice alone is not a payment", countedPayments([pay("2026-09-18", 1885.64, "invoice")]).length, 0);
+check("a receipt counts", countedPayments([pay("2026-09-18", 1885.64, "receipt")]).length, 1);
+check("a card alert counts", countedPayments([pay("2026-09-18", 1885.64, "card_alert")]).length, 1);
+check("bills only: no payment seen, never flagged", sr(run({ payments: [pay("2026-03-18", 1885.64, "invoice")] })), "active/no_payments");
+
+console.log("Claude (Anthropic): receipt, then notices that are not payments");
+{
+  const receipt = read({
+    subject: "Your receipt from Anthropic, PBC #2208-1234",
+    content: "Receipt from Anthropic, PBC $23.60 Paid September 29, 2026 Claude Pro Amount paid $23.60",
+    amount: 23.6,
+    attachmentText: "Invoice-ABC-0001.pdf\nReceipt-2208-1234.pdf",
+  })!;
+  check("receipt email: kind receipt, paid", [receipt.kind, receipt.paidStatus], ["receipt", "paid"]);
+  check("receipt email with Invoice + Receipt PDFs: document type receipt", receipt.documentType, "receipt");
+  check("paid date comes from 'Paid <date>'", receipt.paidOn, "2026-09-29");
+  check("receipt arriving a day later is dated by the body", paidDay("2026-09-30", receipt.paidOn), "2026-09-29");
+  check("no date in the body: the email's date", paidDay("2026-09-30", null), "2026-09-30");
+  check("an implausible paid date is ignored", paidDay("2026-09-30", "2025-01-01"), "2026-09-30");
+  check("a paid date after the email is ignored", paidDay("2026-09-30", "2026-10-20"), "2026-09-30");
+  check("confirm your payment: not a payment", kindOf({ subject: "Confirm your $23.60 payment", content: "Your bank needs you to authenticate this payment.", amount: 23.6 }), null);
+  check("bank authentication notice: not a payment", kindOf({ subject: "Action needed", content: "Complete bank authentication to finish your $23.60 payment.", amount: 23.6 }), null);
+  check("payment pending: not a payment", kindOf({ subject: "Your payment is pending", content: "$23.60", amount: 23.6 }), null);
+  check("payment failed: failed, never counted", kindOf({ subject: "Your payment of $23.60 failed", content: "", amount: 23.6 }), "failed");
+  check("access paused: not a payment", kindOf({ subject: "Your Claude access is paused", content: "Update payment.", amount: 23.6 }), "pause");
+  check("confirm renewal: not a payment", kindOf({ subject: "Confirm renewal of your Claude subscription", content: "$23.60", amount: 23.6 }), null);
+  check("confirm in the body with nothing paid: not a payment", kindOf({ subject: "Claude", content: "Please confirm your renewal to keep access. $23.60", amount: 23.6 }), null);
+  check("a receipt's 'confirm your payment method' footer is still a receipt", kindOf({ subject: "Your receipt from Anthropic", content: "Amount paid $23.60. You can confirm your payment method any time.", amount: 23.6 }), "receipt");
+  // The notices never count, the receipt does, once.
+  const rows = [pay("2026-09-29", 23.6, "receipt", "USD"), pay("2026-09-28", 23.6, "failed", "USD")];
+  check("receipt plus failed notice: one payment", countedPayments(rows).length, 1);
+}
+
+console.log("Two labels per email: document type and paid status");
+{
+  const bill = read({ subject: "Bill for your Airtel Black account - Sep'26", content: "Total amount payable: ₹1885.64 Due Date: 28 Sep 2026", amount: 1885.64 })!;
+  check("bill: invoice, due, not counted", [bill.kind, bill.documentType, bill.paidStatus], ["invoice", "invoice", "due"]);
+  check("bill: due date read", bill.dueOn, "2026-09-28");
+  const receipt = read({ subject: "Here's your Airtel payment receipt!", content: "We have received a payment of Rs 1885.64", amount: 1885.64, attachmentText: "AirtelReceipt_123.pdf" })!;
+  check("airtel receipt: receipt, paid", [receipt.kind, receipt.documentType, receipt.paidStatus], ["receipt", "receipt", "paid"]);
+  check("a bill with 'pay by' wording is due", read({ subject: "Your invoice", content: "Please pay by 5 Oct 2026. Amount due $12", amount: 12 })?.paidStatus, "due");
+  check("amount due: not counted", kindOf({ subject: "Statement", content: "Amount due $12.00", amount: 12 }), "invoice");
+  check("bill generated: invoice", kindOf({ subject: "Your bill is generated", content: "", amount: 12 }), "invoice");
+  check("your bill: invoice", kindOf({ subject: "Account update", content: "Your bill for September", amount: 12 }), "invoice");
+  check("invoice whose text says paid: counts as a receipt", read({ subject: "Invoice #1001 from Acme", content: "Amount paid $12.00", amount: 12 })?.kind, "receipt");
+  check("... and keeps the document type invoice", read({ subject: "Invoice #1001 from Acme", content: "Amount paid $12.00", amount: 12 })?.documentType, "invoice");
+  check("invoice, nothing about paying: stays a bill, unclear", [read({ subject: "Invoice #1002 from Acme", content: "Thanks.", amount: 12 })?.kind, read({ subject: "Invoice #1002 from Acme", content: "Thanks.", amount: 12 })?.paidStatus], ["invoice", "unclear"]);
+  check("payment received", kindOf({ subject: "Acme", content: "Payment received. Thank you", amount: 9 }), "receipt");
+  check("payment successful", kindOf({ subject: "Acme", content: "Your payment successful", amount: 9 }), "receipt");
+  check("paid <date>", read({ subject: "Acme", content: "Paid 3 Sep 2026", amount: 9 })?.kind, "receipt");
+}
+
+console.log("PDF text is an extra source");
+{
+  const autoSecure = { subject: "Your Auto Secure document", content: "Please find your document attached.", amount: null as number | null };
+  check("no PDF text, no amount: nothing", kindOf(autoSecure), null);
+  check("PDF says amount paid: a receipt", kindOf({ ...autoSecure, attachmentText: "Invoice-77.pdf\nAmount paid Rs 499" }), "receipt");
+  check("PDF says amount due: a bill", kindOf({ ...autoSecure, attachmentText: "Invoice-77.pdf\nAmount due Rs 499. Due date: 5 Oct 2026" }), "invoice");
+  check("subject 'invoice', PDF says paid: a receipt", kindOf({ subject: "Your invoice", content: "", attachmentText: "Receipt\nPaid on 12 Aug 2026", amount: 499 }), "receipt");
+  check("PDF 'payment pending' does not make a payment", kindOf({ ...autoSecure, attachmentText: "Payment pending authentication" }), null);
+  const data = JSON.stringify({ hasAttachments: true, attachments: [{ filename: "Invoice-1.pdf", extractedText: "Amount paid $5" }, { filename: "pic.png", base64Data: "AAAA" }] });
+  check("attachment text collects names and PDF words, not images", attachmentTextOf(data), "Invoice-1.pdf\nAmount paid $5\npic.png");
+  check("bad attachment data reads as nothing", attachmentTextOf("not json"), "");
+  check("no requireWording: unclear with amount is a receipt", read({ subject: "Netflix", content: "Hello there", amount: 649 })?.kind, "receipt");
+  check("requireWording: unclear with amount is nothing", read({ subject: "Netflix", content: "Hello there", amount: 649 }, { requireWording: true }), null);
+}
+
+console.log("Airtel: bill then receipt, one payment; duplicate receipt");
+{
+  const bill = pay("2026-09-18", 1885.64, "invoice");
+  const receiptA = pay("2026-09-25", 1885.64, "receipt");
+  const receiptB = pay("2026-09-25", 1885.64, "receipt");
+  check("bill + receipt: one counted payment", countedPayments([bill, receiptA]).length, 1);
+  check("bill + receipt: the receipt is the payment", countedPayments([bill, receiptA])[0].kind, "receipt");
+  check("same receipt twice the same day: one payment", countedPayments([receiptA, receiptB]).length, 1);
+  check("bill + duplicate receipts: one payment", countedPayments([bill, receiptA, receiptB]).length, 1);
+  const r = reconcileBills([bill, receiptA, receiptB], NOW);
+  check("the bill is paired, not left over", [r.paired, r.noReceipt.length, r.open.length], [1, 0, 0]);
+  check("receipt 2 weeks after the bill still pairs", reconcileBills([bill, pay("2026-10-01", 1885.64, "receipt")], new Date("2026-10-15T00:00:00Z")).paired, 1);
+  check("receipt 3 days before the bill still pairs", reconcileBills([bill, pay("2026-09-15", 1885.64, "receipt")], NOW).paired, 1);
+  check("receipt 4 days before the bill does not pair", reconcileBills([bill, pay("2026-09-14", 1885.64, "receipt")], new Date("2026-12-01T00:00:00Z")).paired, 0);
+  check("receipt 21 days after does not pair", reconcileBills([bill, pay("2026-10-09", 1885.64, "receipt")], new Date("2026-12-01T00:00:00Z")).paired, 0);
+  const due = { ...bill, dueOn: "2026-09-28" };
+  check("the window runs 20 days after the due date", reconcileBills([due, pay("2026-10-17", 1885.64, "receipt")], new Date("2026-12-01T00:00:00Z")).paired, 1);
+  check("a different amount does not pair", reconcileBills([bill, pay("2026-09-25", 399, "receipt")], new Date("2026-12-01T00:00:00Z")).paired, 0);
+  check("a card alert for the bill's amount pairs too", reconcileBills([bill, pay("2026-09-25", 1885.64, "card_alert")], NOW).paired, 1);
+  check("a bill with no amount cannot pair", reconcileBills([pay("2026-09-18", null, "invoice"), pay("2026-09-25", 1885.64, "receipt")], new Date("2026-12-01T00:00:00Z")).paired, 0);
+  const twoBills = reconcileBills([pay("2026-08-18", 1885.64, "invoice"), pay("2026-09-18", 1885.64, "invoice"), pay("2026-09-25", 1885.64, "receipt")], new Date("2026-12-01T00:00:00Z"));
+  check("one receipt pays one bill only", [twoBills.paired, twoBills.noReceipt.length], [1, 1]);
+}
+
+console.log("Old bill with no receipt");
+{
+  const old = [pay("2026-06-18", 1885.64, "invoice")];
+  const r = reconcileBills(old, NOW);
+  check("old bill, no receipt: receipt not found", [r.paired, r.noReceipt.length, r.open.length], [0, 1, 0]);
+  check("label for later screens", BILL_NO_RECEIPT_LABEL, "Bill, receipt not found");
+  check("old bill is not a payment", countedPayments(old).length, 0);
+  check("recent bill is still open, not 'not found'", reconcileBills([pay("2026-09-25", 1885.64, "invoice")], NOW).open.length, 1);
+  check("last bill is available", computeLifecycle(input({ payments: old }), NOW).lastBillAt, "2026-06-18");
+  check("no bills: no last bill", computeLifecycle(input({ payments: [pay("2026-09-05")] }), NOW).lastBillAt, null);
+  check("a paid bill is not a 'last bill'", computeLifecycle(input({ payments: [pay("2026-09-18", 1885.64, "invoice"), pay("2026-09-25", 1885.64, "receipt")] }), NOW).lastBillAt, null);
+}
+
+console.log("Railway (Stripe receipt, plan name in the body)");
+{
+  const railway = read({
+    subject: "Your receipt from Railway Corporation #2139-9980",
+    content: "Receipt from Railway Corporation $5.90 Paid September 18, 2026 Hobby plan",
+    amount: 5.9,
+    attachmentText: "Invoice-AOMRQJIP-0001.pdf\nReceipt-2139-9980.pdf",
+  })!;
+  check("railway: receipt, paid on the stated day", [railway.kind, railway.paidOn, railway.documentType], ["receipt", "2026-09-18", "receipt"]);
+}
+
+console.log("Cross-currency: a USD receipt and an INR card alert");
+{
+  const usd = pay("2026-09-29", 23.6, "receipt", "USD");
+  const inr = pay("2026-09-30", 2255.68, "card_alert", "INR");
+  check("receipt + alert two days apart, one pair: one payment", countedPayments([usd, inr]).length, 1);
+  check("the receipt is kept", countedPayments([usd, inr])[0].kind, "receipt");
+  check("more than three days apart: two payments", countedPayments([usd, pay("2026-10-03", 2255.68, "card_alert", "INR")]).length, 2);
+  check("same currency stays as before (receipt + alert)", countedPayments([pay("2026-09-12", 499.4, "card_alert"), pay("2026-09-11", 499, "receipt")]).length, 1);
+  check("an alert without an amount is never merged", countedPayments([usd, pay("2026-09-30", null, "card_alert", "INR")]).length, 2);
+  check("a receipt without an amount is never merged", countedPayments([pay("2026-09-29", null, "receipt", "USD"), inr]).length, 2);
+  check("an alert without a currency is not merged across currencies", countedPayments([usd, pay("2026-09-30", 2255.68, "card_alert", null)]).length, 2);
+  // Ambiguous: one receipt, two alerts close by.
+  check("ambiguous (two alerts near one receipt): nothing merged", countedPayments([usd, inr, pay("2026-09-29", 1900, "card_alert", "INR")]).length, 3);
+  // Several pairs: a derived rate (about 95.6) is the check.
+  const history = [
+    pay("2026-07-29", 23.6, "receipt", "USD"), pay("2026-07-30", 2250, "card_alert", "INR"),
+    pay("2026-08-29", 23.6, "receipt", "USD"), pay("2026-08-30", 2262, "card_alert", "INR"),
+    usd, inr,
+  ];
+  check("a history of pairs at a steady rate: three payments", countedPayments(history).length, 3);
+  const odd = [...history.slice(0, 4), usd, pay("2026-09-30", 900, "card_alert", "INR")];
+  check("a pair far from the others' rate is not merged (12%)", countedPayments(odd).length, 4);
+  check("with a derived rate, a bill in USD pairs with the INR alert it was paid by",
+    reconcileBills([pay("2026-09-25", 23.6, "invoice", "USD"), ...history], new Date("2026-12-01T00:00:00Z")).paired, 1);
+  check("without a rate, a USD bill does not pair with an INR alert", reconcileBills([pay("2026-09-25", 23.6, "invoice", "USD"), inr], new Date("2026-12-01T00:00:00Z")).paired, 0);
 }
 
 /* --- Marked inactive by the person -------------------------------------- */
