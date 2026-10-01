@@ -367,6 +367,59 @@ export const subscriptionNameHistory = pgTable("subscription_name_history", {
 ]);
 
 /*
+ * Renewal-based background checks (feature switch `subscription_status`; see
+ * server/lib/renewalChecks.ts). Created at startup by
+ * storage.ensureSubscriptionStatusTables(), which must match these.
+ */
+
+// Per-subscription check state: attempts, when it was last checked, when next.
+export const renewalCheckState = pgTable("renewal_check_state", {
+  subscriptionId: varchar("subscription_id").primaryKey().references(() => subscriptions.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").notNull(),
+  cycleRenewalOn: date("cycle_renewal_on"), // the renewal date these attempts are about
+  attempts: integer("attempts").default(0).notNull(),
+  firstAttemptOn: date("first_attempt_on"),
+  lastCheckedOn: date("last_checked_on"),
+  lastCheckedAt: timestamp("last_checked_at"),
+  nextCheckOn: date("next_check_on"), // null: no more tries for this renewal
+  errorCount: integer("error_count").default(0).notNull(),
+  lastError: text("last_error"),
+}, (table) => [
+  index("idx_renewal_check_state_user").on(table.userId),
+]);
+
+// One row ('daily'): which day the job last ran, so a restart or a second instance cannot repeat it; plus that run's counts.
+export const renewalJobState = pgTable("renewal_job_state", {
+  name: text("name").primaryKey(),
+  lastRunDay: date("last_run_day"),
+  startedAt: timestamp("started_at"),
+  finishedAt: timestamp("finished_at"),
+  users: integer("users").default(0).notNull(),
+  checked: integer("checked").default(0).notNull(),
+  found: integer("found").default(0).notNull(),
+  failures: integer("failures").default(0).notNull(),
+  reconnectMarked: integer("reconnect_marked").default(0).notNull(),
+  emailsSent: integer("emails_sent").default(0).notNull(),
+});
+
+// A mailbox whose access has expired: no checks until it is reconnected (the row is deleted then).
+export const mailboxReconnectState = pgTable("mailbox_reconnect_state", {
+  accountId: varchar("account_id").notNull(),
+  provider: text("provider").notNull(), // gmail | outlook
+  userId: varchar("user_id").notNull(),
+  flaggedAt: timestamp("flagged_at").defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.accountId, table.provider] }),
+  index("idx_mailbox_reconnect_user").on(table.userId),
+]);
+
+// When the reconnect email was last sent to a person (at most one a week).
+export const reconnectEmailState = pgTable("reconnect_email_state", {
+  userId: varchar("user_id").primaryKey(),
+  lastSentAt: timestamp("last_sent_at").notNull(),
+});
+
+/*
  * Feature switches. A general mechanism: any feature can be gated on a key
  * here and turned on for no one, a hand-picked list of users, or everyone,
  * from the admin console. See server/lib/featureFlags.ts.

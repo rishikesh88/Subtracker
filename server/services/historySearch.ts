@@ -85,6 +85,7 @@ import {
   type BankAlertEvidence,
 } from "../lib/bankAlert";
 import { isCreditCardBill } from "../lib/statusRules";
+import { ReconnectNeeded, isReconnectError, mailboxKey, windowDays, type MailboxRef } from "../lib/renewalChecks";
 import type { Subscription, Email, InsertPayment } from "@shared/schema";
 
 const LOG = "[History]";
@@ -108,7 +109,7 @@ const wakeTimers = new Map<string, { at: number; timer: NodeJS.Timeout }>();
 const activeSubscriptions = new Set<string>();
 
 /** A sync started for this user mid-search: stop, and do not count the attempt. */
-class SyncStarted extends Error {}
+export class SyncStarted extends Error {}
 /** A failure whose message is already plain words. */
 class PlainFailure extends Error {}
 
@@ -390,10 +391,26 @@ function asCompanySub(sub: Subscription, senders: string[]): CompanySub {
   };
 }
 
+/**
+ * A short window instead of twelve months (the daily renewal check): from
+ * `since`, skipping mailboxes already known to need a reconnect. Everything
+ * else (sender-domain first, own-sender query first, early stop, the 150
+ * cap, bank alerts read and discarded) is the same as the full search.
+ */
+interface WindowOptions {
+  since: Date;
+  excluded: ReadonlySet<string>;
+  /** Mailboxes found to need reconnecting while searching (filled in). */
+  reconnect: MailboxRef[];
+  /** Mailboxes that were searched without such a failure (filled in). */
+  searched: { count: number };
+}
+
 async function searchSubscription(
   userId: string,
   sub: Subscription,
   now: Date,
+  window?: WindowOptions,
 ): Promise<Outcome> {
   const [linked, remembered] = await Promise.all([
     storage.getLinkedSenders(userId, sub.id),
@@ -412,7 +429,8 @@ async function searchSubscription(
     return { searchedSince: null, note: decision.note, ...NOT_SEARCHED };
   }
   const plan = decision.plan;
-  const since = searchSince(now);
+  const since = window ? window.since : searchSince(now);
+  const days = window ? windowDays(since, now) : HISTORY_DAYS;
 
   // Other subscriptions of the same company: an email is assigned to the one
   // whose price fits, the same whichever of them is searched first.
@@ -432,10 +450,17 @@ async function searchSubscription(
     ...outlookAccounts.map((account) => ({ kind: "outlook" as const, account })),
   ]
     .filter((m) => m.account.syncStatus !== "error")
+    .filter((m) => !window || !window.excluded.has(mailboxKey({ provider: m.kind, id: m.account.id })))
     // The mailbox it was found in first.
     .sort((a, b) => Number(b.account.id === ownId) - Number(a.account.id === ownId));
 
   if (mailboxes.length === 0) {
+    // A window search names the mailboxes whose access has failed, so they can be flagged.
+    const broken = [
+      ...gmailAccounts.filter((a) => a.syncStatus === "error").map((a) => ({ provider: "gmail" as const, id: a.id })),
+      ...outlookAccounts.filter((a) => a.syncStatus === "error").map((a) => ({ provider: "outlook" as const, id: a.id })),
+    ].filter((m) => !window?.excluded.has(mailboxKey(m)));
+    if (window && broken.length > 0) throw new ReconnectNeeded(broken);
     throw new PlainFailure(
       gmailAccounts.length + outlookAccounts.length === 0
         ? "no mailbox is connected"
@@ -450,7 +475,7 @@ async function searchSubscription(
   const saved: Email[] = [];
   let budget = MAX_MESSAGES_PER_SUBSCRIPTION;
   const reach = { truncated: false, oldest: null as Date | null, stoppedEarly: null as number | null };
-  const ctx: SearchContext = { userId, sub, plan, clues, group, since, stored, tally, saved, reach, checkSync };
+  const ctx: SearchContext = { userId, sub, plan, clues, group, since, days, stored, tally, saved, reach, checkSync };
 
   try {
     for (const mailbox of mailboxes) {
@@ -460,9 +485,17 @@ async function searchSubscription(
         break;
       }
       await checkSync();
-      budget -= mailbox.kind === "gmail"
-        ? await searchGmail(ctx, mailbox.account, budget)
-        : await searchOutlook(ctx, mailbox.account, budget);
+      try {
+        budget -= mailbox.kind === "gmail"
+          ? await searchGmail(ctx, mailbox.account, budget)
+          : await searchOutlook(ctx, mailbox.account, budget);
+        if (window) window.searched.count++;
+      } catch (error) {
+        // Expired access on one mailbox: note it and go on to the next.
+        if (!window || error instanceof SyncStarted || !isReconnectError(error)) throw error;
+        window.reconnect.push({ provider: mailbox.kind, id: mailbox.account.id });
+        console.warn(`${LOG} "${sub.serviceName}": a ${mailbox.kind} mailbox needs to be reconnected`);
+      }
     }
   } finally {
     // Whatever was saved is recorded, even when a later mailbox failed: a
@@ -511,6 +544,58 @@ async function searchSubscription(
   };
 }
 
+export interface WindowSearchResult {
+  /** False when nothing could be searched for it (no usable sender or name). */
+  searched: boolean;
+  /** At least one mailbox was searched without an access failure. */
+  mailboxSearched: boolean;
+  /** Mailboxes whose access has expired. */
+  reconnect: MailboxRef[];
+  read: number;
+  saved: number;
+}
+
+/**
+ * The daily renewal check's search for one subscription: the history search's
+ * own rules over a short window (see WindowOptions). Records what it finds
+ * (payments, dated cancellations, invoices) exactly as the history search does,
+ * but leaves the subscription's history_* fields alone and does not recompute
+ * status (the caller does). Throws SyncStarted if a sync starts for the person,
+ * and PlainFailure / other errors as the full search does, except expired
+ * mailbox access, which is returned in `reconnect`. Callers check the switch.
+ */
+export async function searchSubscriptionWindow(
+  userId: string,
+  sub: Subscription,
+  since: Date,
+  now: Date,
+  excluded: ReadonlySet<string>,
+): Promise<WindowSearchResult> {
+  const window: WindowOptions = { since, excluded, reconnect: [], searched: { count: 0 } };
+  activeSubscriptions.add(sub.id);
+  try {
+    const outcome = await searchSubscription(userId, sub, now, window);
+    return {
+      searched: outcome.searchedSince !== null,
+      mailboxSearched: window.searched.count > 0,
+      reconnect: window.reconnect,
+      read: outcome.read ?? 0,
+      saved: outcome.saved ?? 0,
+    };
+  } catch (error) {
+    // Every mailbox it needed failed: report which, rather than failing the check.
+    if (error instanceof ReconnectNeeded) {
+      return { searched: true, mailboxSearched: false, reconnect: error.mailboxes, read: 0, saved: 0 };
+    }
+    if (error instanceof PlainFailure && /needs to be reconnected/i.test(error.message) && window.reconnect.length > 0) {
+      return { searched: true, mailboxSearched: false, reconnect: window.reconnect, read: 0, saved: 0 };
+    }
+    throw error;
+  } finally {
+    activeSubscriptions.delete(sub.id);
+  }
+}
+
 /** A fetched message's date counts toward how far back the search got. */
 function noteReached(ctx: SearchContext, receivedAt: Date | null | undefined): void {
   if (!receivedAt || isNaN(receivedAt.getTime())) return;
@@ -537,6 +622,8 @@ interface SearchContext {
   /** This subscription and the other subscriptions of its company; empty when it is the only one. */
   group: CompanySub[];
   since: Date;
+  /** How many days back `since` is, for Gmail's newer_than. */
+  days: number;
   stored: Set<string>;
   tally: Tally;
   saved: Email[];
@@ -585,7 +672,7 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
   const byName = Boolean(ctx.plan.byName);
   let read = 0;
   let stopped = false;
-  for (const query of gmailQueriesFor(ctx.plan, names)) {
+  for (const query of gmailQueriesFor(ctx.plan, names, ctx.days)) {
     if (budget - read <= 0) {
       ctx.reach.truncated = true;
       break;
@@ -949,7 +1036,7 @@ async function alertsFromGmail(
   subscription: { currency: string | null | undefined; names: string[] },
   take: TakeAlert,
 ): Promise<number> {
-  const query = buildBankAlertGmailQuery(subscription.names, HISTORY_DAYS);
+  const query = buildBankAlertGmailQuery(subscription.names, ctx.days);
   if (!query) return 0;
   const gmailService = new GmailService();
   const parser = new EmailParser();

@@ -32,6 +32,22 @@ import { statusEnabledFor, markStillActive, markInactive, markActive, paymentVie
 import { presentSubscription, presentSubscriptions } from "./lib/statusView";
 import { queueHistorySearch } from "./services/historySearch";
 
+/**
+ * Ids of this person's mailboxes of one provider flagged as needing a
+ * reconnect, or null when the subscription_status switch is off for them (the
+ * accounts response then has no such field) or the lookup fails.
+ */
+async function reconnectFlagsFor(userId: string, provider: "gmail" | "outlook"): Promise<Set<string> | null> {
+  try {
+    if (!(await statusEnabledFor(userId))) return null;
+    const flags = await storage.getReconnectFlags(userId);
+    return new Set(flags.filter((f) => f.provider === provider).map((f) => f.accountId));
+  } catch (error) {
+    console.error("[Renewal] Could not read mailbox reconnect flags (non-fatal):", error);
+    return null;
+  }
+}
+
 
 // Helper function to get userId from normalized session structure
 function getUserId(req: any): string {
@@ -1032,6 +1048,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         await storage.updateGmailAccount(existingAccount.id, updateData);
+        // Tokens replaced: the daily renewal checks may use this mailbox again.
+        await storage.clearMailboxNeedsReconnect(existingAccount.id, "gmail");
         console.log("Gmail account updated successfully:", gmailEmail);
       } else {
         if (!tokens.refresh_token) {
@@ -1222,6 +1240,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const accounts = await storage.getGmailAccounts(userId);
       
+      const reconnect = await reconnectFlagsFor(userId, "gmail");
       const safeAccounts = accounts.map(account => ({
         id: account.id,
         userId: account.userId,
@@ -1230,6 +1249,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         syncStatus: account.syncStatus,
         syncError: account.syncError,
         createdAt: account.createdAt,
+        // Only for people with the subscription_status switch; absent for everyone else.
+        ...(reconnect ? { needs_reconnect: reconnect.has(account.id) } : {}),
       }));
 
       res.json(safeAccounts);
@@ -1409,6 +1430,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         await storage.updateOutlookAccount(existingAccount.id, updateData);
+        // Tokens replaced: the daily renewal checks may use this mailbox again.
+        await storage.clearMailboxNeedsReconnect(existingAccount.id, "outlook");
         console.log("Outlook account updated successfully:", outlookEmail);
       } else {
         if (!tokens.refresh_token) {
@@ -1484,6 +1507,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const accounts = await storage.getOutlookAccounts(userId);
       
+      const reconnect = await reconnectFlagsFor(userId, "outlook");
       const safeAccounts = accounts.map(account => ({
         id: account.id,
         userId: account.userId,
@@ -1492,6 +1516,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         syncStatus: account.syncStatus,
         syncError: account.syncError,
         createdAt: account.createdAt,
+        // Only for people with the subscription_status switch; absent for everyone else.
+        ...(reconnect ? { needs_reconnect: reconnect.has(account.id) } : {}),
       }));
 
       res.json(safeAccounts);

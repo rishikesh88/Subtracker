@@ -712,6 +712,8 @@ ${head("Verloq Admin")}
   // became unreadable.
   var route = "list";
   var overview = null;
+  // The daily renewal checks' last run (null until loaded, or if it could not be).
+  var bgChecks = null;
   var detailCache = {};
   var filter = "";
   var pending = null;
@@ -994,6 +996,37 @@ ${head("Verloq Admin")}
     return grid;
   }
 
+  /** The daily renewal checks, small: when they last ran and what they did. */
+  function buildBackgroundChecks(data) {
+    var card = el("div", "card");
+    var header = el("div", "card-header");
+    header.appendChild(el("strong", "", "Background checks"));
+    card.appendChild(header);
+    var body = el("div", "stats");
+    body.style.padding = "1rem 1.25rem";
+    var ran = data.lastRunAt ? fmtDate(data.lastRunAt) : (data.lastRunDay || "Never");
+    var specs = [
+      { label: "Last run", text: data.lastRunDay ? ran : "Never", sub: data.lastRunAt ? fmtRelative(data.lastRunAt) : "" },
+      { label: "Subscriptions checked", text: String(data.checked || 0) },
+      { label: "Payments found", text: String(data.found || 0) },
+      { label: "Failures", text: String(data.failures || 0), tone: data.failures > 0 ? "is-destructive" : "" },
+      { label: "Mailboxes needing reconnect", text: String(data.mailboxesNeedingReconnect || 0), tone: data.mailboxesNeedingReconnect > 0 ? "is-warning" : "" }
+    ];
+    specs.forEach(function (spec) {
+      var cell = el("div", "stat");
+      cell.appendChild(el("div", "stat-value" + (spec.tone ? " " + spec.tone : ""), spec.text));
+      cell.appendChild(el("div", "stat-label", spec.label + (spec.sub ? " \u00b7 " + spec.sub : "")));
+      body.appendChild(cell);
+    });
+    card.appendChild(body);
+    if (data.enabled === false) {
+      var off = el("div", "cell-sub", "Switched off on this server (RENEWAL_CHECKS_ENABLED).");
+      off.style.padding = "0 1.25rem 1rem";
+      card.appendChild(off);
+    }
+    return card;
+  }
+
   function matches(user) {
     if (!filter) return true;
     var hay = [user.first_name, user.last_name, user.email, user.organization_name]
@@ -1059,6 +1092,7 @@ ${head("Verloq Admin")}
     root.className = "stack";
 
     root.appendChild(buildStats(overview.health));
+    if (bgChecks) root.appendChild(buildBackgroundChecks(bgChecks));
 
     var users = (overview.users || []).filter(matches);
 
@@ -1107,7 +1141,7 @@ ${head("Verloq Admin")}
     return text.toUpperCase().slice(0, 2);
   }
 
-  function mailboxNeedsReconnect(m) { return m.sync_status === "error"; }
+  function mailboxNeedsReconnect(m) { return m.sync_status === "error" || m.needs_reconnect === true; }
 
   function newestSync(syncs) {
     var best = null;
@@ -1194,6 +1228,12 @@ ${head("Verloq Admin")}
       var status = document.createElement("td");
       var bad = mailboxNeedsReconnect(m);
       status.appendChild(el("span", "badge " + (bad ? "badge-destructive" : "badge-muted"), m.sync_status || "idle"));
+      // Set by the daily background check when the mailbox's access has expired.
+      if (m.needs_reconnect) {
+        var rb = el("span", "badge badge-warning", "Reconnect needed");
+        rb.style.marginLeft = "0.375rem";
+        status.appendChild(rb);
+      }
       if (bad && m.sync_error) {
         var err = el("div", "cell-sub", m.sync_error);
         err.style.color = "hsl(var(--destructive))";
@@ -2561,6 +2601,8 @@ ${head("Verloq Admin")}
     }
     if ((r.view === "people" || r.view === "person") && (!overview || force)) {
       jobs.push(apiGet("/admin/api/overview").then(function (data) { overview = data; }));
+      // Optional: the list is worth showing without it.
+      jobs.push(apiGet("/admin/api/background-checks").then(function (data) { bgChecks = data; }).catch(function () { bgChecks = null; }));
     }
     if (r.view === "person" && (!detailCache[r.id] || force)) {
       var id = r.id;

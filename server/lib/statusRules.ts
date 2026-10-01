@@ -144,7 +144,7 @@ function addMonths(d: Date, n: number): Date {
   return new Date(Date.UTC(y, m, Math.min(d.getUTCDate(), lastDay)));
 }
 
-function normaliseFrequency(frequency: string | null | undefined): "weekly" | "monthly" | "quarterly" | "yearly" {
+export function normaliseFrequency(frequency: string | null | undefined): "weekly" | "monthly" | "quarterly" | "yearly" {
   switch ((frequency || "").toLowerCase()) {
     case "weekly":
       return "weekly";
