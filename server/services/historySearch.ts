@@ -32,6 +32,8 @@ import { GmailService } from "./gmail";
 import { OutlookService } from "./outlook";
 import { EmailParser } from "./emailParser";
 import { storeInvoiceAttachment } from "../lib/invoiceAttachment";
+import { mapWithConcurrency } from "../lib/concurrency";
+import { withRetry } from "../lib/retryTransient";
 import { attachmentTextOf, classifyPaymentEmail, dayString } from "../lib/statusRules";
 import {
   statusEnabledFor,
@@ -40,6 +42,7 @@ import {
   recomputeForUser,
 } from "./subscriptionStatus";
 import {
+  HISTORY_DAYS,
   MAX_MESSAGES_PER_SUBSCRIPTION,
   RETRY_DELAY_MS,
   STALE_RUNNING_MS,
@@ -65,12 +68,22 @@ import {
   searchSince,
   siblingsOf,
   selectNewMessageIds,
+  shouldStopEarly,
   worthSaving,
   type CompanySub,
   type NameClues,
   type SenderPlan,
 } from "../lib/historySearchRules";
-import type { Subscription, Email } from "@shared/schema";
+import {
+  bankAlertEvidence,
+  buildBankAlertGmailQuery,
+  evidenceFingerprint,
+  fingerprintSecret,
+  isBankOrCardSender,
+  type BankAlertEvidence,
+} from "../lib/bankAlert";
+import { isCreditCardBill } from "../lib/statusRules";
+import type { Subscription, Email, InsertPayment } from "@shared/schema";
 
 const LOG = "[History]";
 /** How long a worker waits for a running sync before giving up for now. */
@@ -79,6 +92,8 @@ const MAX_SYNC_WAIT_MS = 3 * 60 * 60 * 1000;
 const LIST_LIMIT = 200;
 /** Outlook's filter names exact addresses; more than this and Graph refuses it. */
 const MAX_OUTLOOK_ADDRESSES = 10;
+/** Attachments downloaded and stored at once; a few at a time keeps clear of Gmail and storage rate limits. */
+const ATTACHMENT_CONCURRENCY = 3;
 
 // ---------------------------------------------------------------------------
 // Worker bookkeeping (in memory, this process only)
@@ -432,7 +447,7 @@ async function searchSubscription(
   const tally: Tally = { listed: 0, fetched: 0, notKept: 0, notPayment: 0, saved: 0, duplicate: 0, skipped: 0, otherSubscription: 0 };
   const saved: Email[] = [];
   let budget = MAX_MESSAGES_PER_SUBSCRIPTION;
-  const reach = { truncated: false, oldest: null as Date | null };
+  const reach = { truncated: false, oldest: null as Date | null, stoppedEarly: null as number | null };
   const ctx: SearchContext = { userId, sub, plan, clues, group, since, stored, tally, saved, reach, checkSync };
 
   try {
@@ -460,7 +475,20 @@ async function searchSubscription(
     );
   }
 
-  const coverage = searchCoverage({ since, truncated: reach.truncated, oldestRead: reach.oldest });
+  // A subscription with no receipts or invoices of its own: bank alerts are
+  // read for the date, amount and currency of each charge, and discarded.
+  try {
+    const own = new Set((await storage.getPaymentsForSubscription(sub.id, userId)).map((p) => p.kind));
+    if (!own.has("receipt") && !own.has("invoice")) {
+      const evidence = await readBankAlertEvidence(ctx, mailboxes);
+      if (evidence.recorded > 0) console.log(`${LOG} "${sub.serviceName}": ${evidence.recorded} bank alert(s) recorded (read and discarded, ${evidence.read} read)`);
+    }
+  } catch (error) {
+    if (error instanceof SyncStarted) throw error;
+    console.error(`${LOG} Bank alert evidence failed (non-fatal):`, describeFailure(error));
+  }
+
+  const coverage = searchCoverage({ since, truncated: reach.truncated, oldestRead: reach.oldest, stoppedEarly: reach.stoppedEarly });
   let note = coverage.note;
   if (!note) {
     try {
@@ -511,7 +539,7 @@ interface SearchContext {
   tally: Tally;
   saved: Email[];
   /** Set when messages were left unread for want of budget, with the oldest date actually read. */
-  reach: { truncated: boolean; oldest: Date | null };
+  reach: { truncated: boolean; oldest: Date | null; stoppedEarly: number | null };
   checkSync: () => Promise<void>;
 }
 
@@ -554,6 +582,7 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
   const names = [...ctx.clues.search, ...ctx.clues.bodyOnly];
   const byName = Boolean(ctx.plan.byName);
   let read = 0;
+  let stopped = false;
   for (const query of gmailQueriesFor(ctx.plan, names)) {
     if (budget - read <= 0) {
       ctx.reach.truncated = true;
@@ -574,6 +603,11 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
     ctx.tally.fetched += messages.length;
     const gmail = gmailService.getGmailClient(accessToken, account.refreshToken);
 
+    // First decide, cheaply and in order, which messages are kept; then fetch
+    // their attachments a few at a time; then save in the original order, so
+    // what is stored is exactly what one-by-one would have stored.
+    const toSave: { msg: any; parsed: ReturnType<typeof parser.parseEmail>; receivedAt: Date }[] = [];
+    let notKeptInARow = 0;
     for (const msg of messages) {
       if (!msg?.id) continue;
       const parsed = parser.parseEmail(msg);
@@ -588,8 +622,16 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
       );
       if (!verdict.keep) {
         ctx.tally.notKept++;
+        // A name search that keeps nothing for a long run gives up (marked Partial).
+        notKeptInARow++;
+        if (shouldStopEarly(byName, notKeptInARow)) {
+          ctx.reach.stoppedEarly = notKeptInARow;
+          stopped = true;
+          break;
+        }
         continue;
       }
+      notKeptInARow = 0;
       // A PDF is kept whatever the words say: every invoice file is stored.
       // (Not in a search by name, where the words must say it: a found file is
       // downloaded and stored, and nothing but the name links it to the person.)
@@ -608,13 +650,25 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
         else ctx.tally.otherSubscription++;
         continue;
       }
-      await ctx.checkSync();
+      toSave.push({ msg, parsed, receivedAt });
+    }
 
-      let attachmentData: string | null = null;
-      if (msg.payload?.parts) {
-        const result = await gmailService.processAttachments(gmail, msg.id, msg, ctx.userId);
-        if (result.attachments.length > 0) attachmentData = JSON.stringify(result);
-      }
+    const downloads = await mapWithConcurrency(toSave, ATTACHMENT_CONCURRENCY, async ({ msg }) => {
+      await ctx.checkSync();
+      if (!msg.payload?.parts) return null;
+      const result = await withRetry(
+        () => gmailService.processAttachments(gmail, msg.id, msg, ctx.userId),
+        { label: `${LOG} attachments` },
+      );
+      return result.attachments.length > 0 ? JSON.stringify(result) : null;
+    });
+
+    for (let i = 0; i < toSave.length; i++) {
+      const { msg, parsed, receivedAt } = toSave[i];
+      const download = downloads[i];
+      // A failure surfaces at its own place, after the ones before it are saved.
+      if (!download.ok) throw download.error;
+      const attachmentData = download.value;
 
       await saveFound(ctx, {
         userId: ctx.userId,
@@ -634,6 +688,7 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
         processed: true,
       });
     }
+    if (stopped) break;
   }
   return read;
 }
@@ -752,19 +807,23 @@ async function searchOutlook(ctx: SearchContext, account: any, budget: number): 
     await ctx.checkSync();
 
     const storedAttachments = email.attachments
-      ? await Promise.all(
-          email.attachments.map(async (attachment) => {
-            const { contentBase64, ...rest } = attachment;
-            if (!contentBase64) return rest;
-            const objectStoragePath = await storeInvoiceAttachment({
+      ? (await mapWithConcurrency(email.attachments, ATTACHMENT_CONCURRENCY, async (attachment) => {
+          const { contentBase64, ...rest } = attachment;
+          if (!contentBase64) return rest;
+          const objectStoragePath = await withRetry(
+            () => storeInvoiceAttachment({
               buffer: Buffer.from(contentBase64, "base64"),
               filename: rest.filename,
               mimeType: rest.mimeType,
               userId: ctx.userId,
-            });
-            return { ...rest, objectStoragePath };
-          }),
-        )
+            }),
+            { label: `${LOG} attachment storage` },
+          );
+          return { ...rest, objectStoragePath };
+        })).map((r) => {
+          if (!r.ok) throw r.error;
+          return r.value;
+        })
       : undefined;
 
     await saveFound(ctx, {
@@ -787,6 +846,192 @@ async function searchOutlook(ctx: SearchContext, account: any, budget: number): 
     });
   }
   return ids.length;
+}
+
+// ---------------------------------------------------------------------------
+// Bank alerts: read and discarded
+// ---------------------------------------------------------------------------
+
+/** Messages read per mailbox for bank alerts. */
+const EVIDENCE_PER_MAILBOX = 60;
+
+/**
+ * For a subscription with no receipts or invoices of its own, finds the bank
+ * and card alerts that name it and keeps only what they prove: that a charge
+ * of this amount happened on this date.
+ *
+ * Verloq never stores credit card information, so the message is read in
+ * memory and dropped. What is written is one payment row of kind 'card_alert'
+ * with no email, no subject and no text, and a keyed one-way fingerprint of the
+ * provider and message id so the same alert is not counted twice. A message
+ * is used only if it is not a credit card bill, comes from a bank or card
+ * issuer, names the subscription (by a company name, never a plan name) and
+ * is in the subscription's currency.
+ */
+export async function readBankAlertEvidence(
+  ctx: SearchContext,
+  mailboxes: { kind: "gmail" | "outlook"; account: any }[],
+): Promise<{ read: number; recorded: number }> {
+  const secret = fingerprintSecret();
+  const names = ctx.clues.search;
+  if (!secret || names.length === 0) return { read: 0, recorded: 0 };
+
+  const known = await storage.getEvidenceFingerprints(ctx.userId, ctx.sub.id);
+  const rows: InsertPayment[] = [];
+  let read = 0;
+  let recorded = 0;
+
+  const take = (provider: string, messageId: string, found: BankAlertEvidence, fingerprint: string) => {
+    // A company with several subscriptions: the one whose price fits takes it.
+    if (belongsHere(ctx, Number(found.amount), found.currency) !== "here") return;
+    known.add(fingerprint);
+    rows.push({
+      userId: ctx.userId,
+      subscriptionId: ctx.sub.id,
+      emailId: null,
+      paidAt: found.paidAt,
+      amount: found.amount,
+      currency: found.currency,
+      kind: "card_alert",
+      documentType: "other",
+      paidStatus: "paid",
+      source: "history",
+      evidenceFingerprint: fingerprint,
+    });
+  };
+
+  const subscription = { currency: ctx.sub.currency, names };
+  try {
+    for (const mailbox of mailboxes) {
+      await ctx.checkSync();
+      try {
+        read += mailbox.kind === "gmail"
+          ? await alertsFromGmail(ctx, mailbox.account, secret, known, subscription, take)
+          : await alertsFromOutlook(ctx, mailbox.account, secret, known, subscription, take);
+      } catch (error) {
+        if (error instanceof SyncStarted) throw error;
+        // Best effort, like a search by name.
+        console.warn(`${LOG} Bank alert search failed for one mailbox (non-fatal): ${describeFailure(error)}`);
+      }
+    }
+  } finally {
+    // Whatever was found is recorded, even if a later mailbox failed or a sync started.
+    recorded = await storage.insertFingerprintedPayments(rows);
+  }
+  return { read, recorded };
+}
+
+type TakeAlert = (provider: string, messageId: string, found: BankAlertEvidence, fingerprint: string) => void;
+
+async function alertsFromGmail(
+  ctx: SearchContext,
+  account: any,
+  secret: string,
+  known: Set<string>,
+  subscription: { currency: string | null | undefined; names: string[] },
+  take: TakeAlert,
+): Promise<number> {
+  const query = buildBankAlertGmailQuery(subscription.names, HISTORY_DAYS);
+  if (!query) return 0;
+  const gmailService = new GmailService();
+  const parser = new EmailParser();
+
+  let accessToken: string = account.accessToken;
+  const expiry = account.tokenExpiry ? new Date(account.tokenExpiry) : null;
+  if (expiry && new Date() >= expiry) {
+    const tokens = await gmailService.refreshAccessToken(account.refreshToken);
+    if (!tokens.access_token) throw new PlainFailure("the mailbox needs to be reconnected");
+    accessToken = tokens.access_token;
+    await storage.updateGmailAccount(account.id, {
+      accessToken,
+      tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+    });
+  }
+
+  const listed = await gmailService.searchMessageIds(accessToken, account.refreshToken, query, LIST_LIMIT);
+  // Alerts already recorded are not read again.
+  const ids = listed.filter((id) => !known.has(evidenceFingerprint(secret, "gmail", id))).slice(0, EVIDENCE_PER_MAILBOX);
+  let read = 0;
+  for (let i = 0; i < ids.length; i += 10) {
+    await ctx.checkSync();
+    let messages: any[] | null = await gmailService.getEmailsByIds(accessToken, account.refreshToken, ids.slice(i, i + 10));
+    read += messages.length;
+    for (const msg of messages) {
+      if (!msg?.id) continue;
+      const parsed = parser.parseEmail(msg);
+      const date = isNaN(parsed.receivedAt.getTime()) ? new Date(Number(msg.internalDate) || NaN) : parsed.receivedAt;
+      const found = bankAlertEvidence(
+        { from: parsed.fromEmail, subject: parsed.subject, body: parsed.content, date },
+        subscription,
+      );
+      if (found) take("gmail", msg.id, found, evidenceFingerprint(secret, "gmail", msg.id));
+    }
+    // Nothing of the messages is kept.
+    messages = null;
+  }
+  return read;
+}
+
+async function alertsFromOutlook(
+  ctx: SearchContext,
+  account: any,
+  secret: string,
+  known: Set<string>,
+  subscription: { currency: string | null | undefined; names: string[] },
+  take: TakeAlert,
+): Promise<number> {
+  // Graph can only filter on the subject here; the sender is checked on what comes back.
+  const filter = buildOutlookNameFilter(subscription.names, ctx.since);
+  if (!filter) return 0;
+  const outlookService = new OutlookService();
+  let refreshToken: string = account.refreshToken;
+  const onTokenRefresh = async (tokens: any) => {
+    const update: any = { accessToken: tokens.access_token };
+    if (tokens.refresh_token) {
+      update.refreshToken = tokens.refresh_token;
+      refreshToken = tokens.refresh_token;
+    }
+    if (tokens.expiry_date) update.tokenExpiry = new Date(tokens.expiry_date);
+    await storage.updateOutlookAccount(account.id, update);
+  };
+  let accessToken: string = account.accessToken;
+  const expiry = account.tokenExpiry ? new Date(account.tokenExpiry) : null;
+  if (expiry && new Date() >= expiry) {
+    const tokens = await outlookService.refreshToken(refreshToken);
+    accessToken = tokens.access_token;
+    await onTokenRefresh(tokens);
+  }
+
+  const found = await outlookService.searchMessages(accessToken, refreshToken, filter, EVIDENCE_PER_MAILBOX, onTokenRefresh);
+  accessToken = found.accessToken;
+  const ids = found.messages
+    // From a bank or card issuer, and not a bill or statement: decided from the listing, before anything is fetched.
+    .filter((m) => isBankOrCardSender(m.fromEmail) && !isCreditCardBill({ subject: m.subject, content: m.snippet }))
+    .sort((a, b) => b.internalDate - a.internalDate)
+    .map((m) => m.id)
+    .filter((id) => !known.has(evidenceFingerprint(secret, "outlook", id)))
+    .slice(0, EVIDENCE_PER_MAILBOX);
+  let read = 0;
+  for (const id of ids) {
+    await ctx.checkSync();
+    let email: Awaited<ReturnType<typeof outlookService.fetchFullEmail>> | null = await outlookService.fetchFullEmail(
+      accessToken,
+      refreshToken,
+      id,
+      async (tokens) => {
+        accessToken = tokens.access_token;
+        await onTokenRefresh(tokens);
+      },
+    );
+    read++;
+    const evidence = bankAlertEvidence(
+      { from: email.fromEmail, subject: email.subject, body: email.body, date: email.receivedAt },
+      subscription,
+    );
+    if (evidence) take("outlook", id, evidence, evidenceFingerprint(secret, "outlook", id));
+    email = null;
+  }
+  return read;
 }
 
 /**

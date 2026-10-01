@@ -727,7 +727,7 @@ const BODY_RULES: KindRules = {
   pause: /\b(has\s+been|is\s+now|was)\s+paused|\bpaused\s+(until|till|through)|we('ve|\s+have)\s+paused/i,
 };
 
-const CARD_ALERT = /\b(spent\s+(on|at|using)|debited|transaction\s+alert|txn)\b/i;
+export const CARD_ALERT = /\b(spent\s+(on|at|using)|debited|transaction\s+alert|txn)\b/i;
 
 const DATE_PATTERN = "([A-Z][a-z]+\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{4}|\\d{1,2}(?:st|nd|rd|th)?\\s+[A-Z][a-z]+\\.?,?\\s+\\d{4}|\\d{4}-\\d{2}-\\d{2})";
 
@@ -969,4 +969,102 @@ export function classifyPaymentEmail(email: {
     paidOn: paidStatus === "paid" ? parseLooseDay(PAID_ON.exec(all)?.[1] ?? null, now) : null,
     dueOn: verdict === "invoice" ? parseLooseDay(DUE_ON.exec(all)?.[1] ?? null, now) : null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Reading an email as a payment row, and re-reading a stored one
+// ---------------------------------------------------------------------------
+
+/** What a payment row holds that comes from reading its email. */
+export interface PaymentFields {
+  paidAt: string;
+  amount: string | null;
+  currency: string | null;
+  kind: PaymentKind;
+  pausedUntil: string | null;
+  documentType: DocumentType;
+  paidStatus: PaidStatus;
+  dueOn: string | null;
+}
+
+/** An email as the payment reader needs it. */
+export interface EmailForPayment {
+  subject: string;
+  content: string | null;
+  receivedAt: Date | string;
+  extractedAmount: string | null;
+  extractedCurrency: string | null;
+  attachmentText?: string | null;
+}
+
+/**
+ * The payment an email records, or null when it records none (not a payment,
+ * or no usable date). `subscriptionCurrency` describes an amount only when the
+ * email has none of its own.
+ */
+export function paymentFromEmail(email: EmailForPayment, subscriptionCurrency: string, now: Date): PaymentFields | null {
+  const paidAt = dayString(email.receivedAt as any);
+  if (!paidAt) return null;
+  const amount = email.extractedAmount === null || email.extractedAmount === undefined || email.extractedAmount === ""
+    ? null
+    : Number(email.extractedAmount);
+  const verdict = classifyPaymentEmail(
+    { subject: email.subject, content: email.content, amount, attachmentText: email.attachmentText },
+    now,
+  );
+  if (!verdict) return null;
+  const hasAmount = amount !== null && isFinite(amount);
+  return {
+    // A receipt is dated by the "Paid <date>" in it; anything else by its email.
+    paidAt: verdict.kind === "receipt" ? paidDay(paidAt, verdict.paidOn) : paidAt,
+    amount: hasAmount ? amount!.toFixed(2) : null,
+    // The email's own currency where it has one; the subscription's only
+    // when there is an amount for it to describe.
+    currency: email.extractedCurrency || (hasAmount ? subscriptionCurrency : null),
+    kind: verdict.kind,
+    pausedUntil: verdict.pausedUntil,
+    documentType: verdict.documentType,
+    paidStatus: verdict.paidStatus,
+    dueOn: verdict.dueOn,
+  };
+}
+
+export type RereadDecision =
+  | { action: "keep" }
+  | { action: "remove" }
+  | { action: "update"; fields: PaymentFields };
+
+const sameNumber = (a: unknown, b: unknown) =>
+  (a === null || a === undefined || a === "") ? (b === null || b === undefined || b === "") : Number(a) === Number(b);
+const sameDay = (a: unknown, b: unknown) => (dayString(a as any) ?? null) === (dayString(b as any) ?? null);
+
+/**
+ * What to do with a stored payment now that its email has been read again:
+ * `fresh` is the new reading (null when the email is no longer a payment).
+ * Removed when it is no longer a payment, updated when any field differs,
+ * otherwise kept as it is.
+ */
+export function decideReread(
+  stored: {
+    kind: string; documentType: string | null; paidStatus: string | null; dueOn: unknown;
+    amount: unknown; currency: string | null; paidAt: unknown; pausedUntil: unknown;
+  },
+  fresh: PaymentFields | null,
+): RereadDecision {
+  if (!fresh) return { action: "remove" };
+  const same =
+    stored.kind === fresh.kind &&
+    (stored.documentType ?? null) === fresh.documentType &&
+    (stored.paidStatus ?? null) === fresh.paidStatus &&
+    sameDay(stored.dueOn, fresh.dueOn) &&
+    sameNumber(stored.amount, fresh.amount) &&
+    (stored.currency ?? null) === (fresh.currency ?? null) &&
+    sameDay(stored.paidAt, fresh.paidAt) &&
+    sameDay(stored.pausedUntil, fresh.pausedUntil);
+  return same ? { action: "keep" } : { action: "update", fields: fresh };
+}
+
+/** The ids of the emails that are credit card bills, statements or due reminders. */
+export function creditCardEmailIds(rows: { id: string; subject?: string | null; content?: string | null }[]): string[] {
+  return rows.filter((r) => isCreditCardBill(r)).map((r) => r.id);
 }

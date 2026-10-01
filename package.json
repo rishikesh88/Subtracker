@@ -26,7 +26,9 @@
     "test:sync-run": "tsx client/src/lib/syncRun.test.ts",
     "test:flags": "tsx server/lib/featureFlags.test.ts",
     "test:status": "tsx server/lib/statusRules.test.ts",
-    "test:history": "tsx server/lib/historySearchRules.test.ts"
+    "test:history": "tsx server/lib/historySearchRules.test.ts",
+    "test:bank": "tsx server/lib/bankAlert.test.ts",
+    "test:concurrency": "tsx server/lib/concurrency.test.ts"
   },
   "engines": {
     "node": "22.x"

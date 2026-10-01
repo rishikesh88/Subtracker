@@ -4,8 +4,8 @@
  * Gemini AI Subscription Detector
  * Two-phase AI analysis: Pre-filter (Phase 1.5) + Deep Analysis (Phase 2)
  * 
- * @version 1.0.1
- * @lastModified 2026-09-29
+ * @version 1.0.3
+ * @lastModified 2026-10-01
  * @protection LOCKED - See server/core/README.md for modification protocol
  * @model gemini-2.5-flash (specified by user - DO NOT CHANGE)
  * 
@@ -220,7 +220,7 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
           // Critical: If no valid IDs after filtering, approve all as fallback
           if (validIds.length === 0 && approvedIdsFromAI.length > 0) {
             console.error(`  Chunk ${i + 1}: All AI-returned IDs were invalid (not in candidate set)`);
-            console.error(`  Raw response: ${rawResponse.substring(0, 200)}...`);
+            console.error(`  Raw response not logged (privacy); length: ${rawResponse.length} characters`);
             console.warn(`  FALLBACK: Approving all ${chunk.length} candidates from this chunk (ensures maximum detection)`);
             // Fail-safe: approve all chunk candidates to avoid missing subscriptions
             approvedIds.push(...chunk.map(c => c.id));
@@ -230,8 +230,8 @@ NO other text, explanations, or formatting. ONLY the JSON object.`;
           }
           
         } catch (parseError) {
-          console.error(`  Chunk ${i + 1}: JSON parsing failed:`, parseError);
-          console.error(`  Raw response: ${rawResponse.substring(0, 200)}...`);
+          console.error(`  Chunk ${i + 1}: JSON parsing failed (${parseError instanceof Error ? parseError.name : 'error'}; details not logged for privacy)`);
+          console.error(`  Raw response not logged (privacy); length: ${rawResponse.length} characters`);
           console.warn(`  FALLBACK: Approving all ${chunk.length} candidates from this chunk (ensures maximum detection)`);
           // Fail-safe: approve all chunk candidates to avoid missing subscriptions
           // User priority is maximum detection with accuracy, so when structured parsing fails, include all
@@ -542,7 +542,7 @@ ${cancellation ? CANCELLATION_INSTRUCTION : ''}IMPORTANT: Include renewal remind
         return { ...rest, evidenceEmailIds: Array.from(new Set(ids)) };
       });
     } catch (parseError) {
-      console.error('Failed to parse Gemini response:', rawJson);
+      console.error(`Failed to parse Gemini response (reply not logged for privacy; length: ${typeof rawJson === 'string' ? rawJson.length : 'unknown'} characters)`);
       throw new Error(`Invalid JSON response from Gemini: ${parseError}`);
     }
   }

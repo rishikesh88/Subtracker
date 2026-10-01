@@ -177,6 +177,11 @@ export class EmailParser {
     return hasTransactionKeywords || (isFromMerchant && hasAmountPattern);
   }
 
+  /** The first amount and its currency in a piece of text (the reader the rest of the app uses). */
+  public readAmount(text: string): { amount: number; currency: string } | undefined {
+    return this.extractAmount(text);
+  }
+
   private extractAmount(text: string): { amount: number; currency: string } | undefined {
     // Match currency symbols and amounts (including Indian formats)
     const patterns = [

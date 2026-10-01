@@ -19,13 +19,14 @@ import { storage, type ApprovedForStatus, type PaymentSourceEmail } from "../sto
 import { isEnabled } from "../lib/featureFlags";
 import { generateServiceKey } from "../utils/serviceKey";
 import {
-  classifyPaymentEmail,
   computeLifecycle,
   countedPayments,
+  creditCardEmailIds,
+  decideReread,
   explainPayments,
   dayString,
-  paidDay,
   parseLooseDay,
+  paymentFromEmail,
   reconcileBills,
   stillActiveUntil,
   REASON_TEXT,
@@ -34,6 +35,8 @@ import {
 } from "../lib/statusRules";
 import type { InsertPayment, Subscription, Payment } from "@shared/schema";
 import { historyDetails, historyLabel } from "../lib/historySearchRules";
+import { fingerprintSecret, planBankCleanup, storedFilePaths } from "../lib/bankAlert";
+import { ObjectStorageService } from "../objectStorage";
 
 export const STATUS_FEATURE = "subscription_status";
 
@@ -55,34 +58,9 @@ export function paymentsFromEmails(
 ): InsertPayment[] {
   const rows: InsertPayment[] = [];
   for (const email of emails) {
-    const paidAt = dayString(email.receivedAt as any);
-    if (!paidAt) continue;
-    const amount = email.extractedAmount === null || email.extractedAmount === undefined || email.extractedAmount === ""
-      ? null
-      : Number(email.extractedAmount);
-    const verdict = classifyPaymentEmail(
-      { subject: email.subject, content: email.content, amount, attachmentText: email.attachmentText },
-      now,
-    );
-    if (!verdict) continue;
-    const hasAmount = amount !== null && isFinite(amount);
-    rows.push({
-      userId,
-      subscriptionId: subscription.id,
-      emailId: email.id,
-      // A receipt is dated by the "Paid <date>" in it; anything else by its email.
-      paidAt: verdict.kind === "receipt" ? paidDay(paidAt, verdict.paidOn) : paidAt,
-      amount: hasAmount ? amount!.toFixed(2) : null,
-      // The email's own currency where it has one; the subscription's only
-      // when there is an amount for it to describe.
-      currency: email.extractedCurrency || (hasAmount ? subscription.currency : null),
-      kind: verdict.kind,
-      pausedUntil: verdict.pausedUntil,
-      documentType: verdict.documentType,
-      paidStatus: verdict.paidStatus,
-      dueOn: verdict.dueOn,
-      source,
-    });
+    const fields = paymentFromEmail(email, subscription.currency, now);
+    if (!fields) continue;
+    rows.push({ userId, subscriptionId: subscription.id, emailId: email.id, ...fields, source });
   }
   return rows;
 }
@@ -307,6 +285,106 @@ export async function recomputeForUser(userId: string, now = new Date(), onlyIds
   }
 }
 
+/**
+ * Reads the stored emails behind payments saved at an approval or a sync
+ * again with today's rules, for these subscriptions. A payment whose reading
+ * changed is updated; one that is no longer a payment is deleted. Emails and
+ * payments without an email are never touched. The lifecycle of the
+ * subscriptions is recomputed afterwards. Callers check the switch.
+ */
+export async function rereadStoredPayments(
+  userId: string,
+  subscriptionIds: string[],
+  now = new Date(),
+): Promise<{ checked: number; changed: number; removed: number }> {
+  const stored = await storage.getStoredPaymentsWithEmails(userId, subscriptionIds);
+  const updates: { id: string; fields: Partial<InsertPayment> }[] = [];
+  const removeIds: string[] = [];
+  for (const { payment, email, subscriptionCurrency } of stored) {
+    const decision = decideReread(payment, paymentFromEmail(email, subscriptionCurrency, now));
+    if (decision.action === "remove") removeIds.push(payment.id);
+    else if (decision.action === "update") updates.push({ id: payment.id, fields: decision.fields });
+  }
+  await storage.applyPaymentRereads(userId, updates, removeIds);
+  if (subscriptionIds.length > 0) await recomputeForUser(userId, now, subscriptionIds);
+  return { checked: stored.length, changed: updates.length, removed: removeIds.length };
+}
+
+/** One-time clean-up: deletes this person's stored credit card emails and the payments read from them. */
+export async function removeStoredCreditCardEmails(userId: string): Promise<{ emails: number; payments: number }> {
+  const ids = creditCardEmailIds(await storage.getEmailsForCreditCardCheck(userId));
+  const removed = await storage.deleteEmailsWithPayments(userId, ids);
+  if (removed.emails > 0 || removed.payments > 0) await recomputeForUser(userId);
+  return removed;
+}
+
+export interface BankCleanupResult {
+  emails: number;
+  /** Payments deleted with their emails (the card alerts among them were kept as fingerprinted rows first). */
+  payments: number;
+  /** Card alerts kept as payment records without an email. */
+  kept: number;
+  files: number;
+  /** Files that could not be deleted (they stay in storage; the emails are removed anyway). */
+  fileFailures: number;
+  invoices: number;
+  suggestionsCleared: number;
+}
+
+/**
+ * One-time, admin-run clean-up of a person's stored bank and card emails.
+ * Callers check the switch.
+ *
+ *  a. a card alert's payment (with an amount) is first kept as a fingerprinted
+ *     payment without an email, so payment history is not lost;
+ *  b. the files named in the emails' attachment data are deleted from object
+ *     storage (and any invoice filed from them);
+ *  c. the payments pointing at the emails, then the emails, are deleted;
+ *  d. suggestions that cited them lose the model-written notes (reasoning,
+ *     sender history, attachment evidence) and the ids from their evidence list.
+ *
+ * Nothing is deleted if the fingerprint secret is missing.
+ */
+export async function removeStoredBankEmails(userId: string): Promise<BankCleanupResult> {
+  const secret = fingerprintSecret();
+  if (!secret) throw new Error("No fingerprint secret: set EVIDENCE_FINGERPRINT_SECRET (or SESSION_SECRET) first.");
+  const rows = await storage.getEmailsForBankCheck(userId);
+  // Selected first (cheap), payments looked up for those only.
+  const preliminary = planBankCleanup(rows, [], secret);
+  const result: BankCleanupResult = { emails: 0, payments: 0, kept: 0, files: 0, fileFailures: 0, invoices: 0, suggestionsCleared: 0 };
+  if (preliminary.emailIds.length === 0) return result;
+
+  const theirPayments = await storage.getPaymentsForEmailIds(userId, preliminary.emailIds);
+  const plan = planBankCleanup(rows, theirPayments, secret);
+  result.kept = await storage.insertFingerprintedPayments(plan.replacements);
+
+  const paths = new Set<string>();
+  await storage.forEachAttachmentData(userId, plan.emailIds, (data) => {
+    for (const path of storedFilePaths(data)) paths.add(path);
+  });
+  const objectStorage = new ObjectStorageService();
+  const deleted: string[] = [];
+  for (const path of Array.from(paths)) {
+    try {
+      await objectStorage.deleteObjectEntity(path);
+      deleted.push(path);
+    } catch (error) {
+      result.fileFailures++;
+      console.error("[Admin] Could not delete a stored file (non-fatal):", (error as Error).message);
+    }
+  }
+  result.files = deleted.length;
+  result.invoices = await storage.deleteInvoicesByFileUrls(userId, deleted);
+
+  // Notes first: they are matched by the ids the emails carry.
+  result.suggestionsCleared = await storage.clearSuggestionsCiting(userId, plan.messageIds);
+  const removed = await storage.deleteEmailsWithPayments(userId, plan.emailIds);
+  result.emails = removed.emails;
+  result.payments = removed.payments;
+  await recomputeForUser(userId);
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // The person's own answers (API for the later screens)
 // ---------------------------------------------------------------------------
@@ -368,12 +446,15 @@ export async function statusRowsForAdmin(userId: string) {
           kind: p.kind,
           document_type: p.documentType ?? null,
           paid_status: p.paidStatus ?? null,
+          due_on: p.dueOn ? String(p.dueOn) : null,
           counted: why[i].counted,
           note: why[i].note,
           amount: p.amount === null || p.amount === undefined ? null : String(p.amount),
           currency: p.currency ?? null,
           source: p.source,
           subject: p.emailId ? (subjects.get(p.emailId) ?? "").slice(0, 120) || null : null,
+          // A bank alert read and discarded: no email behind it, only date, amount and currency.
+          discarded: !!p.evidenceFingerprint,
         }))
         .sort((a, b) => b.paid_at.localeCompare(a.paid_at));
       const reason = sub.lifecycleReason as LifecycleReason | null;

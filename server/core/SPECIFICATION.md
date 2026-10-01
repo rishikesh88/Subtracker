@@ -570,6 +570,7 @@ const key = `${merchantName.toLowerCase()}_${currency}_${Math.round(amount)}`;
 
 | Version | Date | Changes | Approved By |
 |---------|------|---------|-------------|
+| 1.0.3 | 2026-10-01 | Logging only: the AI's raw reply (and JSON parse error details) are no longer written to the server logs, only their length, so a reply that quotes a bank alert is never logged. No prompt, schema, chunk size or fallback behaviour changed. | User |
 | 1.0.2 | 2026-09-29 | Deep analysis: added optional `cancelledOn` / `accessEndsOn` to the response schema and one `CANCELLATION (optional)` paragraph to the system prompt, for the subscription status feature. Additive only. | User |
 | 1.0.1 | 2025-11-14 | Documented tiered merchant matching system (80/60/45 pts), multi-domain support via pipe-separated format (airtel.com\|airtel.in), and tldts library integration for multi-level TLD support (.co.uk, .com.au). Updated merchant count to 200. | User |
 | 1.0.0 | 2025-11-10 | Initial specification creation | User |

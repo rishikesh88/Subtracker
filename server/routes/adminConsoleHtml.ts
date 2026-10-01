@@ -1425,13 +1425,53 @@ ${head("Verloq Admin")}
       askChoice({
         title: "Search everything again from scratch?",
         message: "Deletes the payments the history search recorded for every subscription of " + detail.email +
-          " (payments from the sync or from approvals are kept), then searches the last 12 months again in the background. Nothing they see changes.",
+          " (payments from the sync or from approvals are kept, but read again with today\u2019s rules: changed ones are updated, ones that are no longer payments are removed), then searches the last 12 months again in the background. Nothing they see changes.",
         confirmLabel: "Delete and search again",
         destructive: true,
         run: function () { return queueHistory(detail, null, true); }
       });
     });
     bar.appendChild(searchFresh);
+    var removeCards = el("button", "btn btn-outline btn-sm", "Remove stored credit card emails");
+    removeCards.type = "button";
+    removeCards.addEventListener("click", function () {
+      askChoice({
+        title: "Remove stored credit card emails?",
+        message: "Deletes the stored emails of " + detail.email + " that are credit card bills, statements or due reminders, " +
+          "and the payments read from them. This cannot be undone. Nothing they see changes.",
+        confirmLabel: "Remove emails",
+        destructive: true,
+        run: function () {
+          return apiPost("/admin/api/users/" + encodeURIComponent(detail.id) + "/remove-credit-card-emails", {})
+            .then(function (result) {
+              showStatus(result.message || "Done.", false);
+              return load(true);
+            });
+        }
+      });
+    });
+    bar.appendChild(removeCards);
+    var removeBank = el("button", "btn btn-outline btn-sm", "Remove stored bank and card emails");
+    removeBank.type = "button";
+    removeBank.addEventListener("click", function () {
+      askChoice({
+        title: "Remove stored bank and card emails?",
+        message: "Deletes the stored emails of " + detail.email + " that come from a bank or card issuer or read like a card alert, " +
+          "credit card bill or statement, and the files attached to them. Bank alerts that counted as payments are kept as plain " +
+          "payment records (date, amount, currency only); other payments read from these emails are deleted. The model-written notes " +
+          "on suggestions that cited these emails are cleared. This cannot be undone. Nothing they see changes.",
+        confirmLabel: "Remove emails",
+        destructive: true,
+        run: function () {
+          return apiPost("/admin/api/users/" + encodeURIComponent(detail.id) + "/remove-bank-emails", {})
+            .then(function (result) {
+              showStatus(result.message || "Done.", false);
+              return load(true);
+            });
+        }
+      });
+    });
+    bar.appendChild(removeBank);
     wrap.appendChild(bar);
 
     var cols = el("div", "pay-cols");
@@ -1524,7 +1564,7 @@ ${head("Verloq Admin")}
           askChoice({
             title: "Search again from scratch?",
             message: "Deletes the payments the history search recorded for " + s.service_name +
-              " (payments from the sync or approvals are kept), then searches the last 12 months again in the background.",
+              " (payments from the sync or approvals are kept, but read again with today\u2019s rules: changed ones are updated, ones that are no longer payments are removed), then searches the last 12 months again in the background.",
             confirmLabel: "Delete and search again",
             destructive: true,
             run: function () { return queueHistory(detail, s.id, true); }
@@ -1646,14 +1686,16 @@ ${head("Verloq Admin")}
           mtd.colSpan = 5;
           var dl = el("dl", "pay-facts");
           [
-            ["Email subject", p.subject || "—"],
+            ["Email subject", p.discarded ? "— (bank alert read and discarded: only date, amount and currency kept)" : (p.subject || "—")],
             ["Kind", p.kind],
             ["Document type", p.document_type || "—"],
             ["Paid status", p.paid_status || "—"],
+            ["Due date", p.kind === "invoice" ? (p.due_on ? fmtDay(p.due_on) : "—") : null],
             ["Amount", p.amount === null ? "—" : p.amount + (p.currency ? " " + p.currency : "")],
             ["Source", p.source],
             [p.counted ? "Why it counts" : "Why it doesn’t count", p.note || "—"]
           ].forEach(function (f) {
+            if (f[1] === null) return;
             dl.appendChild(el("dt", "", f[0]));
             dl.appendChild(el("dd", "", f[1]));
           });
