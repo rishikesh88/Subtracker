@@ -139,5 +139,14 @@ check("object storage paths only", storedFilePaths(JSON.stringify({ attachments:
 check("bad json", storedFilePaths("{not json"), []);
 check("none", storedFilePaths(null), []);
 
+
+console.log("Service billing notices that mention a card");
+check("Netflix declined payment naming a card is kept", shouldDropFromSync("info@members.netflix.com", "Netflix: your payment was declined", "We couldn't process your payment. Your card ending in 1234 was declined. Update payment info."), false);
+check("Spotify not processed (curly apostrophe) naming a card is kept", shouldDropFromSync("no-reply@spotify.com", "Your payment couldn\u2019t be processed", "We tried to charge the card ending 4242 for Rs 119 but it didn\u2019t go through."), false);
+check("a renewal notice naming a card is kept", shouldDropFromSync("info@members.netflix.com", "Your membership renews on 5 Nov", "We will charge the card ending 1234 Rs 649."), false);
+check("a wallet alert naming a card is still dropped", shouldDropFromSync("noreply@somewallet.in", "Your transaction was successful", "Rs 2,255.68 paid, card ending 1234"), true);
+check("a card spend alert is still dropped", shouldDropFromSync("noreply@somewallet.in", "Alert", "INR 2,255.68 spent on your Federal Bank credit card"), true);
+check("a bank sender is still dropped even with notice words", shouldDropFromSync("alerts@hdfcbank.net", "Your payment failed", "membership renews"), true);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
