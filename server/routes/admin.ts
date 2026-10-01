@@ -47,7 +47,7 @@ import {
   isValidFeatureKey,
   normaliseTags,
 } from "../lib/featureFlags";
-import { STATUS_FEATURE, statusRowsForAdmin, statusEnabledFor, rereadStoredPayments, removeStoredCreditCardEmails } from "../services/subscriptionStatus";
+import { STATUS_FEATURE, statusRowsForAdmin, statusEnabledFor, rereadStoredPayments, removeStoredCreditCardEmails, removeStoredBankEmails } from "../services/subscriptionStatus";
 import { queueAllForUser, queueHistorySearch } from "../services/historySearch";
 
 /**
@@ -624,6 +624,32 @@ export function registerAdminRoutes(app: Express): void {
     } catch (error) {
       console.error("[Admin] Failed to remove credit card emails:", error);
       res.status(500).json({ message: "Could not remove those emails." });
+    }
+  });
+
+  // One-time clean-up for a person with the switch on: removes their stored
+  // bank and card emails (see removeStoredBankEmails). Never runs by itself.
+  app.post("/admin/api/users/:id/remove-bank-emails", requireAdmin, requireAdminCsrf, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.params.id);
+      if (!user) return res.status(404).json({ message: "No such user." });
+      if (!(await statusEnabledFor(user.id))) {
+        return res.status(409).json({ message: "Subscription status is not on for this person." });
+      }
+      const r = await removeStoredBankEmails(user.id);
+      console.log(`[Admin] Bank emails removed: ${r.emails} email(s), ${r.payments} payment(s), ${r.kept} alert(s) kept, ${r.files} file(s), ${r.suggestionsCleared} suggestion(s) cleared`);
+      const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+      res.json({
+        ...r,
+        message:
+          `Removed ${plural(r.emails, "bank/card email")} and ${plural(r.payments, "payment")} read from them; ` +
+          `kept ${plural(r.kept, "bank alert")} as plain payment records; deleted ${plural(r.files, "file")}` +
+          (r.fileFailures ? ` (${r.fileFailures} could not be deleted)` : "") +
+          `; cleared notes on ${plural(r.suggestionsCleared, "suggestion")}.`,
+      });
+    } catch (error) {
+      console.error("[Admin] Failed to remove bank emails:", error);
+      res.status(500).json({ message: error instanceof Error && /fingerprint secret/.test(error.message) ? error.message : "Could not remove those emails." });
     }
   });
 

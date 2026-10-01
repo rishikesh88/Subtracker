@@ -239,6 +239,13 @@ function billedIn(email: { extractedAmount?: string | null; subject?: string | n
     : { billedAmount: null, billedCurrency: null };
 }
 
+/**
+ * The old /api/sync-emails and /api/sync-enhanced routes fetched every email
+ * unscreened, so they answer 410 before touching a mailbox. (A typed flag, not
+ * a bare early return, so the code below stays reachable to the compiler.)
+ */
+const LEGACY_SYNC_RETIRED: boolean = true;
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Platform health check, and the answer to "is what I just merged actually
   // running?". Deliberately does not touch the database: a health check that
@@ -1563,6 +1570,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Sync emails and detect subscriptions
   app.post("/api/sync-emails", isAuthenticated, async (req: any, res) => {
+    // Disabled for privacy: this route fetched every email, unscreened. The
+    // app syncs through /api/sync-emails-llm, which keeps bank and card mail out.
+    if (LEGACY_SYNC_RETIRED) return res.status(410).type("text/plain").send("This endpoint has been retired. Use the regular email sync.");
     try {
       const userId = getUserId(req);
       
@@ -2574,6 +2584,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Enhanced subscription detection endpoint 
   app.post("/api/sync-enhanced", isAuthenticated, async (req: any, res) => {
+    // Disabled for privacy: this route fetched every email, unscreened. The
+    // app syncs through /api/sync-emails-llm, which keeps bank and card mail out.
+    if (LEGACY_SYNC_RETIRED) return res.status(410).type("text/plain").send("This endpoint has been retired. Use the regular email sync.");
     try {
       const userId = getUserId(req);
       if (!userId) {

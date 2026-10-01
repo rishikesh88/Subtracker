@@ -1496,6 +1496,14 @@ export class DatabaseStorage implements IStorage {
     await this.db.execute(sql`
       CREATE INDEX IF NOT EXISTS idx_payments_user_subscription ON payments (user_id, subscription_id, paid_at)
     `);
+    // Bank alerts read and discarded: a keyed fingerprint instead of an email row.
+    await this.db.execute(sql`
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS evidence_fingerprint text
+    `);
+    await this.db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_payments_subscription_fingerprint
+        ON payments (subscription_id, evidence_fingerprint) WHERE evidence_fingerprint IS NOT NULL
+    `);
     // One-time history search (server/services/historySearch.ts).
     await this.db.execute(sql`
       ALTER TABLE subscriptions
@@ -1587,7 +1595,8 @@ export class DatabaseStorage implements IStorage {
    * only those payments pointed at (a search skips emails already stored, so
    * leaving them would make the redo find nothing). Payments from the sync or
    * an approval, and the emails behind them, are kept. Returns how many
-   * payments and emails were removed.
+   * payments and emails were removed. Bank alerts kept as fingerprinted payments
+   * (no email, see server/lib/bankAlert.ts) are history-sourced too and go with them.
    */
   async clearHistoryFindings(userId: string, subscriptionIds: string[]): Promise<{ payments: number; emails: number }> {
     if (subscriptionIds.length === 0) return { payments: 0, emails: 0 };
@@ -1824,6 +1833,105 @@ export class DatabaseStorage implements IStorage {
       removedEmails += e.length;
     }
     return { emails: removedEmails, payments: removedPayments };
+  }
+
+  /**
+   * Inserts bank-alert payments (no email row): one per (subscription,
+   * fingerprint), a repeat is skipped. Returns how many were new.
+   */
+  async insertFingerprintedPayments(rows: InsertPayment[]): Promise<number> {
+    if (rows.length === 0) return 0;
+    const inserted = await this.db
+      .insert(payments)
+      .values(rows)
+      .onConflictDoNothing()
+      .returning({ id: payments.id });
+    return inserted.length;
+  }
+
+  /** Fingerprints already recorded for a subscription. */
+  async getEvidenceFingerprints(userId: string, subscriptionId: string): Promise<Set<string>> {
+    const rows = await this.db
+      .select({ f: payments.evidenceFingerprint })
+      .from(payments)
+      .where(and(eq(payments.userId, userId), eq(payments.subscriptionId, subscriptionId), sql`${payments.evidenceFingerprint} IS NOT NULL`));
+    return new Set<string>(rows.map((r: { f: string | null }) => r.f as string));
+  }
+
+  /** What the bank-mail clean-up needs of each stored email: ids, sender, subject and the start of the body. No attachments. */
+  async getEmailsForBankCheck(userId: string): Promise<{
+    id: string; gmailId: string; emailProvider: string | null; fromEmail: string; subject: string; content: string | null;
+  }[]> {
+    return this.db
+      .select({
+        id: emails.id,
+        gmailId: emails.gmailId,
+        emailProvider: emails.emailProvider,
+        fromEmail: emails.fromEmail,
+        subject: emails.subject,
+        content: sql<string | null>`left(${emails.content}, 1500)`,
+      })
+      .from(emails)
+      .where(eq(emails.userId, userId));
+  }
+
+  /** This person's payments that point at any of these emails. */
+  async getPaymentsForEmailIds(userId: string, emailIds: string[]): Promise<Payment[]> {
+    const out: Payment[] = [];
+    for (let i = 0; i < emailIds.length; i += 500) {
+      const chunk = emailIds.slice(i, i + 500);
+      out.push(...(await this.db.select().from(payments).where(and(eq(payments.userId, userId), inArray(payments.emailId, chunk)))));
+    }
+    return out;
+  }
+
+  /** The attachment data of these emails, a few at a time (it can be large). Calls back with each one's data. */
+  async forEachAttachmentData(userId: string, emailIds: string[], fn: (attachmentData: string | null) => void | Promise<void>): Promise<void> {
+    for (let i = 0; i < emailIds.length; i += 10) {
+      const chunk = emailIds.slice(i, i + 10);
+      const rows = await this.db
+        .select({ attachmentData: emails.attachmentData })
+        .from(emails)
+        .where(and(eq(emails.userId, userId), inArray(emails.id, chunk)));
+      for (const row of rows) await fn(row.attachmentData);
+    }
+  }
+
+  /** Invoices filed from files that are being deleted. */
+  async deleteInvoicesByFileUrls(userId: string, fileUrls: string[]): Promise<number> {
+    let removed = 0;
+    for (let i = 0; i < fileUrls.length; i += 500) {
+      const gone = await this.db
+        .delete(invoices)
+        .where(and(eq(invoices.userId, userId), inArray(invoices.fileUrl, fileUrls.slice(i, i + 500))))
+        .returning({ id: invoices.id });
+      removed += gone.length;
+    }
+    return removed;
+  }
+
+  /**
+   * Suggestions that cited any of these provider message ids: the model-written
+   * notes (reasoning, sender history, attachment evidence) are cleared and the
+   * ids removed from evidence_email_ids. The service, merchant, amount,
+   * currency, frequency and the remaining ids stay. Returns how many suggestions changed.
+   */
+  async clearSuggestionsCiting(userId: string, messageIds: string[]): Promise<number> {
+    let changed = 0;
+    for (let i = 0; i < messageIds.length; i += 500) {
+      const list = sql`ARRAY[${sql.join(messageIds.slice(i, i + 500).map((id) => sql`${id}`), sql`, `)}]::text[]`;
+      const result = await this.db.execute(sql`
+        UPDATE subscription_suggestions
+        SET reasoning = NULL,
+            sender_history = NULL,
+            attachment_evidence = NULL,
+            evidence_email_ids = ARRAY(SELECT x FROM unnest(evidence_email_ids) AS x WHERE NOT (x = ANY(${list})))
+        WHERE user_id = ${userId} AND evidence_email_ids && ${list}
+        RETURNING id
+      `);
+      changed += (result as any).rows?.length ?? (result as any).rowCount ?? 0;
+    }
+    return changed;
   }
 
   /** Newest first. */

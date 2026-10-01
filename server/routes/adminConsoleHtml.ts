@@ -1451,6 +1451,27 @@ ${head("Verloq Admin")}
       });
     });
     bar.appendChild(removeCards);
+    var removeBank = el("button", "btn btn-outline btn-sm", "Remove stored bank and card emails");
+    removeBank.type = "button";
+    removeBank.addEventListener("click", function () {
+      askChoice({
+        title: "Remove stored bank and card emails?",
+        message: "Deletes the stored emails of " + detail.email + " that come from a bank or card issuer or read like a card alert, " +
+          "credit card bill or statement, and the files attached to them. Bank alerts that counted as payments are kept as plain " +
+          "payment records (date, amount, currency only); other payments read from these emails are deleted. The model-written notes " +
+          "on suggestions that cited these emails are cleared. This cannot be undone. Nothing they see changes.",
+        confirmLabel: "Remove emails",
+        destructive: true,
+        run: function () {
+          return apiPost("/admin/api/users/" + encodeURIComponent(detail.id) + "/remove-bank-emails", {})
+            .then(function (result) {
+              showStatus(result.message || "Done.", false);
+              return load(true);
+            });
+        }
+      });
+    });
+    bar.appendChild(removeBank);
     wrap.appendChild(bar);
 
     var cols = el("div", "pay-cols");
@@ -1665,7 +1686,7 @@ ${head("Verloq Admin")}
           mtd.colSpan = 5;
           var dl = el("dl", "pay-facts");
           [
-            ["Email subject", p.subject || "—"],
+            ["Email subject", p.discarded ? "— (bank alert read and discarded: only date, amount and currency kept)" : (p.subject || "—")],
             ["Kind", p.kind],
             ["Document type", p.document_type || "—"],
             ["Paid status", p.paid_status || "—"],

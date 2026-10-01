@@ -727,7 +727,7 @@ const BODY_RULES: KindRules = {
   pause: /\b(has\s+been|is\s+now|was)\s+paused|\bpaused\s+(until|till|through)|we('ve|\s+have)\s+paused/i,
 };
 
-const CARD_ALERT = /\b(spent\s+(on|at|using)|debited|transaction\s+alert|txn)\b/i;
+export const CARD_ALERT = /\b(spent\s+(on|at|using)|debited|transaction\s+alert|txn)\b/i;
 
 const DATE_PATTERN = "([A-Z][a-z]+\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?,?\\s+\\d{4}|\\d{1,2}(?:st|nd|rd|th)?\\s+[A-Z][a-z]+\\.?,?\\s+\\d{4}|\\d{4}-\\d{2}-\\d{2})";
 

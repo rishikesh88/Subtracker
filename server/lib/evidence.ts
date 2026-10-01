@@ -113,29 +113,56 @@ export function pickEvidence(
   };
 }
 
-/**
- * Senders that carry other companies' charges. Their email is good evidence
- * that a charge happened -- a card alert for Anthropic is exactly that -- but
- * it is never the merchant's brand, so it must never supply the logo.
- */
-const INTERMEDIARY_DOMAINS = [
-  // Payments and billing
+/** Payment processors and billing platforms: their receipts carry the merchant's name, so their mail stays useful. */
+export const PROCESSORS = [
   "stripe.com", "paypal.com", "razorpay.com", "payu.in", "billdesk.com", "ccavenue.com",
   "braintreepayments.com", "paddle.com", "chargebee.com", "recurly.com", "fastspring.com",
   "2checkout.com", "squareup.com", "gocardless.com", "adyen.com", "instamojo.com",
   "cashfree.com", "phonepe.com", "paytm.com",
-  // Cards and banks that do not say "bank" in their domain
-  "americanexpress.com", "aexp.com", "sbicard.com", "scapia.cards", "citi.com", "onecard.co",
-  // Mail relays
-  "sendgrid.net", "mailgun.org", "amazonses.com", "mandrillapp.com", "postmarkapp.com",
 ];
 
+/**
+ * Banks and card issuers whose domain does not say "bank" (anything with
+ * "bank" in its domain is caught by BANK_DOMAIN_WORD). Their mail is card
+ * alerts, statements and bills: never read or stored by the sync.
+ */
+export const BANK_AND_CARD = [
+  "americanexpress.com", "aexp.com", "amex.com", "americanexpress.co.in", "amexnetwork.com", "sbicard.com",
+  "scapia.cards", "citi.com", "onecard.co", "kotak.com", "hsbc.com", "hsbc.co.in", "chase.com", "capitalone.com",
+  "discover.com", "barclays.com", "barclaycard.com", "icicicards.com", "uni.cards", "jupiter.money", "fi.money",
+  "sliceit.com", "slice.bank", "indusind.com", "sbi.co.in", "pnbindia.in", "wellsfargo.com", "synchrony.com",
+  "revolut.com", "monzo.com", "n26.com", "sofi.com", "ally.com", "navyfederal.org", "td.com", "rbc.com",
+  "natwest.com", "santander.com", "standardchartered.com", "sc.com", "dbs.com", "ocbc.com", "hdfc.com",
+];
+
+/** Mail relays: they carry other companies' mail, never a brand of their own. */
+const MAIL_RELAYS = ["sendgrid.net", "mailgun.org", "amazonses.com", "mandrillapp.com", "postmarkapp.com"];
+
+/** Any bank: federalbank.co.in, hdfcbank.net, icicibank.com, axisbank.com ... */
+const BANK_DOMAIN_WORD = /(^|\.)[a-z0-9-]*bank[a-z0-9-]*\./;
+
+export function domainPart(address: string | null | undefined): string {
+  return (address ?? "").toLowerCase().trim().split("@").pop()?.replace(/[>\s].*$/, "") ?? "";
+}
+
+function inList(domain: string, list: string[]): boolean {
+  return list.some((d) => domain === d || domain.endsWith(`.${d}`));
+}
+
+/** A bank or card issuer's domain. A processor is not one, even though it also carries other companies' charges. */
+export function isBankOrCardDomain(domain: string): boolean {
+  return Boolean(domain) && (BANK_DOMAIN_WORD.test(domain) || inList(domain, BANK_AND_CARD));
+}
+
+export function isProcessorDomain(domain: string): boolean {
+  return Boolean(domain) && inList(domain, PROCESSORS);
+}
+
+/** Senders that carry other companies' charges: banks, card issuers, processors, relays. Never the merchant's brand. */
 export function isIntermediary(address: string | null | undefined): boolean {
-  const domain = (address ?? "").toLowerCase().split("@").pop() ?? "";
+  const domain = domainPart(address);
   if (!domain) return false;
-  // Any bank: federalbank.co.in, hdfcbank.net, icicibank.com, axisbank.com ...
-  if (/(^|\.)[a-z0-9-]*bank[a-z0-9-]*\./.test(domain)) return true;
-  return INTERMEDIARY_DOMAINS.some((d) => domain === d || domain.endsWith(`.${d}`));
+  return isBankOrCardDomain(domain) || isProcessorDomain(domain) || inList(domain, MAIL_RELAYS);
 }
 
 /**

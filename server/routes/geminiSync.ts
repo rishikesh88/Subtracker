@@ -13,6 +13,7 @@ import { storeInvoiceAttachment } from "../lib/invoiceAttachment";
 import { verifyCurrency } from "../lib/currencyCheck";
 import { refreshRates } from "../lib/exchangeRates";
 import { pickEvidence } from "../lib/evidence";
+import { splitBankMail } from "../lib/bankAlert";
 import { sendSyncSummaryEmail } from "../services/syncSummaryEmail";
 import { APP_BASE_URL } from "../config";
 import {
@@ -391,7 +392,18 @@ export function registerGeminiRoutes(app: Express) {
         };
       });
       
-      const detectionResults = transactionDetector.filterCandidates(extractedMetadata);
+      // Privacy: bank, card and credit card statement mail never goes further
+      // than this list. It is not pre-filtered, fetched in full, stored or
+      // sent to a model. (Its ids are still recorded as screened below, so it
+      // is not fetched again.)
+      const { kept: sendableMetadata, dropped: bankMail } = splitBankMail(extractedMetadata, (m) => ({
+        sender: m.fromEmail,
+        subject: m.subject,
+        snippet: m.snippet,
+      }));
+      if (bankMail.length > 0) console.log(`🔒 ${bankMail.length} bank/card emails kept out of the sync`);
+
+      const detectionResults = transactionDetector.filterCandidates(sendableMetadata);
       
       console.log(`\n📊 Phase 1 Detection Results:`);
       console.log(`   ✅ High confidence: ${detectionResults.stats.high}`);
@@ -771,7 +783,17 @@ export function registerGeminiRoutes(app: Express) {
         bodyPreview: msg.snippet
       }));
       
-      const detectionResults = transactionDetector.filterCandidates(extractedMetadata);
+      // Privacy: bank, card and credit card statement mail never goes further
+      // than this list. It is not pre-filtered, fetched in full, stored or
+      // sent to a model.
+      const { kept: sendableMetadata, dropped: bankMail } = splitBankMail(extractedMetadata, (m) => ({
+        sender: m.fromEmail,
+        subject: m.subject,
+        snippet: m.snippet,
+      }));
+      if (bankMail.length > 0) console.log(`🔒 ${bankMail.length} bank/card emails kept out of the sync`);
+
+      const detectionResults = transactionDetector.filterCandidates(sendableMetadata);
       
       console.log(`\n📊 Phase 1 Detection Results:`);
       console.log(`   ✅ High confidence: ${detectionResults.stats.high}`);

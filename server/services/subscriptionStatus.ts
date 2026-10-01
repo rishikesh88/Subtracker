@@ -35,6 +35,8 @@ import {
 } from "../lib/statusRules";
 import type { InsertPayment, Subscription, Payment } from "@shared/schema";
 import { historyDetails, historyLabel } from "../lib/historySearchRules";
+import { fingerprintSecret, planBankCleanup, storedFilePaths } from "../lib/bankAlert";
+import { ObjectStorageService } from "../objectStorage";
 
 export const STATUS_FEATURE = "subscription_status";
 
@@ -316,6 +318,73 @@ export async function removeStoredCreditCardEmails(userId: string): Promise<{ em
   return removed;
 }
 
+export interface BankCleanupResult {
+  emails: number;
+  /** Payments deleted with their emails (the card alerts among them were kept as fingerprinted rows first). */
+  payments: number;
+  /** Card alerts kept as payment records without an email. */
+  kept: number;
+  files: number;
+  /** Files that could not be deleted (they stay in storage; the emails are removed anyway). */
+  fileFailures: number;
+  invoices: number;
+  suggestionsCleared: number;
+}
+
+/**
+ * One-time, admin-run clean-up of a person's stored bank and card emails.
+ * Callers check the switch.
+ *
+ *  a. a card alert's payment (with an amount) is first kept as a fingerprinted
+ *     payment without an email, so payment history is not lost;
+ *  b. the files named in the emails' attachment data are deleted from object
+ *     storage (and any invoice filed from them);
+ *  c. the payments pointing at the emails, then the emails, are deleted;
+ *  d. suggestions that cited them lose the model-written notes (reasoning,
+ *     sender history, attachment evidence) and the ids from their evidence list.
+ *
+ * Nothing is deleted if the fingerprint secret is missing.
+ */
+export async function removeStoredBankEmails(userId: string): Promise<BankCleanupResult> {
+  const secret = fingerprintSecret();
+  if (!secret) throw new Error("No fingerprint secret: set EVIDENCE_FINGERPRINT_SECRET (or SESSION_SECRET) first.");
+  const rows = await storage.getEmailsForBankCheck(userId);
+  // Selected first (cheap), payments looked up for those only.
+  const preliminary = planBankCleanup(rows, [], secret);
+  const result: BankCleanupResult = { emails: 0, payments: 0, kept: 0, files: 0, fileFailures: 0, invoices: 0, suggestionsCleared: 0 };
+  if (preliminary.emailIds.length === 0) return result;
+
+  const theirPayments = await storage.getPaymentsForEmailIds(userId, preliminary.emailIds);
+  const plan = planBankCleanup(rows, theirPayments, secret);
+  result.kept = await storage.insertFingerprintedPayments(plan.replacements);
+
+  const paths = new Set<string>();
+  await storage.forEachAttachmentData(userId, plan.emailIds, (data) => {
+    for (const path of storedFilePaths(data)) paths.add(path);
+  });
+  const objectStorage = new ObjectStorageService();
+  const deleted: string[] = [];
+  for (const path of Array.from(paths)) {
+    try {
+      await objectStorage.deleteObjectEntity(path);
+      deleted.push(path);
+    } catch (error) {
+      result.fileFailures++;
+      console.error("[Admin] Could not delete a stored file (non-fatal):", (error as Error).message);
+    }
+  }
+  result.files = deleted.length;
+  result.invoices = await storage.deleteInvoicesByFileUrls(userId, deleted);
+
+  // Notes first: they are matched by the ids the emails carry.
+  result.suggestionsCleared = await storage.clearSuggestionsCiting(userId, plan.messageIds);
+  const removed = await storage.deleteEmailsWithPayments(userId, plan.emailIds);
+  result.emails = removed.emails;
+  result.payments = removed.payments;
+  await recomputeForUser(userId);
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // The person's own answers (API for the later screens)
 // ---------------------------------------------------------------------------
@@ -384,6 +453,8 @@ export async function statusRowsForAdmin(userId: string) {
           currency: p.currency ?? null,
           source: p.source,
           subject: p.emailId ? (subjects.get(p.emailId) ?? "").slice(0, 120) || null : null,
+          // A bank alert read and discarded: no email behind it, only date, amount and currency.
+          discarded: !!p.evidenceFingerprint,
         }))
         .sort((a, b) => b.paid_at.localeCompare(a.paid_at));
       const reason = sub.lifecycleReason as LifecycleReason | null;

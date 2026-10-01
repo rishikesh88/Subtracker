@@ -333,11 +333,17 @@ export const payments = pgTable("payments", {
   paidStatus: text("paid_status"), // paid | due | unclear: what it says about the money
   dueOn: date("due_on"), // a bill's due date, when the email states one
   source: text("source").$type<(typeof PAYMENT_SOURCES)[number]>().notNull(),
+  // A bank alert read and discarded: no email row is kept, only this keyed
+  // one-way fingerprint of the message (server/lib/bankAlert.ts) so it is not
+  // counted twice. Null for every other payment.
+  evidenceFingerprint: text("evidence_fingerprint"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => [
   // The same email never yields two payments for one subscription.
   uniqueIndex("uq_payments_subscription_email").on(table.subscriptionId, table.emailId),
   index("idx_payments_user_subscription").on(table.userId, table.subscriptionId, table.paidAt),
+  // ... and the same discarded bank alert never yields two.
+  uniqueIndex("uq_payments_subscription_fingerprint").on(table.subscriptionId, table.evidenceFingerprint).where(sql`evidence_fingerprint IS NOT NULL`),
   check("payments_kind_check", sql`kind IN ('receipt', 'invoice', 'card_alert', 'failed', 'refund', 'pause')`),
   check("payments_source_check", sql`source IN ('sync', 'approval', 'history')`),
 ]);
