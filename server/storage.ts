@@ -78,7 +78,7 @@ export interface IStorage {
   getEmailsPaginated(userId: string, options?: { page?: number; pageSize?: number }): Promise<{ emails: Email[]; total: number }>;
   
   // Analytics methods
-  getSubscriptionStats(userId: string, preferredCurrency?: string): Promise<{
+  getSubscriptionStats(userId: string, preferredCurrency?: string, byLifecycle?: boolean): Promise<{
     totalMonthly: number;
     activeCount: number;
     emailsAnalyzed: number;
@@ -88,6 +88,9 @@ export interface IStorage {
     /* Currency codes held by active subscriptions that no rate could reach,
        so they are missing from totalMonthly. Empty in the normal case. */
     unconvertedCurrencies: string[];
+    /* Only when counting by lifecycle status (switch `subscription_status`). */
+    needsReviewCount?: number;
+    inactiveCount?: number;
   }>;
   
   // Invoice methods
@@ -2790,7 +2793,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Analytics methods
-  async getSubscriptionStats(userId: string, preferredCurrency: string = 'INR'): Promise<{
+  async getSubscriptionStats(userId: string, preferredCurrency: string = 'INR', byLifecycle: boolean = false): Promise<{
     totalMonthly: number;
     activeCount: number;
     emailsAnalyzed: number;
@@ -2798,6 +2801,8 @@ export class DatabaseStorage implements IStorage {
     newThisMonth: number;
     changePercent: number;
     unconvertedCurrencies: string[];
+    needsReviewCount?: number;
+    inactiveCount?: number;
   }> {
     try {
       const [userSubscriptions, emailCount] = await Promise.all([
@@ -2805,7 +2810,17 @@ export class DatabaseStorage implements IStorage {
         this.db.select({ count: count() }).from(emails).where(eq(emails.userId, userId))
       ]);
       
-      const activeSubscriptions = userSubscriptions.filter(sub => sub.status === 'active');
+      /*
+       * By lifecycle (feature switch `subscription_status`): Active and
+       * Needs review count, Inactive does not. A row the rules have not
+       * reached yet falls back to the old `status`. Without the switch this is
+       * the filter it always was.
+       */
+      const lifecycleOf = (sub: Subscription): string =>
+        sub.lifecycleStatus ?? (sub.status === 'cancelled' || sub.status === 'ended' ? 'inactive' : 'active');
+      const activeSubscriptions = byLifecycle
+        ? userSubscriptions.filter(sub => lifecycleOf(sub) !== 'inactive')
+        : userSubscriptions.filter(sub => sub.status === 'active');
       
       // Calculate subscriptions added in the last 30 days
       const thirtyDaysAgo = new Date();
@@ -2883,11 +2898,22 @@ export class DatabaseStorage implements IStorage {
         ? Math.round(((totalMonthly - previousMonthTotal) / previousMonthTotal) * 100)
         : 0;
 
-      const activeCount = activeSubscriptions.length;
+      const countedCount = activeSubscriptions.length;
+      // The tile says "Active": only those the rules call Active, so it matches
+      // the dashboard's Active filter. The average is over everything counted.
+      const activeCount = byLifecycle
+        ? userSubscriptions.filter(sub => lifecycleOf(sub) === 'active').length
+        : countedCount;
       const emailsAnalyzed = emailCount[0].count;
-      const avgPerService = activeCount > 0 ? totalMonthly / activeCount : 0;
+      const avgPerService = countedCount > 0 ? totalMonthly / countedCount : 0;
 
       return {
+        ...(byLifecycle
+          ? {
+              needsReviewCount: userSubscriptions.filter(sub => lifecycleOf(sub) === 'needs_review').length,
+              inactiveCount: userSubscriptions.filter(sub => lifecycleOf(sub) === 'inactive').length,
+            }
+          : {}),
         totalMonthly: Math.round(totalMonthly * 100) / 100,
         activeCount,
         emailsAnalyzed,

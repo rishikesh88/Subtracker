@@ -8,6 +8,19 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { ReviewCard, type Decision, type ReviewSuggestion } from "@/components/ReviewCard";
+import { useFeature } from "@/hooks/useFeature";
+import { STATUS_FEATURE } from "@/lib/lifecycle";
+import CombinedReviewInbox from "@/pages/review-combined";
+
+/**
+ * With the subscription_status switch the inbox is one combined list of new
+ * suggestions and "Still paying?" questions; without it, it is the inbox
+ * below, unchanged.
+ */
+export default function ReviewInboxPage() {
+  const combined = useFeature(STATUS_FEATURE);
+  return combined ? <CombinedReviewInbox /> : <ReviewInbox />;
+}
 
 /**
  * How long a card shows its green or red before it leaves. Long enough to
@@ -41,7 +54,7 @@ function invalidateAfterDecision() {
  * Each decision is saved as it is made -- nothing is lost by closing the tab
  * halfway -- and a message offers Undo for a few seconds afterwards.
  */
-export default function ReviewInbox() {
+function ReviewInbox() {
   const { user } = useAuth();
   const userId = user?.id;
   const { toast } = useToast();

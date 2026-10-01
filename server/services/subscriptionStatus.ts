@@ -37,6 +37,7 @@ import type { InsertPayment, Subscription, Payment } from "@shared/schema";
 import { historyDetails, historyLabel } from "../lib/historySearchRules";
 import { fingerprintSecret, planBankCleanup, storedFilePaths } from "../lib/bankAlert";
 import { ObjectStorageService } from "../objectStorage";
+import { userPaymentView, historyState, reviewReason, type UserPayment } from "../lib/statusView";
 
 export const STATUS_FEATURE = "subscription_status";
 
@@ -415,6 +416,77 @@ export async function markActive(sub: Subscription, now = new Date()): Promise<S
   }
   await recomputeForUser(sub.userId, now, [sub.id]);
   return storage.getSubscription(sub.id);
+}
+
+// ---------------------------------------------------------------------------
+// What the person's own screens read
+// ---------------------------------------------------------------------------
+
+function asRules(rows: Payment[]) {
+  return rows.map((p) => ({ paidAt: p.paidAt, dueOn: p.dueOn, amount: p.amount, currency: p.currency, kind: p.kind }));
+}
+
+/**
+ * The detail panel's Payments list for one subscription: counted payments
+ * only, with a date, amount, currency and a source label. No email subjects or
+ * bodies, no email ids, and no record that is not a counted payment.
+ */
+export async function paymentViewFor(sub: Subscription, now = new Date()) {
+  const [rows, mailboxes] = await Promise.all([
+    storage.getPaymentsForSubscription(sub.id, sub.userId),
+    storage.getMailboxHealth(sub.userId),
+  ]);
+  const view = userPaymentView(asRules(rows), sub.currency, now, sub.lifecycleReason === "payment_failed");
+  const own = mailboxes.find((m) => m.id === (sub.providerAccountId ?? sub.gmailAccountId));
+  return {
+    payments: view.payments,
+    some_bills_only: view.someBillsOnly,
+    payment_failed_on: view.failedOn,
+    history_state: historyState(sub, own ? own.syncStatus === "error" : false),
+    searched_since: sub.historySearchedSince ? day(sub.historySearchedSince) : null,
+  };
+}
+
+/** One "Still paying?" question for the review inbox. */
+export interface PaymentReview {
+  id: string;
+  service_name: string;
+  merchant_email: string | null;
+  amount: string;
+  currency: string;
+  frequency: string;
+  category: string | null;
+  last_payment_at: string | null;
+  /** When it was flagged, so the inbox can sort newest first. */
+  flagged_at: string | null;
+  reason: string;
+  /** The latest few counted payments: the evidence, without any email text. */
+  recent_payments: UserPayment[];
+}
+
+/** Every subscription of this user that is waiting on "Still paying?". */
+export async function paymentReviewsFor(userId: string, now = new Date()): Promise<PaymentReview[]> {
+  const waiting = (await storage.getSubscriptions(userId)).filter((s) => s.lifecycleStatus === "needs_review");
+  if (waiting.length === 0) return [];
+  const ids = new Set(waiting.map((s) => s.id));
+  const all = (await storage.getPaymentsForUser(userId)).filter((p) => ids.has(p.subscriptionId));
+  return waiting.map((sub) => {
+    const mine = all.filter((p) => p.subscriptionId === sub.id);
+    const view = userPaymentView(asRules(mine), sub.currency, now, false);
+    return {
+      id: sub.id,
+      service_name: sub.serviceName,
+      merchant_email: sub.merchantEmail,
+      amount: String(sub.amount),
+      currency: sub.currency,
+      frequency: sub.frequency,
+      category: sub.category,
+      last_payment_at: day(sub.lastPaymentAt),
+      flagged_at: sub.lifecycleUpdatedAt ? new Date(sub.lifecycleUpdatedAt).toISOString() : null,
+      reason: reviewReason(sub.serviceName, sub.frequency, sub.lastPaymentAt),
+      recent_payments: view.payments.slice(0, 3),
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------

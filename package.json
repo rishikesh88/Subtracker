@@ -28,7 +28,9 @@
     "test:status": "tsx server/lib/statusRules.test.ts",
     "test:history": "tsx server/lib/historySearchRules.test.ts",
     "test:bank": "tsx server/lib/bankAlert.test.ts",
-    "test:concurrency": "tsx server/lib/concurrency.test.ts"
+    "test:concurrency": "tsx server/lib/concurrency.test.ts",
+    "test:status-view": "tsx server/lib/statusView.test.ts",
+    "test:lifecycle": "tsx client/src/lib/lifecycle.test.ts"
   },
   "engines": {
     "node": "22.x"
