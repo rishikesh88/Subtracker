@@ -1,7 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import type { Subscription, Invoice, GmailAccount, OutlookAccount } from "@shared/schema";
-import type { UploadResult } from "@uppy/core";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,7 +19,7 @@ import { SiGoogle } from "react-icons/si";
 import { useState, useEffect, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { ObjectUploader } from "@/components/ObjectUploader";
+import { ObjectUploader, type UploadResult } from "@/components/ObjectUploader";
 import { InvoicePreview, previewKind, downloadUrl } from "@/components/InvoicePreview";
 import { cn } from "@/lib/utils";
 import { displayCategory, statusBadge, formatDate, formatCurrency, relativeFromNow, FREQUENCY_LABEL, FREQUENCY_SUFFIX } from "@/lib/format";
@@ -286,31 +285,34 @@ export default function SubscriptionDetail({
   };
 
   // Handle upload complete
-  const handleUploadComplete = async (result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => {
-    if (result.successful && result.successful.length > 0) {
-      for (const file of result.successful) {
-        const fileUrl = file.uploadURL;
-        const fileName = file.name;
-        const fileType = file.type || 'application/octet-stream';
-        const fileSize = file.size || 0;
-
-        try {
-          await apiRequest('POST', `/api/subscriptions/${subscriptionId}/invoices`, {
-            fileUrl,
-            fileName,
-            fileType,
-            fileSize,
-            source: 'manual',
-          });
-        } catch (error) {
-          console.error('Failed to save invoice:', error);
-        }
+  const handleUploadComplete = async (result: UploadResult) => {
+    if (result.successful.length === 0) return;
+    let saved = 0;
+    for (const file of result.successful) {
+      try {
+        await apiRequest('POST', `/api/subscriptions/${subscriptionId}/invoices`, {
+          fileUrl: file.uploadURL,
+          fileName: file.name,
+          fileType: file.type || 'application/octet-stream',
+          fileSize: file.size || 0,
+          source: 'manual',
+        });
+        saved += 1;
+      } catch (error) {
+        console.error('Failed to save invoice:', error);
+        toast({
+          title: "That file wasn't saved",
+          description: file.name,
+          variant: "destructive",
+        });
       }
+    }
 
-      queryClient.invalidateQueries({ queryKey: ['/api/subscriptions', subscriptionId, 'invoices'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/subscriptions', subscriptionId, 'invoices'] });
+    if (saved > 0) {
       toast({
-        title: "Success",
-        description: `${result.successful.length} invoice(s) uploaded successfully`,
+        title: "Uploaded",
+        description: `${saved} file${saved === 1 ? '' : 's'} uploaded`,
       });
     }
   };

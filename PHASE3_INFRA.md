@@ -55,7 +55,7 @@ must accept cross-origin PUTs. Save as `cors.json`:
   {
     "origin": ["https://app.verloq.co"],
     "method": ["GET", "PUT", "HEAD"],
-    "responseHeader": ["Content-Type"],
+    "responseHeader": ["Content-Type", "ETag"],
     "maxAgeSeconds": 3600
   }
 ]
