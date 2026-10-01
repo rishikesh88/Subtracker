@@ -569,6 +569,15 @@ console.log("Credit card clean-up selection");
   check("failed: not processed", k("Action needed", "Your payment has not been processed."), "failed");
   check("a renewal notice is not a payment", k("Your Netflix membership renews on 5 Nov", "Your plan will renew on 5 Nov 2026."), null);
   check("a normal receipt is unchanged", k("Your receipt from Anthropic, PBC", "Receipt $23.60 Paid September 29, 2026"), "receipt");
+  // Netflix's own wording (curly apostrophes as in real mail).
+  check("netflix: successfully processed your payment is a receipt", k("We’ve successfully processed your payment", "Your payment has been processed."), "receipt");
+  check("netflix: payment was unsuccessful is failed", k("Your payment was unsuccessful", "Let’s fix it, so your membership isn’t interrupted."), "failed");
+  check("netflix: update payment is failed", k("Action needed: update payment", "Don’t lose access to series, films and games."), "failed");
+  check("netflix: update your payment is failed", k("Update your payment", ""), "failed");
+  check("netflix: payment has been unsuccessful (body) is failed", k("Heads up", "Your payment has been unsuccessful."), "failed");
+  check("netflix: payment was successfully processed is a receipt", k("Netflix", "Your payment was successfully processed."), "receipt");
+  check("confirm-payment notice is still skipped", k("Confirm your $23.60 payment", "Please confirm your payment."), null);
+  check("Anthropic receipt is unchanged", k("Your receipt from Anthropic, PBC", "Receipt $23.60 Paid September 29, 2026"), "receipt");
   const noPay = run({ payments: [pay("2026-09-12", null, "failed")] });
   check("only a failure notice and no payments: active, payment failed", sr(noPay), "active/payment_failed");
   check("an old failure notice and no payments: unchanged", sr(run({ payments: [pay("2026-01-12", null, "failed")] })), "active/no_payments");

@@ -1425,7 +1425,7 @@ ${head("Verloq Admin")}
       askChoice({
         title: "Search everything again from scratch?",
         message: "Deletes the payments the history search recorded for every subscription of " + detail.email +
-          " (payments from the sync or from approvals are kept, but read again with today\u2019s rules: changed ones are updated, ones that are no longer payments are removed), then searches the last 12 months again in the background. Nothing they see changes.",
+          " (payments from the sync or from approvals are kept, but read again with today\u2019s rules: changed ones are updated, ones that are no longer payments are removed), removes duplicate invoices, then searches the last 12 months again in the background. Nothing they see changes.",
         confirmLabel: "Delete and search again",
         destructive: true,
         run: function () { return queueHistory(detail, null, true); }
@@ -1472,6 +1472,26 @@ ${head("Verloq Admin")}
       });
     });
     bar.appendChild(removeBank);
+    var removeDupes = el("button", "btn btn-outline btn-sm", "Remove duplicate invoices");
+    removeDupes.type = "button";
+    removeDupes.addEventListener("click", function () {
+      askChoice({
+        title: "Remove duplicate invoices?",
+        message: "For each subscription of " + detail.email + ", keeps one copy of every invoice or receipt filed from email " +
+          "(same file name and size on the same day) and deletes the other copies and their files. Files the person uploaded " +
+          "themselves are never touched. This cannot be undone. Nothing they see changes.",
+        confirmLabel: "Remove duplicates",
+        destructive: true,
+        run: function () {
+          return apiPost("/admin/api/users/" + encodeURIComponent(detail.id) + "/remove-duplicate-invoices", {})
+            .then(function (result) {
+              showStatus(result.message || "Done.", false);
+              return load(true);
+            });
+        }
+      });
+    });
+    bar.appendChild(removeDupes);
     wrap.appendChild(bar);
 
     var cols = el("div", "pay-cols");
@@ -1564,7 +1584,7 @@ ${head("Verloq Admin")}
           askChoice({
             title: "Search again from scratch?",
             message: "Deletes the payments the history search recorded for " + s.service_name +
-              " (payments from the sync or approvals are kept, but read again with today\u2019s rules: changed ones are updated, ones that are no longer payments are removed), then searches the last 12 months again in the background.",
+              " (payments from the sync or approvals are kept, but read again with today\u2019s rules: changed ones are updated, ones that are no longer payments are removed), removes duplicate invoices, then searches the last 12 months again in the background.",
             confirmLabel: "Delete and search again",
             destructive: true,
             run: function () { return queueHistory(detail, s.id, true); }

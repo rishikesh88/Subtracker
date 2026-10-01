@@ -10,6 +10,7 @@ import {
   isPlanName,
   isProcessorSender,
   keepEmailByName,
+  buildNameOwnSenderGmailQuery,
   priceFits,
   searchCoverage,
   shouldStopEarly,
@@ -229,7 +230,8 @@ console.log("Searching by company name (no sender to search)");
   const gq = buildNameGmailQuery(plan.byName!.clues);
   check("gmail query is by company name", gq, '(("railway" OR from:railway)) newer_than:365d (receipt OR invoice OR payment OR renewal OR charged OR billing OR subscription OR cancel OR cancelled)');
   check("plan name is never in the query", gq!.includes("hobby"), false);
-  check("gmailQueriesFor uses it", gmailQueriesFor(plan, ["Railway"]), [gq]);
+  check("gmailQueriesFor: own-sender query first, then the by-name one", gmailQueriesFor(plan, ["Railway"]), [buildNameOwnSenderGmailQuery(plan.byName!.clues), gq]);
+  check("own-sender query", buildNameOwnSenderGmailQuery(["Railway"]), "(from:railway) newer_than:365d (receipt OR invoice OR payment OR renewal OR charged OR billing OR subscription OR cancel OR cancelled)");
   check("outlook name filter (subject)", buildOutlookNameFilter(["Railway"], searchSince(NOW)), "receivedDateTime ge 2025-09-29T10:00:00.000Z and (contains(subject,'railway'))");
   const by = plan.byName!;
   const stripe = { fromEmail: "invoice+statements+acct_1A@stripe.com", fromName: "Railway Corporation", subject: "Your receipt from Railway Corporation #2139-9980", text: "Receipt from Railway Corporation $5.90 Paid September 18, 2026 Hobby plan", currency: "USD" };
@@ -304,6 +306,19 @@ console.log("Early stop for a search by name");
   const early = searchCoverage({ since: searchSince(NOW), truncated: false, oldestRead: new Date("2026-03-12T08:00:00Z"), stoppedEarly: 60 });
   check("early stop is Partial with an honest note", [early.partial, early.note], [true, "Partial: stopped after 60 emails in a row that were not about it, back to Mar 2026"]);
   check("no early stop: coverage unchanged", searchCoverage({ since: searchSince(NOW), truncated: false, oldestRead: new Date("2026-03-12T08:00:00Z"), stoppedEarly: null }).partial, false);
+}
+
+console.log("Netflix: its own mail from account.netflix.com, found by name");
+{
+  const by = { clues: ["Netflix"], bodyClues: [], currency: "INR" };
+  const own = (subject: string, text: string) => ({ fromEmail: "info@account.netflix.com", fromName: "Netflix", subject, text, currency: null });
+  check("processed notice kept", keepEmailByName(own("We’ve successfully processed your payment", "Your payment has been processed."), by), { keep: true });
+  check("unsuccessful payment kept", keepEmailByName(own("Your payment was unsuccessful", "Let’s fix it, so your membership isn’t interrupted."), by), { keep: true });
+  check("update payment kept", keepEmailByName(own("Action needed: update payment", "Don’t lose access to series, films and games. Update your payment."), by), { keep: true });
+  check("own mail in another currency still dropped", keepEmailByName({ ...own("Payment receipt", "payment $5"), currency: "USD" }, by), { keep: false, why: "wrong_currency" });
+  check("bank alert naming Netflix, no currency, still dropped", keepEmailByName({ fromEmail: "alerts@hdfcbank.net", fromName: "HDFC Bank", subject: "Payment alert", text: "payment at Netflix", currency: null }, by), { keep: false, why: "other_sender" });
+  const qs = gmailQueriesFor({ owned: [], shared: [], addresses: [], byName: by }, ["Netflix"]);
+  check("own-sender query runs before the broad one", [qs.length, qs[0].startsWith("(from:netflix)"), qs[1].includes('"netflix" OR from:netflix')], [2, true, true]);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

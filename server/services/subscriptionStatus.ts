@@ -37,6 +37,7 @@ import type { InsertPayment, Subscription, Payment } from "@shared/schema";
 import { historyDetails, historyLabel } from "../lib/historySearchRules";
 import { fingerprintSecret, planBankCleanup, storedFilePaths } from "../lib/bankAlert";
 import { ObjectStorageService } from "../objectStorage";
+import { planDuplicateInvoiceRemoval } from "../lib/invoiceDuplicates";
 import { userPaymentView, historyState, reviewReason, type UserPayment } from "../lib/statusView";
 
 export const STATUS_FEATURE = "subscription_status";
@@ -383,6 +384,48 @@ export async function removeStoredBankEmails(userId: string): Promise<BankCleanu
   result.emails = removed.emails;
   result.payments = removed.payments;
   await recomputeForUser(userId);
+  return result;
+}
+
+export interface DuplicateInvoiceResult {
+  removed: number;
+  kept: number;
+  files: number;
+  fileFailures: number;
+}
+
+/**
+ * Removes duplicate invoices filed from email (never manual uploads): the same
+ * file name and size on the same day, filed again by each search re-run. One
+ * row is kept per document (the earliest id); the others and their stored
+ * files go. Limited to some subscriptions when `subscriptionIds` is given.
+ * A file failing to delete is counted and never stops the run, and a path a
+ * kept row still uses is never deleted. Callers check the switch.
+ */
+export async function removeDuplicateInvoices(userId: string, subscriptionIds?: string[]): Promise<DuplicateInvoiceResult> {
+  const all = await storage.getInvoiceRowsForDuplicates(userId);
+  const scope = subscriptionIds ? new Set(subscriptionIds) : null;
+  const rows = scope ? all.filter((r) => scope.has(r.subscriptionId)) : all;
+  const plan = planDuplicateInvoiceRemoval(rows);
+  const result: DuplicateInvoiceResult = { removed: 0, kept: plan.kept, files: 0, fileFailures: 0 };
+  if (plan.removeIds.length === 0) return result;
+
+  result.removed = await storage.deleteInvoicesByIds(userId, plan.removeIds);
+
+  // Rows outside the scope may still point at the same file.
+  const removedIds = new Set(plan.removeIds);
+  const stillUsed = new Set(all.filter((r) => !removedIds.has(r.id)).map((r) => r.fileUrl));
+  const objectStorage = new ObjectStorageService();
+  for (const path of plan.deletePaths) {
+    if (stillUsed.has(path)) continue;
+    try {
+      await objectStorage.deleteObjectEntity(path);
+      result.files++;
+    } catch (error) {
+      result.fileFailures++;
+      console.error("[Admin] Could not delete a duplicate invoice file (non-fatal):", (error as Error).message);
+    }
+  }
   return result;
 }
 

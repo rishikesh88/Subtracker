@@ -14,6 +14,7 @@ import { revokeGoogleToken } from "./lib/oauthRevoke";
 import { looksLikeBill } from "./lib/billingEmail";
 import { attachmentTextOf } from "./lib/statusRules";
 import { ObjectStorageService } from "./objectStorage";
+import { invoiceIdentity, type InvoiceRowForDuplicates } from "./lib/invoiceDuplicates";
 
 /**
  * Token columns encrypted at rest. Every read and write of these tables goes
@@ -546,6 +547,23 @@ export class DatabaseStorage implements IStorage {
       return Boolean(sender) && tokens.some((token) => sender.includes(token));
     };
 
+    // What this subscription already holds, read once.
+    const held = await this.db
+      .select({
+        fileName: invoices.fileName,
+        fileSize: invoices.fileSize,
+        fileUrl: invoices.fileUrl,
+        uploadedAt: invoices.uploadedAt,
+      })
+      .from(invoices)
+      .where(eq(invoices.subscriptionId, subscription.id));
+    const known = { paths: new Set<string>(), identities: new Set<string>() };
+    for (const h of held) {
+      known.paths.add(h.fileUrl);
+      const identity = invoiceIdentity({ subscriptionId: subscription.id, fileName: h.fileName, fileSize: h.fileSize, uploadedAt: h.uploadedAt });
+      if (identity) known.identities.add(identity);
+    }
+
     let created = 0;
     let skipped = 0;
     let emailsWithFiles = 0;
@@ -585,21 +603,22 @@ export class DatabaseStorage implements IStorage {
       }
 
       for (const attachment of stored) {
-        const existing = await this.db
-          .select({ id: invoices.id })
-          .from(invoices)
-          .where(
-            and(
-              eq(invoices.subscriptionId, subscription.id),
-              eq(invoices.fileUrl, attachment.objectStoragePath),
-            ),
-          )
-          .limit(1);
-
-        if (existing.length > 0) {
+        const uploadedAt = email.receivedAt ? new Date(email.receivedAt) : new Date();
+        // A search re-run uploads the same PDF to a new object-storage path,
+        // so the path alone never matches. The same file name and size on
+        // the same day is one document, however many runs or emails carry it.
+        const identity = invoiceIdentity({
+          subscriptionId: subscription.id,
+          fileName: attachment.filename,
+          fileSize: attachment.size,
+          uploadedAt,
+        });
+        if (known.paths.has(attachment.objectStoragePath) || (identity && known.identities.has(identity))) {
           skipped++;
           continue;
         }
+        known.paths.add(attachment.objectStoragePath);
+        if (identity) known.identities.add(identity);
 
         // Inserted directly rather than through createInvoice, which has no
         // uploadedAt: the archive is read by the date on the receipt, not the
@@ -612,7 +631,7 @@ export class DatabaseStorage implements IStorage {
           fileSize: attachment.size,
           fileUrl: attachment.objectStoragePath,
           source: 'gmail',
-          uploadedAt: email.receivedAt ? new Date(email.receivedAt) : new Date(),
+          uploadedAt,
         });
         created++;
       }
@@ -1898,6 +1917,34 @@ export class DatabaseStorage implements IStorage {
         .where(and(eq(emails.userId, userId), inArray(emails.id, chunk)));
       for (const row of rows) await fn(row.attachmentData);
     }
+  }
+
+  /** Every invoice row of a person, for the duplicate clean-up. */
+  async getInvoiceRowsForDuplicates(userId: string): Promise<InvoiceRowForDuplicates[]> {
+    return this.db
+      .select({
+        id: invoices.id,
+        subscriptionId: invoices.subscriptionId,
+        fileName: invoices.fileName,
+        fileSize: invoices.fileSize,
+        fileUrl: invoices.fileUrl,
+        source: invoices.source,
+        uploadedAt: invoices.uploadedAt,
+      })
+      .from(invoices)
+      .where(eq(invoices.userId, userId));
+  }
+
+  async deleteInvoicesByIds(userId: string, ids: string[]): Promise<number> {
+    let removed = 0;
+    for (let i = 0; i < ids.length; i += 500) {
+      const gone = await this.db
+        .delete(invoices)
+        .where(and(eq(invoices.userId, userId), inArray(invoices.id, ids.slice(i, i + 500))))
+        .returning({ id: invoices.id });
+      removed += gone.length;
+    }
+    return removed;
   }
 
   /** Invoices filed from files that are being deleted. */
