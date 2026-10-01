@@ -236,6 +236,8 @@ export interface CountedPayment {
   amount: number | null;
   currency: string | null;
   kind: string;
+  /** Position of the record in the list given (only so a screen can say which record this is). */
+  ref?: number;
 }
 
 function median(values: number[]): number {
@@ -248,6 +250,10 @@ interface Merged {
   kept: CountedPayment[];
   /** card-alert amount per unit of receipt amount, keyed "RECEIPTCUR>ALERTCUR", from the pairs merged. */
   rates: Map<string, number>;
+  /** Every record that could count, before merging (each has its `ref`). */
+  candidates: CountedPayment[];
+  /** A receipt with no amount that is not counted, and the payment with an amount that covers it. */
+  covered: Map<CountedPayment, CountedPayment>;
 }
 
 /**
@@ -266,17 +272,24 @@ interface Merged {
  * of the same two currencies (counting its own); a lone pair has nothing to be
  * compared with and is merged on date and uniqueness alone. Records without an amount or a
  * currency are never merged this way.
+ *
+ * One narrow exception: a receipt with no amount (typically a welcome email
+ * that says "your payment method has been charged") is not a payment of its
+ * own when the same subscription has a counted receipt or card alert with an
+ * amount within three days of it. It stays recorded; it is only not counted.
+ * A receipt with no amount and no such neighbour counts as before.
  */
 function mergeCharges(payments: LifecyclePayment[]): Merged {
   const candidates: CountedPayment[] = [];
-  for (const p of payments) {
-    if (!COUNTED_KINDS.has(String(p.kind))) continue;
+  payments.forEach((p, ref) => {
+    if (!COUNTED_KINDS.has(String(p.kind))) return;
     const day = toDay(p.paidAt);
-    if (!day) continue;
+    if (!day) return;
     const amount = amountOf(p);
-    if (amount !== null && amount <= 0) continue;
-    candidates.push({ day, amount, currency: p.currency ?? null, kind: String(p.kind) });
-  }
+    if (amount !== null && amount <= 0) return;
+    candidates.push({ day, amount, currency: p.currency ?? null, kind: String(p.kind), ref });
+  });
+  const all = [...candidates];
 
   candidates.sort(
     (a, b) =>
@@ -330,7 +343,22 @@ function mergeCharges(payments: LifecyclePayment[]): Merged {
     rates.set(key, median(accepted.filter((p) => p.key === key).map((p) => p.ratio)));
   }
   kept = kept.filter((k) => !dropped.has(k));
-  return { kept, rates };
+
+  // A receipt with no amount next to a counted payment with an amount.
+  const covered = new Map<CountedPayment, CountedPayment>();
+  const withAmount = kept.filter((k) => k.amount !== null);
+  for (const k of kept) {
+    if (k.kind !== "receipt" || k.amount !== null) continue;
+    let cover: CountedPayment | null = null;
+    for (const o of withAmount) {
+      const gap = Math.abs(o.day.getTime() - k.day.getTime());
+      if (gap > 3 * DAY_MS) continue;
+      if (!cover || gap < Math.abs(cover.day.getTime() - k.day.getTime())) cover = o;
+    }
+    if (cover) covered.set(k, cover);
+  }
+  kept = kept.filter((k) => !covered.has(k));
+  return { kept, rates, candidates: all, covered };
 }
 
 /**
@@ -340,7 +368,8 @@ function mergeCharges(payments: LifecyclePayment[]): Merged {
  *
  * One charge, one payment: see mergeCharges for when two records are one
  * charge. Records without an amount are never merged, since there is nothing
- * to say they match.
+ * to say they match; the one exception is a receipt with no amount that sits
+ * within three days of a counted payment with an amount (see mergeCharges).
  */
 export function countedPayments(payments: LifecyclePayment[]): CountedPayment[] {
   return mergeCharges(payments).kept.sort((a, b) => a.day.getTime() - b.day.getTime());
@@ -351,6 +380,8 @@ export interface BillRecord {
   dueOn: Date | null;
   amount: number | null;
   currency: string | null;
+  /** Position of the record in the list given. */
+  ref?: number;
 }
 
 export interface BillReconciliation {
@@ -360,6 +391,8 @@ export interface BillReconciliation {
   noReceipt: BillRecord[];
   /** Recent bills still inside the window a receipt may yet arrive in. */
   open: BillRecord[];
+  /** Positions (in the list given) of the bills a payment paid. */
+  pairedRefs: number[];
 }
 
 /** Plain words for the list of payments (and what a later screen shows). */
@@ -378,12 +411,12 @@ export function reconcileBills(payments: LifecyclePayment[], now: Date): BillRec
   const today = toDay(now)!;
   const { kept, rates } = mergeCharges(payments);
   const bills: BillRecord[] = [];
-  for (const p of payments) {
-    if (p.kind !== "invoice") continue;
+  payments.forEach((p, ref) => {
+    if (p.kind !== "invoice") return;
     const day = toDay(p.paidAt);
-    if (!day) continue;
-    bills.push({ day, dueOn: toDay(p.dueOn), amount: amountOf(p), currency: p.currency ?? null });
-  }
+    if (!day) return;
+    bills.push({ day, dueOn: toDay(p.dueOn), amount: amountOf(p), currency: p.currency ?? null, ref });
+  });
   bills.sort((a, b) => a.day.getTime() - b.day.getTime());
 
   const amountsFit = (bill: BillRecord, pay: CountedPayment): boolean => {
@@ -397,7 +430,7 @@ export function reconcileBills(payments: LifecyclePayment[], now: Date): BillRec
   };
 
   const used = new Set<CountedPayment>();
-  const result: BillReconciliation = { paired: 0, noReceipt: [], open: [] };
+  const result: BillReconciliation = { paired: 0, noReceipt: [], open: [], pairedRefs: [] };
   for (const bill of bills) {
     const anchor = bill.dueOn && bill.dueOn.getTime() > bill.day.getTime() ? bill.dueOn : bill.day;
     const from = bill.day.getTime() - BILL_RECEIPT_BEFORE_DAYS * DAY_MS;
@@ -413,6 +446,7 @@ export function reconcileBills(payments: LifecyclePayment[], now: Date): BillRec
     if (best) {
       used.add(best);
       result.paired++;
+      if (bill.ref !== undefined) result.pairedRefs.push(bill.ref);
     } else if (to < today.getTime()) {
       result.noReceipt.push(bill);
     } else {
@@ -420,6 +454,47 @@ export function reconcileBills(payments: LifecyclePayment[], now: Date): BillRec
     }
   }
   return result;
+}
+
+export interface PaymentExplanation {
+  counted: boolean;
+  /** Plain words for why the record does or does not count. */
+  note: string;
+}
+
+const EXPLAIN_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function explainDay(d: Date): string {
+  return `${d.getUTCDate()} ${EXPLAIN_MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
+
+/**
+ * For each record given (same order), whether it counts as a payment and why
+ * not when it does not. Uses the same merging and bill pairing as the counts,
+ * so a screen listing the records never disagrees with them. Read only.
+ */
+export function explainPayments(payments: LifecyclePayment[], now: Date): PaymentExplanation[] {
+  const merged = mergeCharges(payments);
+  const bills = reconcileBills(payments, now);
+  const keptRefs = new Set(merged.kept.map((k) => k.ref));
+  const candidateRefs = new Set(merged.candidates.map((c) => c.ref));
+  const coveredBy = new Map<number, CountedPayment>();
+  Array.from(merged.covered.entries()).forEach(([k, c]) => { if (k.ref !== undefined) coveredBy.set(k.ref, c); });
+  const noReceiptRefs = new Set(bills.noReceipt.map((b) => b.ref));
+  const pairedRefs = new Set(bills.pairedRefs);
+  return payments.map((p, i): PaymentExplanation => {
+    const kind = String(p.kind);
+    if (kind === "invoice") {
+      if (pairedRefs.has(i)) return { counted: false, note: "Bill, paired with a receipt (shows as that payment)" };
+      if (noReceiptRefs.has(i)) return { counted: false, note: BILL_NO_RECEIPT_LABEL };
+      return { counted: false, note: "Bill, receipt may still come" };
+    }
+    if (!COUNTED_KINDS.has(kind)) return { counted: false, note: `Not counted: ${kind.replace("_", " ")}` };
+    if (!candidateRefs.has(i)) return { counted: false, note: "Not counted: zero amount or no date" };
+    if (keptRefs.has(i)) return { counted: true, note: "Counts as a payment" };
+    const cover = coveredBy.get(i);
+    if (cover) return { counted: false, note: `Not counted: no amount, covered by ${explainDay(cover.day)} payment` };
+    return { counted: false, note: "Not counted: same charge as another record" };
+  });
 }
 
 // ---------------------------------------------------------------------------

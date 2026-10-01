@@ -387,6 +387,7 @@ const baseStyles = `
   .match[aria-pressed="true"] { background: hsl(var(--muted)); }
 
   .person-head { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; justify-content: space-between; }
+  .payment-list summary { cursor: pointer; font-weight: 500; padding: 0.25rem 0; }
   .person-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 
   /* --- Dialog ------------------------------------------------------------ */
@@ -1218,6 +1219,32 @@ ${head("Verloq Admin")}
       tr.appendChild(hist);
       return tr;
     }));
+
+    // Every recorded payment under each subscription, newest first. Read only.
+    rows.forEach(function (s) {
+      var list = s.payment_list || [];
+      if (list.length === 0) return;
+      var details = el("details", "payment-list");
+      details.appendChild(el("summary", "", s.service_name + " - Payments (" + list.length + ")"));
+      var headers = ["Date", "Kind", "Document", "Paid", "Counts", "Amount", "Source", "Email subject"];
+      details.appendChild(buildTable(headers, list, function (p) {
+        var tr = document.createElement("tr");
+        tr.appendChild(el("td", "num nowrap", fmtDay(p.paid_at)));
+        tr.appendChild(el("td", "", p.kind));
+        tr.appendChild(el("td", "", p.document_type || "—"));
+        tr.appendChild(el("td", "", p.paid_status || "—"));
+        var counts = document.createElement("td");
+        counts.appendChild(el("div", "", p.counted ? "yes" : "no"));
+        counts.appendChild(el("div", "cell-sub", p.note));
+        tr.appendChild(counts);
+        tr.appendChild(el("td", "num nowrap", p.amount === null ? "—" : p.amount + (p.currency ? " " + p.currency : "")));
+        tr.appendChild(el("td", "", p.source));
+        var subject = p.subject || "";
+        tr.appendChild(el("td", "cell-sub", subject ? (subject.length > 80 ? subject.slice(0, 80) + "…" : subject) : "—"));
+        return tr;
+      }));
+      wrap.appendChild(details);
+    });
     return wrap;
   }
 

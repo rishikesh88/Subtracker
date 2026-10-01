@@ -2,6 +2,7 @@
 import {
   computeLifecycle,
   countedPayments,
+  explainPayments,
   classifyPaymentEmail,
   attachmentTextOf,
   paidDay,
@@ -171,6 +172,27 @@ check("card alert only: and is flagged when it stops", sr(run({ payments: [pay("
 check("receipt with no amount: counts", run({ payments: [pay("2026-09-12", null)] }).lastPaymentAt, "2026-09-12");
 check("two amountless receipts two days apart are not merged", countedPayments([pay("2026-09-10", null), pay("2026-09-12", null)]).length, 2);
 
+// No-amount receipt next to a payment with an amount.
+{
+  const claude = pay("2026-06-29", 23.6, "receipt", "USD");
+  const welcome = pay("2026-06-29", null, "receipt", "USD");
+  check("claude: receipt + same-day welcome with no amount: one payment", countedPayments([claude, welcome]).length, 1);
+  check("claude: the amounted receipt is the one kept", countedPayments([welcome, claude])[0].amount, 23.6);
+  check("welcome with no amount and no neighbour still counts", countedPayments([welcome]).length, 1);
+  check("no amount, 3 days from an amounted one: covered", countedPayments([claude, pay("2026-07-02", null, "receipt", "USD")]).length, 1);
+  check("no amount, 5 days from an amounted one: still counts", countedPayments([claude, pay("2026-07-04", null, "receipt", "USD")]).length, 2);
+  check("a no-amount receipt is covered by a card alert with an amount", countedPayments([pay("2026-06-30", 2255.68, "card_alert", "INR"), welcome]).length, 1);
+  check("a no-amount card alert is unaffected", countedPayments([claude, pay("2026-06-29", null, "card_alert", "USD")]).length, 2);
+  check("a bill with an amount does not cover a no-amount receipt", countedPayments([pay("2026-06-29", 23.6, "invoice", "USD"), welcome]).length, 1);
+  check("a failed payment with an amount does not cover it", countedPayments([pay("2026-06-29", 23.6, "failed", "USD"), welcome]).length, 1);
+  check("two no-amount receipts do not cover each other", countedPayments([welcome, pay("2026-06-30", null, "receipt", "USD")]).length, 2);
+  check("it stays recorded: explained as covered", explainPayments([claude, welcome], NOW).map((e) => e.note), ["Counts as a payment", "Not counted: no amount, covered by 29 Jun 2026 payment"]);
+  check("explain: a lone no-amount receipt counts", explainPayments([welcome], NOW)[0].counted, true);
+  check("explain: bill with no receipt", explainPayments([pay("2026-06-18", 23.6, "invoice", "USD")], NOW)[0].note, BILL_NO_RECEIPT_LABEL);
+  check("explain: paired bill", explainPayments([pay("2026-06-28", 23.6, "invoice", "USD"), claude], NOW).map((e) => e.counted), [false, true]);
+  check("explain: refund is not counted", explainPayments([pay("2026-06-29", 23.6, "refund", "USD")], NOW)[0].note, "Not counted: refund");
+}
+
 // Different currencies.
 {
   const payments = [pay("2026-07-10", 20, "receipt", "USD"), pay("2026-08-10", 1700, "receipt", "INR"), pay("2026-09-10", 20, "receipt", "USD")];
@@ -323,7 +345,8 @@ console.log("Cross-currency: a USD receipt and an INR card alert");
   check("more than three days apart: two payments", countedPayments([usd, pay("2026-10-03", 2255.68, "card_alert", "INR")]).length, 2);
   check("same currency stays as before (receipt + alert)", countedPayments([pay("2026-09-12", 499.4, "card_alert"), pay("2026-09-11", 499, "receipt")]).length, 1);
   check("an alert without an amount is never merged", countedPayments([usd, pay("2026-09-30", null, "card_alert", "INR")]).length, 2);
-  check("a receipt without an amount is never merged", countedPayments([pay("2026-09-29", null, "receipt", "USD"), inr]).length, 2);
+  // Updated on purpose: a no-amount receipt within 3 days of an amounted payment is now covered by it (see "No-amount receipt" below).
+  check("a receipt without an amount next to an amounted alert is covered by it", countedPayments([pay("2026-09-29", null, "receipt", "USD"), inr]).length, 1);
   check("an alert without a currency is not merged across currencies", countedPayments([usd, pay("2026-09-30", 2255.68, "card_alert", null)]).length, 2);
   // Ambiguous: one receipt, two alerts close by.
   check("ambiguous (two alerts near one receipt): nothing merged", countedPayments([usd, inr, pay("2026-09-29", 1900, "card_alert", "INR")]).length, 3);
