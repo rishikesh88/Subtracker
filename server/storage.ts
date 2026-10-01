@@ -1725,6 +1725,16 @@ export class DatabaseStorage implements IStorage {
     return this.db.select().from(payments).where(eq(payments.userId, userId));
   }
 
+  /** Subject lines only (never the body), for this person's own emails. */
+  async getEmailSubjects(userId: string, emailIds: string[]): Promise<Map<string, string>> {
+    if (emailIds.length === 0) return new Map();
+    const rows = await this.db
+      .select({ id: emails.id, subject: emails.subject })
+      .from(emails)
+      .where(and(eq(emails.userId, userId), inArray(emails.id, emailIds)));
+    return new Map(rows.map((r: { id: string; subject: string }) => [r.id, r.subject] as [string, string]));
+  }
+
   /** Newest first. */
   async getPaymentsForSubscription(subscriptionId: string, userId: string): Promise<Payment[]> {
     return this.db

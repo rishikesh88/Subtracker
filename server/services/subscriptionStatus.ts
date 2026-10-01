@@ -22,6 +22,7 @@ import {
   classifyPaymentEmail,
   computeLifecycle,
   countedPayments,
+  explainPayments,
   dayString,
   paidDay,
   parseLooseDay,
@@ -348,12 +349,33 @@ export async function statusRowsForAdmin(userId: string) {
     storage.getSubscriptions(userId),
     storage.getPaymentsForUser(userId),
   ]);
+  const subjects = await storage.getEmailSubjects(
+    userId,
+    allPayments.map((p) => p.emailId).filter((id): id is string => !!id),
+  );
   return subs
     .map((sub) => {
       const mine = allPayments.filter((p) => p.subscriptionId === sub.id);
       const asRules = mine.map((p) => ({ paidAt: p.paidAt, dueOn: p.dueOn, amount: p.amount, currency: p.currency, kind: p.kind }));
       const counted = countedPayments(asRules);
-      const bills = reconcileBills(asRules, new Date());
+      const now = new Date();
+      const bills = reconcileBills(asRules, now);
+      const why = explainPayments(asRules, now);
+      // Every record, newest first. Subject lines only, cut short; no email bodies.
+      const payment_list = mine
+        .map((p, i) => ({
+          paid_at: String(p.paidAt),
+          kind: p.kind,
+          document_type: p.documentType ?? null,
+          paid_status: p.paidStatus ?? null,
+          counted: why[i].counted,
+          note: why[i].note,
+          amount: p.amount === null || p.amount === undefined ? null : String(p.amount),
+          currency: p.currency ?? null,
+          source: p.source,
+          subject: p.emailId ? (subjects.get(p.emailId) ?? "").slice(0, 120) || null : null,
+        }))
+        .sort((a, b) => b.paid_at.localeCompare(a.paid_at));
       const reason = sub.lifecycleReason as LifecycleReason | null;
       return {
         id: sub.id,
@@ -369,6 +391,7 @@ export async function statusRowsForAdmin(userId: string) {
         still_active_taps: sub.stillActiveTaps ?? 0,
         payments_counted: counted.length,
         payments_recorded: mine.length,
+        payment_list,
         updated_at: sub.lifecycleUpdatedAt,
         history_status: sub.historyStatus,
         history_label: historyLabel(sub),
