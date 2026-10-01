@@ -41,6 +41,8 @@ export function isProcessorSender(address: string | null | undefined): boolean {
 const CARD_ENDING = /\bcards?\s+(?:ending|ends)\b|\bcards?\s+(?:no\.?|number)?\s*(?:x{2,}|\*{2,}|•{2,})\s*\d{3,4}\b/i;
 /** A merchant receipt that merely says how it was paid. */
 const RECEIPT_WORDS = /\b(receipt|invoice|order|subscription|renewal)\b/i;
+/** The service's own billing notice (a failed payment, a billing problem, a renewal). It may say which card it tried. */
+const SERVICE_NOTICE = /\b(payment\s+(failed|declined|unsuccessful|issue|problem)|(was|were)\s+declined|could\s*n[o'’]?t\s+be\s+(processed|charged)|could\s+not\s+be\s+(processed|charged)|(did\s*n[o'’]?t|did\s+not)\s+go\s+through|update\s+(your\s+)?(payment|billing)|billing\s+(problem|issue)|membership|renews?|renewing)\b/i;
 /** A reminder that the card will be debited later is the merchant's notice, not an alert. */
 const FUTURE_DEBIT = /\bwill\s+be\s+(?:debited|charged)\b/i;
 
@@ -54,7 +56,7 @@ export function looksLikeBankAlertOrStatement(subject: string | null | undefined
   const text = `${subject ?? ""}\n${snippet ?? ""}`;
   if (isCreditCardBill({ subject, content: snippet })) return true;
   if (CARD_ALERT.test(text) && !FUTURE_DEBIT.test(text)) return true;
-  if (CARD_ENDING.test(text) && !RECEIPT_WORDS.test(text)) return true;
+  if (CARD_ENDING.test(text) && !RECEIPT_WORDS.test(text) && !SERVICE_NOTICE.test(text)) return true;
   return false;
 }
 

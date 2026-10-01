@@ -28,7 +28,8 @@ import { sendVerificationEmail, generateVerificationCode } from "./services/emai
 import rateLimit from "express-rate-limit";
 import { revokeGoogleToken } from "./lib/oauthRevoke";
 import { enabledKeysFor } from "./lib/featureFlags";
-import { statusEnabledFor, markStillActive, markInactive, markActive } from "./services/subscriptionStatus";
+import { statusEnabledFor, markStillActive, markInactive, markActive, paymentViewFor, paymentReviewsFor } from "./services/subscriptionStatus";
+import { presentSubscription, presentSubscriptions } from "./lib/statusView";
 import { queueHistorySearch } from "./services/historySearch";
 
 
@@ -1706,7 +1707,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (written > 0) subscriptions = await storage.getSubscriptions(userId);
       }
 
-      res.json(subscriptions);
+      res.json(presentSubscriptions(subscriptions, await statusEnabledFor(userId)));
     } catch (error) {
       console.error("Get subscriptions error:", error);
       res.status(500).json({ message: "Failed to fetch subscriptions" });
@@ -1728,7 +1729,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const subscription = await storage.createSubscription(subscriptionData);
-      res.status(201).json(subscription);
+      res.status(201).json(presentSubscription(subscription, await statusEnabledFor(userId)));
     } catch (error) {
       console.error("Create subscription error:", error);
       if (error instanceof Error && error.name === 'ZodError') {
@@ -1775,7 +1776,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
-      res.json(updatedSubscription);
+      res.json(presentSubscription(updatedSubscription, await statusEnabledFor(userId)));
     } catch (error) {
       console.error("Update subscription error:", error);
       if (error instanceof Error && error.name === 'ZodError') {
@@ -1837,7 +1838,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Unauthorized to view this subscription" });
       }
 
-      res.json(subscription);
+      res.json(presentSubscription(subscription, await statusEnabledFor(userId)));
     } catch (error) {
       console.error("Get subscription error:", error);
       res.status(500).json({ message: "Failed to fetch subscription" });
@@ -1940,15 +1941,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return subscription;
   }
 
-  // Payments recorded for a subscription, newest first.
+  // The detail panel's Payments list: counted payments only (date, amount,
+  // currency, source label), newest first, plus the state of the history
+  // behind it. Never an email subject or body, an email id, or a record that
+  // is not a counted payment. See paymentViewFor.
   app.get("/api/subscriptions/:id/payments", isAuthenticated, async (req: any, res) => {
     try {
       const subscription = await statusSubscriptionFor(req, res);
       if (!subscription) return;
-      res.json(await storage.getPaymentsForSubscription(subscription.id, subscription.userId));
+      res.set("Cache-Control", "no-store");
+      res.json(await paymentViewFor(subscription));
     } catch (error) {
       console.error("Get payments error:", error);
       res.status(500).json({ message: "Failed to fetch payments" });
+    }
+  });
+
+  // The "Still paying?" half of the combined review inbox: the person's own
+  // subscriptions that are waiting on an answer. 404 without the switch.
+  app.get("/api/payment-reviews", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      if (!userId) return res.status(401).json({ message: "User not authenticated" });
+      if (!(await statusEnabledFor(userId))) return res.status(404).json({ message: "Not found" });
+      const reviews = await paymentReviewsFor(userId);
+      res.set("Cache-Control", "no-store");
+      res.json({ reviews, total: reviews.length });
+    } catch (error) {
+      console.error("Get payment reviews error:", error);
+      res.status(500).json({ message: "Failed to fetch reviews" });
     }
   });
 
@@ -1957,7 +1978,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const subscription = await statusSubscriptionFor(req, res);
       if (!subscription) return;
-      res.json(await markStillActive(subscription));
+      const updated = await markStillActive(subscription);
+      res.json(updated ? presentSubscription(updated, true) : updated);
     } catch (error) {
       console.error("Still active error:", error);
       res.status(500).json({ message: "Failed to update subscription" });
@@ -1968,7 +1990,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const subscription = await statusSubscriptionFor(req, res);
       if (!subscription) return;
-      res.json(await markInactive(subscription));
+      const updated = await markInactive(subscription);
+      res.json(updated ? presentSubscription(updated, true) : updated);
     } catch (error) {
       console.error("Mark inactive error:", error);
       res.status(500).json({ message: "Failed to update subscription" });
@@ -1980,7 +2003,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const subscription = await statusSubscriptionFor(req, res);
       if (!subscription) return;
-      res.json(await markActive(subscription));
+      const updated = await markActive(subscription);
+      res.json(updated ? presentSubscription(updated, true) : updated);
     } catch (error) {
       console.error("Mark active error:", error);
       res.status(500).json({ message: "Failed to update subscription" });
@@ -2309,7 +2333,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
       const preferredCurrency = user?.preferredCurrency || 'INR';
 
-      const stats = await storage.getSubscriptionStats(userId, preferredCurrency);
+      // With the subscription_status switch the totals follow the lifecycle
+      // status (Inactive is left out, Needs review still counts).
+      const stats = await storage.getSubscriptionStats(userId, preferredCurrency, await statusEnabledFor(userId));
       res.json(stats);
     } catch (error) {
       console.error("Get stats error:", error);
@@ -2435,7 +2461,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         success: true,
         message: `Approved ${result.approved} suggestions`,
-        subscriptions: result.subscriptions,
+        subscriptions: presentSubscriptions(result.subscriptions, await statusEnabledFor(userId)),
         // What Undo may remove. A subscription this approval merged into was
         // already tracked, so it is deliberately absent from this list.
         createdSubscriptionIds: result.createdSubscriptionIds,
@@ -2730,6 +2756,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try { progress = JSON.parse(snapshot.event); } catch { progress = null; }
       }
 
+      // With the subscription_status switch the banner counts "Still paying?"
+      // questions as well; without it the response is exactly what it was.
+      const pendingPaymentReviews = (await statusEnabledFor(userId))
+        ? (await storage.getSubscriptions(userId)).filter((s) => s.lifecycleStatus === 'needs_review').length
+        : undefined;
+
       res.set('Cache-Control', 'no-store');
       res.json({
         running: Boolean(job),
@@ -2737,6 +2769,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         triggerSource: job?.triggerSource ?? null,
         progress,
         pendingSuggestions: pending.total,
+        ...(pendingPaymentReviews !== undefined ? { pendingPaymentReviews } : {}),
       });
     } catch (error) {
       console.error('Error reading sync status:', error);

@@ -559,5 +559,21 @@ console.log("Credit card clean-up selection");
   check("nothing selected for none", creditCardEmailIds([]), []);
 }
 
+
+/* --- Failure notices from the service itself ---------------------------- */
+{
+  const k = (subject: string, content: string) => classifyPaymentEmail({ subject, content, amount: null })?.kind ?? null;
+  check("failed: Netflix declined", k("Netflix: your payment was declined", "We couldn't process your payment."), "failed");
+  check("failed: couldn't be processed (curly apostrophe)", k("Your payment couldn\u2019t be processed", "We tried to charge your card but it didn\u2019t go through."), "failed");
+  check("failed: billing problem", k("There's a problem with your billing", "Please update your payment method."), "failed");
+  check("failed: not processed", k("Action needed", "Your payment has not been processed."), "failed");
+  check("a renewal notice is not a payment", k("Your Netflix membership renews on 5 Nov", "Your plan will renew on 5 Nov 2026."), null);
+  check("a normal receipt is unchanged", k("Your receipt from Anthropic, PBC", "Receipt $23.60 Paid September 29, 2026"), "receipt");
+  const noPay = run({ payments: [pay("2026-09-12", null, "failed")] });
+  check("only a failure notice and no payments: active, payment failed", sr(noPay), "active/payment_failed");
+  check("an old failure notice and no payments: unchanged", sr(run({ payments: [pay("2026-01-12", null, "failed")] })), "active/no_payments");
+  check("no payments and no notices: unchanged", sr(run({ payments: [] })), "active/no_payments");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -21,6 +21,8 @@ import { filterBucket, formatCurrency, displayCategory } from "@/lib/format";
 import { SubscriptionCard } from "@/components/SubscriptionCard";
 import { useExchangeRates } from "@/hooks/useExchangeRates";
 import { ReviewBanner } from "@/components/ReviewBanner";
+import { useFeature } from "@/hooks/useFeature";
+import { STATUS_FEATURE, lifecycleOf } from "@/lib/lifecycle";
 import { type Subscription } from "@shared/schema";
 
 
@@ -46,7 +48,14 @@ export default function Dashboard() {
   const [addSubscriptionModalOpen, setAddSubscriptionModalOpen] = useState(false);
   const [isSyncInProgress, setIsSyncInProgress] = useState(false);
   // Presentation-only: which filter segment is selected on the subscription grid.
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "expired">("active");
+  type StatusFilter = "all" | "active" | "expired" | "needs_review" | "inactive";
+  const [pickedFilter, setPickedFilter] = useState<StatusFilter | null>(null);
+  /* Behind the subscription_status switch the page shows Active, Needs review
+     and Inactive together and opens on All. Without it, nothing here changes:
+     it opens on Active, with Ended and All beside it. */
+  const statusOn = useFeature(STATUS_FEATURE);
+  const statusFilter: StatusFilter = pickedFilter ?? (statusOn ? "all" : "active");
+  const setStatusFilter = (value: StatusFilter) => setPickedFilter(value);
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
@@ -296,8 +305,9 @@ export default function Dashboard() {
    * a $50 renewal used to count as 50 rupees here.
    */
   const dueSoonSubscriptions = subscriptions.filter((sub) => {
-    if (sub.status !== "active" || !sub.nextBillingDate) return false;
-    const due = new Date(sub.nextBillingDate);
+    const dueDate = statusOn ? sub.expectedNextPaymentAt ?? sub.nextBillingDate : sub.nextBillingDate;
+    if ((statusOn ? lifecycleOf(sub) !== "active" : sub.status !== "active") || !dueDate) return false;
+    const due = new Date(dueDate);
     return !isNaN(due.getTime()) && due >= now && due <= in7Days;
   });
   const dueSoonTotal = dueSoonSubscriptions.reduce((sum, sub) => {
@@ -313,6 +323,10 @@ export default function Dashboard() {
     all: subscriptions.length,
     active: subscriptions.filter((s) => filterBucket(s.status) === "active").length,
     expired: subscriptions.filter((s) => filterBucket(s.status) === "expired").length,
+    // Only read behind the switch.
+    lifeActive: subscriptions.filter((s) => lifecycleOf(s) === "active").length,
+    needs_review: subscriptions.filter((s) => lifecycleOf(s) === "needs_review").length,
+    inactive: subscriptions.filter((s) => lifecycleOf(s) === "inactive").length,
   };
   // The categories actually present, normalised the way the badges are, so
   // "streaming" and "Streaming" are one choice.
@@ -320,20 +334,31 @@ export default function Dashboard() {
     new Set(subscriptions.map((s) => displayCategory(s.category)).filter(Boolean) as string[])
   ).sort((a, b) => a.localeCompare(b));
   const filteredSubscriptions = subscriptions.filter((s) => {
-    const matchesStatus = statusFilter === "all" || filterBucket(s.status) === statusFilter;
+    const matchesStatus =
+      statusFilter === "all" ||
+      (statusOn
+        ? lifecycleOf(s) === (statusFilter === "expired" ? "inactive" : statusFilter)
+        : filterBucket(s.status) === statusFilter);
     const matchesSearch = s.serviceName.toLowerCase().includes(searchQuery.trim().toLowerCase());
     const matchesCategory = categoryFilter === "all" || displayCategory(s.category) === categoryFilter;
     return matchesStatus && matchesSearch && matchesCategory;
   });
   const isFiltering = searchQuery.trim() !== "" || categoryFilter !== "all";
 
-  const segments: { key: typeof statusFilter; label: string; count: number; testId: string }[] = [
-    // Active first: it is the segment people are actually here for, and it is
-    // also what the page opens on.
-    { key: "active", label: "Active", count: filterCounts.active, testId: "filter-active" },
-    { key: "expired", label: "Ended", count: filterCounts.expired, testId: "filter-expired" },
-    { key: "all", label: "All", count: filterCounts.all, testId: "filter-all" },
-  ];
+  const segments: { key: StatusFilter; label: string; count: number; testId: string }[] = statusOn
+    ? [
+        { key: "active", label: "Active", count: filterCounts.lifeActive, testId: "filter-active" },
+        { key: "needs_review", label: "Needs review", count: filterCounts.needs_review, testId: "filter-needs-review" },
+        { key: "inactive", label: "Inactive", count: filterCounts.inactive, testId: "filter-inactive" },
+        { key: "all", label: "All", count: filterCounts.all, testId: "filter-all" },
+      ]
+    : [
+        // Active first: it is the segment people are actually here for, and it is
+        // also what the page opens on.
+        { key: "active", label: "Active", count: filterCounts.active, testId: "filter-active" },
+        { key: "expired", label: "Ended", count: filterCounts.expired, testId: "filter-expired" },
+        { key: "all", label: "All", count: filterCounts.all, testId: "filter-all" },
+      ];
 
   const addSubscriptionTile = (
     <div
@@ -523,7 +548,10 @@ export default function Dashboard() {
               </DropdownMenu>
             )}
           </div>
-          <div className="inline-flex gap-0.5 p-0.5 rounded-lg bg-line-soft">
+          <div
+            className={cn("inline-flex gap-0.5 p-0.5 rounded-lg bg-line-soft", statusOn && "flex-wrap")}
+            {...(statusOn ? { role: "group", "aria-label": "Show" } : {})}
+          >
             {segments.map((segment) => {
               const selected = statusFilter === segment.key;
               return (
@@ -532,6 +560,7 @@ export default function Dashboard() {
                   type="button"
                   onClick={() => setStatusFilter(segment.key)}
                   data-testid={segment.testId}
+                  {...(statusOn ? { "aria-pressed": selected } : {})}
                   className={cn(
                     "h-7 rounded-button px-[11px] text-[12.5px] transition-colors",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -540,7 +569,7 @@ export default function Dashboard() {
                 >
                   {segment.label}{" "}
                   <span className="text-muted-foreground">
-                    {segment.count}
+                    {statusOn ? `· ${segment.count}` : segment.count}
                   </span>
                 </button>
               );

@@ -12,17 +12,46 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Edit, Save, X, Upload, Download, Trash2, FileText, Mail, Eye } from "lucide-react";
+import {
+  Edit, Save, X, Upload, Download, Trash2, FileText, Mail, Eye,
+  Archive, CircleCheck, CalendarDays, TriangleAlert, CreditCard, ChevronDown, ChevronRight, Loader2,
+} from "lucide-react";
 import { SiGoogle } from "react-icons/si";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { ObjectUploader } from "@/components/ObjectUploader";
 import { InvoicePreview, previewKind, downloadUrl } from "@/components/InvoicePreview";
 import { cn } from "@/lib/utils";
-import { displayCategory, statusBadge, formatDate, formatCurrency, relativeFromNow, FREQUENCY_LABEL } from "@/lib/format";
+import { displayCategory, statusBadge, formatDate, formatCurrency, relativeFromNow, FREQUENCY_LABEL, FREQUENCY_SUFFIX } from "@/lib/format";
 import { useMoney } from "@/hooks/useMoney";
 import { ServiceLogo } from "@/components/ServiceLogo";
+import { useFeature } from "@/hooks/useFeature";
+import {
+  STATUS_FEATURE,
+  LIFECYCLE_BADGE,
+  FLAT_LIMIT,
+  ROWS_PER_YEAR,
+  lifecycleOf,
+  formatDay,
+  formatDayLong,
+  formatDayShort,
+  formatMonthYear,
+  relativeDay,
+  isPast,
+  groupByYear,
+  paymentCount,
+  type PaymentRow,
+} from "@/lib/lifecycle";
+
+/** What GET /api/subscriptions/:id/payments sends (only with the subscription_status switch). */
+interface PaymentView {
+  payments: PaymentRow[];
+  some_bills_only: boolean;
+  payment_failed_on: string | null;
+  history_state: "searching" | "cant_update" | "manual" | "ok";
+  searched_since: string | null;
+}
 
 /**
  * The subscription detail, rendered inside the drawer on the subscriptions
@@ -60,10 +89,28 @@ export default function SubscriptionDetail({
   // component still works if it is ever rendered on its own again.
   const close = onClose ?? (() => setLocation("/"));
 
+  /* Behind the subscription_status switch the panel shows the status, the
+     counted Payments list and a bottom action bar. Without it, nothing below
+     changes. */
+  const statusOn = useFeature(STATUS_FEATURE);
+
   // Fetch subscription details
   const { data: subscription, isLoading: loadingSubscription } = useQuery<Subscription>({
     queryKey: ['/api/subscriptions', subscriptionId],
     enabled: !!subscriptionId,
+    // While its history is still being found, look again for the result.
+    refetchInterval: (query) => {
+      const state = query.state.data?.historyStatus;
+      return statusOn && (state === 'pending' || state === 'running') ? 5000 : false;
+    },
+  });
+
+  // The counted payments and the state of the history behind them.
+  const { data: paymentView, isLoading: loadingPayments } = useQuery<PaymentView>({
+    queryKey: ['/api/subscriptions', subscriptionId, 'payments'],
+    enabled: statusOn && !!subscriptionId,
+    staleTime: 0,
+    refetchInterval: (query) => (query.state.data?.history_state === 'searching' ? 5000 : false),
   });
 
   // Fetch invoices
@@ -157,6 +204,47 @@ export default function SubscriptionDetail({
         title: "Error",
         description: "Failed to delete subscription",
         variant: "destructive",
+      });
+    },
+  });
+
+  // The person's own answer: still active / mark inactive / mark active.
+  const answerMutation = useMutation({
+    mutationFn: async (answer: 'still-active' | 'mark-inactive' | 'mark-active') => {
+      const res = await apiRequest('POST', `/api/subscriptions/${subscriptionId}/${answer}`);
+      return { answer, subscription: (await res.json()) as Subscription };
+    },
+    onSuccess: ({ answer, subscription: updated }) => {
+      for (const prefix of ['/api/subscriptions', '/api/stats', '/api/payment-reviews', '/api/sync/status']) {
+        queryClient.invalidateQueries({
+          predicate: (query) => query.queryKey[0]?.toString().startsWith(prefix) ?? false,
+        });
+      }
+      const stillStopped = answer === 'mark-active' && updated?.lifecycleStatus === 'inactive';
+      toast({
+        title:
+          answer === 'still-active'
+            ? 'Kept as active'
+            : answer === 'mark-inactive'
+              ? 'Marked as inactive'
+              : stillStopped
+                ? 'Still inactive'
+                : 'Marked as active',
+        description:
+          answer === 'still-active'
+            ? "We won't ask again for a while."
+            : answer === 'mark-inactive'
+              ? "It's no longer counted in your totals."
+              : stillStopped
+                ? 'Your emails say it was cancelled. A new payment will make it active again.'
+                : "It's counted in your totals again.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: 'Error',
+        description: "That didn't save. Nothing was changed.",
+        variant: 'destructive',
       });
     },
   });
@@ -267,7 +355,9 @@ export default function SubscriptionDetail({
     );
   }
 
-  const badge = statusBadge(subscription.status);
+  const life = lifecycleOf(subscription);
+  const badge = statusOn ? LIFECYCLE_BADGE[life] : statusBadge(subscription.status);
+  const endsOnFuture = statusOn && life === 'active' && !!subscription.endsOn && !isPast(subscription.endsOn);
   const frequencyLabel = FREQUENCY_LABEL[subscription.frequency] ?? subscription.frequency;
   const category = displayCategory(subscription.category);
 
@@ -275,14 +365,22 @@ export default function SubscriptionDetail({
   const monthlyEquivalent = monthlyEquivalentAmount(amount, subscription.frequency);
   const money = display(amount, subscription.currency);
   const monthlyMoney = monthlyEquivalent === null ? null : display(monthlyEquivalent, subscription.currency);
-  const nextBillingDate = parseValidDate(subscription.nextBillingDate);
+  // With the switch, the renewal is the last payment plus one period, worked
+  // out once on the server, not a date that keeps rolling forward.
+  const nextBillingDate = parseValidDate(
+    statusOn ? subscription.expectedNextPaymentAt ?? subscription.nextBillingDate : subscription.nextBillingDate,
+  );
   const billingCycle = billingCycleLabel(subscription.frequency, frequencyLabel, nextBillingDate);
   const startedDate = earliestKnownDate(subscription, invoices);
 
   const hasSourceAccount = !!(gmailAccount || outlookAccount);
 
   return (
-    <div className="flex flex-col gap-5" style={{ padding: "20px 24px 32px" }} data-testid="subscription-detail-page">
+    <div
+      className={cn("flex flex-col gap-5", statusOn && "min-h-full")}
+      style={{ padding: statusOn ? "20px 24px 0" : "20px 24px 32px" }}
+      data-testid="subscription-detail-page"
+    >
       {/* 1. Header */}
       <div className="flex flex-col gap-2.5">
         <div className="flex items-start gap-3">
@@ -304,21 +402,64 @@ export default function SubscriptionDetail({
         <div className="flex flex-wrap gap-[5px] pl-[43px]">
           <span className="badge-cadence">{frequencyLabel}</span>
           {category && <span className="badge-category">{category}</span>}
-          <span className={cn("badge-status", badge.cls)}>{badge.label}</span>
+          <span className={cn("badge-status", badge.cls)} data-testid="status-badge">{badge.label}</span>
+          {endsOnFuture && (
+            <span className="badge-cadence" data-testid="ends-on-tag">Ends {formatDayShort(subscription.endsOn)}</span>
+          )}
         </div>
       </div>
 
-      {/* 2. Summary strip */}
+      {statusOn && (
+        <StatusNotice
+          subscription={subscription}
+          life={life}
+          endsOnFuture={endsOnFuture}
+          priceLabel={`${money.primary}${FREQUENCY_SUFFIX[subscription.frequency] ?? ''}`}
+        />
+      )}
+
+      {/* 2. Summary strip. An inactive subscription has its notice instead. */}
+      {!(statusOn && life === 'inactive') && (
       <div className="surface-card flex flex-wrap">
         <div className="flex-1 min-w-[140px]" style={{ padding: "13px 16px" }}>
-          <div className="t-label">Next renewal</div>
-          <div className="text-[14.5px] font-semibold text-ink mt-1">
-            {nextBillingDate ? formatDate(nextBillingDate) : "—"}
+          <div className="t-label">
+            {statusOn
+              ? endsOnFuture
+                ? 'Paid until'
+                : life === 'needs_review'
+                  ? 'Last paid'
+                  : subscription.expectedNextPaymentAt && isPast(subscription.expectedNextPaymentAt)
+                    ? 'Payment due'
+                    : 'Next renewal'
+              : 'Next renewal'}
           </div>
-          {nextBillingDate && (
-            <div className="text-[11px] text-muted-foreground mt-0.5">
-              {relativeFromNow(nextBillingDate)}
-            </div>
+          {statusOn ? (
+            <>
+              {(() => {
+                const shown = endsOnFuture
+                  ? subscription.endsOn
+                  : life === 'needs_review'
+                    ? subscription.lastPaymentAt
+                    : subscription.expectedNextPaymentAt ?? subscription.nextBillingDate;
+                return (
+                  <>
+                    <div className="text-[14.5px] font-semibold text-ink mt-1">{formatDay(shown) || "—"}</div>
+                    {shown && <div className="text-[11px] text-muted-foreground mt-0.5">{relativeDay(shown)}</div>}
+                  </>
+                );
+              })()}
+            </>
+          ) : (
+            <>
+              <div className="text-[14.5px] font-semibold text-ink mt-1">
+                {nextBillingDate ? formatDate(nextBillingDate) : "—"}
+              </div>
+              {nextBillingDate && (
+                <div className="text-[11px] text-muted-foreground mt-0.5">
+                  {relativeFromNow(nextBillingDate)}
+                </div>
+              )}
+            </>
           )}
         </div>
         <div className="flex-1 min-w-[140px] border-l border-line-soft" style={{ padding: "13px 16px" }}>
@@ -338,6 +479,7 @@ export default function SubscriptionDetail({
           )}
         </div>
       </div>
+      )}
 
       {/* 3. Details */}
       <div className="surface-card flex flex-col" style={{ padding: "14px 16px" }}>
@@ -508,6 +650,16 @@ export default function SubscriptionDetail({
         </div>
       </div>
 
+      {/* 3b. Payments: counted payments only, newest first (switch only). Nothing
+           for a subscription added by hand: it has no inbox to find them in. */}
+      {statusOn && paymentView?.history_state !== 'manual' && (
+        <PaymentsSection
+          view={paymentView}
+          loading={loadingPayments}
+          fallbackCurrency={subscription.currency}
+        />
+      )}
+
       {/* 4. Invoices */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
@@ -604,8 +756,63 @@ export default function SubscriptionDetail({
         </div>
       </div>
 
-      {/* 5. Actions -- Delete alone, right aligned like every other CTA.
-           Edit moved into the Details card it acts on. */}
+      {/* 5. Actions. With the switch: a bar along the bottom, Delete on the
+           left and the status answer on the right. */}
+      {statusOn && (
+        <div
+          className="sticky bottom-0 z-10 mt-auto -mx-6 px-6 py-3.5 bg-surface border-t border-line flex items-center justify-between gap-2 flex-wrap"
+          data-testid="action-bar"
+        >
+          <button
+            type="button"
+            onClick={() => setShowDeleteDialog(true)}
+            className="btn-base h-8 px-3 text-[12.5px] font-semibold border border-destructive bg-destructive-soft text-destructive hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-testid="delete-btn"
+          >
+            <Trash2 size={14} strokeWidth={2} aria-hidden="true" />
+            Delete
+          </button>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            {life !== 'inactive' && (
+              <button
+                type="button"
+                onClick={() => answerMutation.mutate('mark-inactive')}
+                disabled={answerMutation.isPending}
+                className="btn-base btn-secondary h-8 px-3 text-[12.5px] font-semibold bg-rail"
+                data-testid="mark-inactive-btn"
+              >
+                <Archive size={14} strokeWidth={2} aria-hidden="true" />
+                Mark as inactive
+              </button>
+            )}
+            {life === 'needs_review' && (
+              <button
+                type="button"
+                onClick={() => answerMutation.mutate('still-active')}
+                disabled={answerMutation.isPending}
+                className="btn-base h-8 px-3 text-[12.5px] font-semibold border border-success bg-success-soft text-success hover:brightness-95"
+                data-testid="still-active-btn"
+              >
+                <CircleCheck size={14} strokeWidth={2} aria-hidden="true" />
+                Still active
+              </button>
+            )}
+            {life === 'inactive' && subscription.inactiveSource !== 'email' && (
+              <button
+                type="button"
+                onClick={() => answerMutation.mutate('mark-active')}
+                disabled={answerMutation.isPending}
+                className="btn-base h-8 px-3 text-[12.5px] font-semibold border border-success bg-success-soft text-success hover:brightness-95"
+                data-testid="mark-active-btn"
+              >
+                <CircleCheck size={14} strokeWidth={2} aria-hidden="true" />
+                Mark as active
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {!statusOn && (
       <div className="border-t border-line pt-4 flex justify-end">
         <button
           type="button"
@@ -617,6 +824,7 @@ export default function SubscriptionDetail({
           Delete
         </button>
       </div>
+      )}
 
       <InvoicePreview
         invoice={previewInvoice}
@@ -789,4 +997,242 @@ function monthlyEquivalentAmount(amount: number, frequency: string): number | nu
     default:
       return null;
   }
+}
+
+
+/**
+ * What the status means, in a line or two, above the figures. Words follow the
+ * designs: it says what was seen ("no payment since"), never "cancelled" unless
+ * an email said so.
+ */
+function StatusNotice({
+  subscription: sub,
+  life,
+  endsOnFuture,
+  priceLabel,
+}: {
+  subscription: Subscription;
+  life: 'active' | 'needs_review' | 'inactive';
+  endsOnFuture: boolean;
+  priceLabel: string;
+}) {
+  if (life === 'inactive') {
+    const how = sub.inactiveSource === 'user' ? 'you marked it' : 'cancelled';
+    return (
+      <div role="status" className="rounded-card border border-line bg-line-soft px-4 py-3 flex flex-col gap-0.5" data-testid="status-notice">
+        <span className="text-[14px] font-semibold text-ink">
+          {sub.inactiveSince ? `Inactive since ${formatDayLong(sub.inactiveSince)} · ${how}` : 'Inactive'}
+        </span>
+        <span className="text-[12.5px] text-ink-body">
+          Not counted in your totals.
+          {sub.lastPaymentAt ? ` Last paid ${formatDay(sub.lastPaymentAt)} · ${priceLabel}` : ''}
+        </span>
+      </div>
+    );
+  }
+  if (endsOnFuture) {
+    return (
+      <div role="status" className="rounded-card border border-line bg-line-soft px-4 py-3.5 flex gap-3" data-testid="status-notice">
+        <CalendarDays size={20} strokeWidth={2} className="flex-none mt-px text-ink-body" aria-hidden="true" />
+        <span className="text-[13.5px] leading-normal text-ink-strong">
+          <span className="font-semibold">
+            {sub.cancelledAt ? `Cancelled on ${formatDayLong(sub.cancelledAt)}.` : 'Cancelled.'}
+          </span>{' '}
+          Paid until {formatDayLong(sub.endsOn)}, then it becomes inactive.
+        </span>
+      </div>
+    );
+  }
+  if (life === 'needs_review') {
+    return (
+      <div role="status" className="rounded-card border border-warning-line bg-warning-bg px-4 py-3.5 flex gap-3" data-testid="status-notice">
+        <TriangleAlert size={20} strokeWidth={2} className="flex-none mt-px text-warning" aria-hidden="true" />
+        <span className="text-[13.5px] leading-normal text-warning">
+          <span className="font-semibold">Still paying?</span>{' '}
+          {sub.lastPaymentAt
+            ? `We haven't seen a payment since ${formatDay(sub.lastPaymentAt)}.`
+            : "We haven't seen a recent payment."}
+        </span>
+      </div>
+    );
+  }
+  if (sub.lifecycleReason === 'paid_after_inactive' && sub.lastPaymentAt) {
+    return (
+      <div role="status" className="rounded-card border border-line bg-line-soft px-4 py-3 text-[13.5px] text-ink-strong" data-testid="status-notice">
+        Paid again on {formatDay(sub.lastPaymentAt)}, so it is active again.
+      </div>
+    );
+  }
+  return null;
+}
+
+/**
+ * The Payments list: counted payments only, newest first, grouped by year with
+ * "Show more" when there are many. States of the history behind it come from
+ * the server: still being found, or can't be updated right now (plain words,
+ * no buttons).
+ */
+function PaymentsSection({
+  view,
+  loading,
+  fallbackCurrency,
+}: {
+  view: PaymentView | undefined;
+  loading: boolean;
+  fallbackCurrency: string;
+}) {
+  const payments = view?.payments ?? [];
+  const grouped = payments.length > FLAT_LIMIT;
+  const groups = useMemo(() => groupByYear(payments), [payments]);
+  // The newest year starts open, the rest closed; "Show more" opens a year in full.
+  const [closedYears, setClosedYears] = useState<Record<string, boolean>>({});
+  const [fullYears, setFullYears] = useState<Record<string, boolean>>({});
+  const yearOpen = (year: string, index: number) => closedYears[year] === undefined ? index === 0 : !closedYears[year];
+
+  const heading = payments.length > 0 ? (
+    <>Payments <span className="text-muted-foreground font-normal">· {payments.length}</span></>
+  ) : (
+    <>Payment history</>
+  );
+
+  const money = (p: PaymentRow) =>
+    p.amount === null ? null : formatCurrency(Number(p.amount), p.currency ?? fallbackCurrency);
+
+  const row = (p: PaymentRow, key: string, divider: boolean) => (
+    <li
+      key={key}
+      className={cn("flex items-center gap-3 px-4 py-3", divider && "border-t border-line-soft")}
+      data-testid="payment-row"
+    >
+      <span className="flex flex-col gap-0.5 flex-1 min-w-0">
+        <span className="text-[13.5px] font-semibold text-ink">{formatDay(p.date)}</span>
+        <span className="text-[12px] text-muted-foreground">{p.source}</span>
+      </span>
+      {money(p) ? (
+        <span className="text-[13.5px] tabular-nums text-ink">{money(p)}</span>
+      ) : (
+        <span className="text-[12.5px] text-muted-foreground">Amount not shown</span>
+      )}
+    </li>
+  );
+
+  return (
+    <section className="flex flex-col gap-2.5" aria-labelledby="payments-heading" data-testid="payments-section">
+      <h3 id="payments-heading" className="t-label">{heading}</h3>
+
+      {loading && !view ? (
+        <div className="surface-card h-16 animate-pulse" aria-busy="true" />
+      ) : (
+        <>
+          {view?.history_state === 'searching' && (
+            <div
+              role="status"
+              aria-live="polite"
+              className="surface-card flex items-center gap-3 px-4 py-3.5 text-[13.5px] text-ink-body"
+              data-testid="history-searching"
+            >
+              <Loader2 size={16} strokeWidth={2} className="animate-spin flex-none" aria-hidden="true" />
+              Finding payment history in your inbox…
+            </div>
+          )}
+
+          {view?.history_state === 'cant_update' && (
+            <div
+              role="alert"
+              className="rounded-[10px] border border-warning-line bg-warning-bg px-4 py-3.5 flex gap-3"
+              data-testid="history-cant-update"
+            >
+              <TriangleAlert size={20} strokeWidth={2} className="flex-none mt-px text-warning" aria-hidden="true" />
+              <span className="text-[13.5px] leading-normal text-warning">
+                Payment history can't be updated right now. What was found earlier is kept.
+              </span>
+            </div>
+          )}
+
+          {view?.payment_failed_on && (
+            <div
+              role="status"
+              className="rounded-[10px] bg-destructive-soft border border-destructive/20 px-4 py-3 flex items-center gap-2.5 text-[13.5px] text-destructive"
+              data-testid="payment-failed"
+            >
+              <CreditCard size={16} strokeWidth={2} className="flex-none" aria-hidden="true" />
+              <span>
+                <span className="font-semibold">Payment failed {formatDay(view.payment_failed_on).replace(/, \d{4}$/, '')}</span> · update your card
+              </span>
+            </div>
+          )}
+
+          {payments.length > 0 ? (
+            grouped ? (
+              <div className="surface-card overflow-hidden">
+                {groups.map((group, gi) => {
+                  const open = yearOpen(group.year, gi);
+                  const full = fullYears[group.year];
+                  const shown = open ? (full ? group.rows : group.rows.slice(0, ROWS_PER_YEAR)) : [];
+                  const rest = group.rows.length - shown.length;
+                  const listId = `payments-year-${group.year}`;
+                  return (
+                    <div key={group.year} className={cn(gi > 0 && "border-t border-line")}>
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        aria-controls={listId}
+                        onClick={() => setClosedYears((prev) => ({ ...prev, [group.year]: open }))}
+                        className="w-full h-11 px-4 flex items-center gap-2 bg-canvas text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                        data-testid={`payments-year-${group.year}`}
+                      >
+                        {open ? <ChevronDown size={14} strokeWidth={2} aria-hidden="true" /> : <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />}
+                        <span className="flex-1 text-[13px] font-semibold text-ink">{group.year}</span>
+                        <span className="text-[12.5px] text-muted-foreground tabular-nums">
+                          {paymentCount(group.rows.length)}
+                          {group.total ? ` · ${formatCurrency(group.total.amount, group.total.currency).replace(/\.00$/, '')}` : ''}
+                        </span>
+                      </button>
+                      {open && (
+                        <ul id={listId} aria-label={`Payments in ${group.year}`}>
+                          {shown.map((p, i) => row(p, `${p.date}-${p.source}-${i}`, true))}
+                        </ul>
+                      )}
+                      {open && rest > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setFullYears((prev) => ({ ...prev, [group.year]: true }))}
+                          className="w-full h-[42px] border-t border-line-soft text-[13px] font-semibold text-accent hover:bg-line-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                          data-testid={`payments-more-${group.year}`}
+                        >
+                          Show {rest} more from {group.year}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <ul className="surface-card overflow-hidden" aria-label="Payments">
+                {payments.map((p, i) => row(p, `${p.date}-${p.source}-${i}`, i > 0))}
+              </ul>
+            )
+          ) : (
+            view?.history_state === 'ok' && (
+              <p className="surface-card py-6 text-center text-[13px] text-muted-foreground" data-testid="payments-empty">
+                No payments found yet.
+              </p>
+            )
+          )}
+
+          {payments.length > 0 && (
+            <p className="text-[12px] text-muted-foreground">
+              Newest first.
+              {view?.searched_since ? ` From your emails since ${formatMonthYear(view.searched_since)}.` : ''}
+            </p>
+          )}
+          {view?.some_bills_only && (
+            <p className="text-[12px] text-muted-foreground" data-testid="bills-only-note">
+              Some months only have a bill, so they are not listed.
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  );
 }

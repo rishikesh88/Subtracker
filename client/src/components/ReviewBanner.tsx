@@ -6,9 +6,19 @@ import { ArrowRight, Inbox, X } from "lucide-react";
 interface SyncStatus {
   running: boolean;
   pendingSuggestions: number;
+  /** Only sent with the subscription_status switch: subscriptions asking "Still paying?". */
+  pendingPaymentReviews?: number;
 }
 
 const DISMISSED_KEY = "reviewBannerDismissedAt";
+
+/** "3 new subscriptions to approve and 2 to check. Nothing is added until you approve it." */
+function reviewSummary(suggestions: number, paymentReviews: number): string {
+  const parts: string[] = [];
+  if (suggestions > 0) parts.push(`${suggestions} new ${suggestions === 1 ? "subscription" : "subscriptions"} to approve`);
+  if (paymentReviews > 0) parts.push(`${paymentReviews} to check for payments`);
+  return `${parts.join(" and ")}. Nothing is added until you approve it.`;
+}
 
 /**
  * "Your sync found 17 subscriptions" on the dashboard, for whoever comes back
@@ -30,7 +40,11 @@ export function ReviewBanner() {
     }
   }, []);
 
-  const count = data?.pendingSuggestions ?? 0;
+  const suggestions = data?.pendingSuggestions ?? 0;
+  // Present only with the switch; then the banner counts both kinds.
+  const paymentReviews = data?.pendingPaymentReviews ?? 0;
+  const combined = data?.pendingPaymentReviews !== undefined;
+  const count = suggestions + paymentReviews;
   if (!data || data.running || count === 0) return null;
   if (dismissedAt !== null && count <= dismissedAt) return null;
 
@@ -55,15 +69,23 @@ export function ReviewBanner() {
       </span>
       <div className="flex min-w-0 flex-1 basis-[200px] flex-col gap-0.5">
         <span className="text-[15px] font-semibold text-ink">
-          Your sync found {count} {count === 1 ? "subscription" : "subscriptions"}
+          {combined ? (
+            `${count} ${count === 1 ? "thing needs" : "things need"} a decision`
+          ) : (
+            <>
+              Your sync found {count} {count === 1 ? "subscription" : "subscriptions"}
+            </>
+          )}
         </span>
         <span className="text-[13px] text-accent-deep">
-          Review them to start tracking what you pay for. Nothing is added until you approve it.
+          {combined
+            ? reviewSummary(suggestions, paymentReviews)
+            : "Review them to start tracking what you pay for. Nothing is added until you approve it."}
         </span>
       </div>
       <div className="ml-auto flex flex-none items-center gap-1">
         <Link href="/review" className="btn-base btn-accent h-10 gap-2 px-[18px] text-[13.5px]" data-testid="button-review-banner">
-          Review subscriptions
+          {combined ? "Open review inbox" : "Review subscriptions"}
           <ArrowRight size={15} strokeWidth={2.2} aria-hidden="true" />
         </Link>
         <button

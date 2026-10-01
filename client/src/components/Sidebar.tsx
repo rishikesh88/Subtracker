@@ -31,6 +31,8 @@ import {
 import { cn } from "@/lib/utils";
 import { queryClient } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
+import { useFeature } from "@/hooks/useFeature";
+import { STATUS_FEATURE } from "@/lib/lifecycle";
 import type { SafeUser } from "@shared/schema";
 import { Logo } from "@/components/Logo";
 
@@ -101,7 +103,15 @@ export function Sidebar({ user, hasMailbox }: SidebarProps) {
     queryKey: [`/api/suggestions?userId=${user?.id}`],
     enabled: !!user?.id,
   });
-  const pendingSuggestionsCount = suggestionsData?.total ?? 0;
+  /* Behind the subscription_status switch the badge counts the "Still
+     paying?" questions too, as the combined review inbox does. */
+  const statusOn = useFeature(STATUS_FEATURE);
+  const { data: reviewsData } = useQuery<{ reviews: unknown[]; total: number }>({
+    queryKey: ["/api/payment-reviews"],
+    enabled: !!user?.id && statusOn,
+    staleTime: 30 * 1000,
+  });
+  const pendingSuggestionsCount = (suggestionsData?.total ?? 0) + (statusOn ? reviewsData?.total ?? 0 : 0);
 
   const handleLogout = () => {
     void signOut();

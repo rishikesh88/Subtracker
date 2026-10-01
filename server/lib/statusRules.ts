@@ -611,7 +611,15 @@ export function computeLifecycle(input: LifecycleInput, now: Date): LifecycleRes
   }
 
   // --- 3. Never seen a payment: nothing to measure from, never flagged ---
-  if (!lastDay) return result("active", "no_payments");
+  if (!lastDay) {
+    // A failure notice from the service itself is the only sign it exists: still Active, but say so.
+    // Only a recent one: an old failure with nothing since is just history.
+    const failedNotice = input.payments.some((p) => {
+      const d = toDay(p.paidAt);
+      return p.kind === "failed" && d !== null && today.getTime() - d.getTime() <= 60 * DAY_MS;
+    });
+    return result("active", failedNotice ? "payment_failed" : "no_payments");
+  }
 
   // --- 4. Paused past today ----------------------------------------------
   const pausedPastToday = input.payments.some((p) => {
@@ -716,13 +724,13 @@ export function stillActiveUntil(
 interface KindRules { failed: RegExp; refund: RegExp; pause: RegExp }
 
 const SUBJECT_RULES: KindRules = {
-  failed: /\b(payment|charge|transaction|renewal)\s+(of\s+\S+\s+)?(has\s+)?(failed|declined|unsuccessful|was\s+declined|did\s+not\s+go\s+through)|\b(card|payment)\s+(was\s+)?declined|could\s*n[o']?t\s+(process|charge)|could\s+not\s+(process|charge)|unable\s+to\s+(process|charge)|update\s+your\s+payment\s+(method|details|information)|payment\s+issue|past\s+due/i,
+  failed: /\b(payment|charge|transaction|renewal)\s+(of\s+\S+\s+)?(has\s+)?(failed|declined|unsuccessful|was\s+declined|did\s+not\s+go\s+through)|\b(card|payment)\s+(was\s+)?declined|could\s*n[o'’]?t\s+(process|charge)|could\s+not\s+(process|charge)|unable\s+to\s+(process|charge)|update\s+your\s+payment\s+(method|details|information)|payment\s+issue|past\s+due|could\s*n[o'’]?t\s+be\s+(processed|charged)|could\s+not\s+be\s+(processed|charged)|(did\s*n[o'’]?t|did\s+not)\s+go\s+through|(has|have)\s+not\s+been\s+processed|(was\s*n[o'’]?t|was\s+not)\s+(successful|processed)|(billing|payment)\s+(problem|issue)|problem\s+with\s+your\s+(billing|payment)/i,
   refund: /\brefund(ed|s)?\b/i,
   pause: /\bpaused\b|\bpause\s+(confirmed|confirmation)\b/i,
 };
 
 const BODY_RULES: KindRules = {
-  failed: /\b(payment|charge|renewal)\s+(of\s+\S+\s+)?(has\s+)?(failed|was\s+declined|was\s+unsuccessful)|could\s*n[o']?t\s+(process|charge)|could\s+not\s+(process|charge)|unable\s+to\s+(process|charge)\s+your/i,
+  failed: /\b(payment|charge|renewal)\s+(of\s+\S+\s+)?(has\s+)?(failed|was\s+declined|was\s+unsuccessful)|could\s*n[o'’]?t\s+(process|charge)|could\s+not\s+(process|charge)|unable\s+to\s+(process|charge)\s+your|could\s*n[o'’]?t\s+be\s+(processed|charged)|could\s+not\s+be\s+(processed|charged)|(did\s*n[o'’]?t|did\s+not)\s+go\s+through|(has|have)\s+not\s+been\s+processed|(was\s*n[o'’]?t|was\s+not)\s+(successful|processed)|(billing|payment)\s+problem|problem\s+with\s+your\s+(billing|payment)/i,
   refund: /\brefund\s+(has\s+been|was|is\s+being)\s+(issued|processed|initiated|approved)|we('ve|\s+have)\s+(issued\s+(you\s+)?a\s+refund|refunded)|(has|have)\s+been\s+refunded|was\s+refunded/i,
   pause: /\b(has\s+been|is\s+now|was)\s+paused|\bpaused\s+(until|till|through)|we('ve|\s+have)\s+paused/i,
 };

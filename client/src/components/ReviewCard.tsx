@@ -59,6 +59,105 @@ const CONFIDENCE: Record<string, { label: string; cls: string }> = {
 };
 
 /**
+ * The evidence for a suggestion: the emails it was found in, a warning when
+ * there are none, the original billed amount and any possible duplicate. Used
+ * by the card below and by the combined review inbox's rows.
+ */
+export function SuggestionEvidence({ suggestion: s }: { suggestion: ReviewSuggestion }) {
+  const { userCurrency } = useMoney();
+  const suffix = FREQUENCY_SUFFIX[s.frequency] ?? "";
+  const evidence = s.emailEvidence ?? [];
+  const attachmentCount = evidence.reduce((n, e) => n + (e.attachments?.length ?? 0), 0);
+  /* The original charge, receipt by receipt, lives in the evidence. Where no
+     receipt carried an amount of its own, the suggestion's billed figure is
+     stated once instead -- but only when it differs from the headline, or it
+     would simply repeat it. */
+  const anyBilled = evidence.some((e) => e.billedAmount !== null && e.billedAmount !== undefined && e.billedAmount !== "");
+  const billedInOtherCurrency =
+    !anyBilled && !isUnknownCurrency(s.currency) && s.currency?.toUpperCase() !== userCurrency.toUpperCase();
+
+  return (
+    <>
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <span className="text-[11px] font-semibold tracking-[0.06em] uppercase text-ink-body">Evidence found</span>
+        {evidence.length > 0 && (
+        <span className="flex gap-1.5">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[hsl(0,0%,96%)] px-2.5 py-1 text-[12px] font-semibold text-ink-strong tabular-nums">
+            <Mail size={13} strokeWidth={2} className="text-ink-body" aria-hidden="true" />
+            {evidence.length} email{evidence.length === 1 ? "" : "s"}
+          </span>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-[hsl(0,0%,96%)] px-2.5 py-1 text-[12px] font-semibold text-ink-strong tabular-nums">
+            <Paperclip size={13} strokeWidth={2} className="text-ink-body" aria-hidden="true" />
+            {attachmentCount} attachment{attachmentCount === 1 ? "" : "s"}
+          </span>
+        </span>
+        )}
+      </div>
+
+      {evidence.length > 0 ? (
+        <ul className="rounded-[12px] border border-line-soft overflow-hidden">
+          {evidence.map((e, i) => {
+            const billed =
+              e.billedAmount !== null && e.billedAmount !== undefined && e.billedAmount !== ""
+                ? formatCurrency(Number(e.billedAmount), e.billedCurrency || s.currency)
+                : null;
+            return (
+              <li
+                key={e.id}
+                className={cn("flex items-center gap-3.5 px-4 py-3.5", i > 0 && "border-t border-line-soft")}
+              >
+                <Mail size={17} strokeWidth={1.8} className="flex-none text-muted-foreground" aria-hidden="true" />
+                <div className="flex flex-col gap-1.5 flex-1 min-w-0">
+                  <span className="text-[13.5px] font-medium text-ink truncate">{e.subject || "(no subject)"}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[12px] text-muted-foreground truncate">{e.fromEmail || e.fromName}</span>
+                    {(e.attachments ?? []).map((a) => (
+                      <span
+                        key={a.filename}
+                        className="inline-flex items-center gap-1.5 max-w-[260px] rounded-[5px] border border-line bg-surface px-[7px] py-[2px] text-[11.5px] font-medium text-ink-body"
+                      >
+                        <FileText size={12} strokeWidth={2} className="flex-none text-muted-foreground" aria-hidden="true" />
+                        <span className="truncate">{a.filename}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-1 flex-none">
+                  {billed && <span className="text-[13.5px] font-semibold tabular-nums text-ink">{billed}</span>}
+                  <span className="text-[12px] text-muted-foreground tabular-nums">{formatDateTime(e.receivedAt)}</span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        /* Shown rather than hidden: the detector may know something the
+           kept emails do not. But nothing in the inbox reads like a bill
+           for it, so it arrives at low confidence and says so. */
+        <p className="rounded-[10px] border border-warning-line bg-warning-bg px-3.5 py-2.5 text-[12.5px] text-warning">
+          No receipt, invoice or renewal email was found for this. Check it before approving.
+        </p>
+      )}
+
+      {billedInOtherCurrency && (
+        <p className="text-[12px] text-muted-foreground tabular-nums">
+          Billed as {formatCurrency(parseFloat(s.amount) || 0, s.currency)}
+          {suffix}
+        </p>
+      )}
+    </div>
+
+    {s.possibleDuplicateOf && (
+      <p className="rounded-[10px] border border-warning-line bg-warning-bg px-3.5 py-2.5 text-[12.5px] text-warning">
+        {s.possibleDuplicateOf.reason}
+      </p>
+    )}
+    </>
+  );
+}
+
+/**
  * One suggestion in the review inbox: a row when closed, the evidence and the
  * decision when open.
  *
@@ -76,16 +175,7 @@ export function ReviewCard({ suggestion: s, open, leaving, onToggle, onApprove, 
   const confidence = CONFIDENCE[s.confidence] ?? { label: s.confidence, cls: "status-cancelled" };
   const evidence = s.emailEvidence ?? [];
   const merchantEmail = evidence.find((e) => e.fromEmail)?.fromEmail ?? null;
-  const attachmentCount = evidence.reduce((n, e) => n + (e.attachments?.length ?? 0), 0);
   const panelId = `review-panel-${s.id}`;
-
-  /* The original charge, receipt by receipt, lives in the evidence. Where no
-     receipt carried an amount of its own, the suggestion's billed figure is
-     stated once instead -- but only when it differs from the headline, or it
-     would simply repeat it. */
-  const anyBilled = evidence.some((e) => e.billedAmount !== null && e.billedAmount !== undefined && e.billedAmount !== "");
-  const billedInOtherCurrency =
-    !anyBilled && !isUnknownCurrency(s.currency) && s.currency?.toUpperCase() !== userCurrency.toUpperCase();
 
   const nextBilling = s.nextBillingDate ? new Date(s.nextBillingDate) : null;
 
@@ -150,81 +240,7 @@ export function ReviewCard({ suggestion: s, open, leaving, onToggle, onApprove, 
           aria-labelledby={`review-header-${s.id}`}
           className="bg-surface rounded-[15px] border border-line-soft px-4 sm:px-7 pt-5 sm:pt-6 pb-5 sm:pb-6 flex flex-col gap-5"
         >
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <span className="text-[11px] font-semibold tracking-[0.06em] uppercase text-ink-body">Evidence found</span>
-              {evidence.length > 0 && (
-              <span className="flex gap-1.5">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[hsl(0,0%,96%)] px-2.5 py-1 text-[12px] font-semibold text-ink-strong tabular-nums">
-                  <Mail size={13} strokeWidth={2} className="text-ink-body" aria-hidden="true" />
-                  {evidence.length} email{evidence.length === 1 ? "" : "s"}
-                </span>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[hsl(0,0%,96%)] px-2.5 py-1 text-[12px] font-semibold text-ink-strong tabular-nums">
-                  <Paperclip size={13} strokeWidth={2} className="text-ink-body" aria-hidden="true" />
-                  {attachmentCount} attachment{attachmentCount === 1 ? "" : "s"}
-                </span>
-              </span>
-              )}
-            </div>
-
-            {evidence.length > 0 ? (
-              <ul className="rounded-[12px] border border-line-soft overflow-hidden">
-                {evidence.map((e, i) => {
-                  const billed =
-                    e.billedAmount !== null && e.billedAmount !== undefined && e.billedAmount !== ""
-                      ? formatCurrency(Number(e.billedAmount), e.billedCurrency || s.currency)
-                      : null;
-                  return (
-                    <li
-                      key={e.id}
-                      className={cn("flex items-center gap-3.5 px-4 py-3.5", i > 0 && "border-t border-line-soft")}
-                    >
-                      <Mail size={17} strokeWidth={1.8} className="flex-none text-muted-foreground" aria-hidden="true" />
-                      <div className="flex flex-col gap-1.5 flex-1 min-w-0">
-                        <span className="text-[13.5px] font-medium text-ink truncate">{e.subject || "(no subject)"}</span>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[12px] text-muted-foreground truncate">{e.fromEmail || e.fromName}</span>
-                          {(e.attachments ?? []).map((a) => (
-                            <span
-                              key={a.filename}
-                              className="inline-flex items-center gap-1.5 max-w-[260px] rounded-[5px] border border-line bg-surface px-[7px] py-[2px] text-[11.5px] font-medium text-ink-body"
-                            >
-                              <FileText size={12} strokeWidth={2} className="flex-none text-muted-foreground" aria-hidden="true" />
-                              <span className="truncate">{a.filename}</span>
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-1 flex-none">
-                        {billed && <span className="text-[13.5px] font-semibold tabular-nums text-ink">{billed}</span>}
-                        <span className="text-[12px] text-muted-foreground tabular-nums">{formatDateTime(e.receivedAt)}</span>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            ) : (
-              /* Shown rather than hidden: the detector may know something the
-                 kept emails do not. But nothing in the inbox reads like a bill
-                 for it, so it arrives at low confidence and says so. */
-              <p className="rounded-[10px] border border-warning-line bg-warning-bg px-3.5 py-2.5 text-[12.5px] text-warning">
-                No receipt, invoice or renewal email was found for this. Check it before approving.
-              </p>
-            )}
-
-            {billedInOtherCurrency && (
-              <p className="text-[12px] text-muted-foreground tabular-nums">
-                Billed as {formatCurrency(parseFloat(s.amount) || 0, s.currency)}
-                {suffix}
-              </p>
-            )}
-          </div>
-
-          {s.possibleDuplicateOf && (
-            <p className="rounded-[10px] border border-warning-line bg-warning-bg px-3.5 py-2.5 text-[12.5px] text-warning">
-              {s.possibleDuplicateOf.reason}
-            </p>
-          )}
+          <SuggestionEvidence suggestion={s} />
 
           <div className="flex items-center justify-between gap-4 flex-wrap border-t border-line-soft pt-[18px]">
             {nextBilling ? (
