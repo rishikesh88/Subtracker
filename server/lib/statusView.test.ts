@@ -65,7 +65,7 @@ const rec = (paidAt: string, amount: number | null, kind = "receipt", currency: 
   const v = userPaymentView([rec("2026-08-03", 649, "invoice"), rec("2026-08-04", 649)], "INR", NOW, false);
   check("a bill a receipt paid sets no note, and shows once", [v.someBillsOnly, v.payments.length], [false, 1]);
 }
-check("no records", userPaymentView([], "INR", NOW, true), { payments: [], someBillsOnly: false, failedOn: null });
+check("no records", userPaymentView([], "INR", NOW, true), { payments: [], someBillsOnly: false, failedOn: null, lastBill: null });
 
 /* --- History state ------------------------------------------------------ */
 const sub = (over: Record<string, any> = {}) => ({
@@ -90,6 +90,26 @@ check("reason, monthly", reviewReason("Netflix", "monthly", "2026-06-03"), "No p
 check("reason, yearly", reviewReason("Car policy", "yearly", "2025-02-01"), "No payment since Feb 1, 2025. Car policy usually charges every year.");
 check("reason, unknown cadence", reviewReason("X", "odd", "2026-06-03"), "No payment since Jun 3, 2026.");
 check("reason never says cancelled", /cancel/i.test(reviewReason("Netflix", "monthly", "2026-06-03")), false);
+
+/* --- Bills only: the newest bill, never a payment ----------------------- */
+{
+  const v = userPaymentView([rec("2026-07-03", 500, "invoice", "INR", "2026-07-20"), rec("2026-08-03", 649.5, "invoice")], "INR", NOW, false);
+  check("bills only: no payments listed", v.payments.length, 0);
+  check("bills only: newest bill is offered", v.lastBill, { on: "2026-08-03", amount: "649.50", currency: "INR" });
+  check("bills only: still flagged as bills without receipt", v.someBillsOnly, true);
+}
+{
+  const v = userPaymentView([rec("2026-08-03", null, "invoice", null)], "INR", NOW, false);
+  check("bill with no amount: date only", v.lastBill, { on: "2026-08-03", amount: null, currency: null });
+}
+{
+  const v = userPaymentView([rec("2026-03-03", 649, "invoice"), rec("2026-08-03", 649)], "INR", NOW, false);
+  check("a counted payment hides the bill line", v.lastBill, null);
+}
+{
+  const v = userPaymentView([rec("2026-09-03", 649, "failed")], "INR", NOW, false);
+  check("no bills, no bill line", v.lastBill, null);
+}
 
 /* --- The subscription as received -------------------------------------- */
 const full = {

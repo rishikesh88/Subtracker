@@ -485,6 +485,9 @@ export async function paymentViewFor(sub: Subscription, now = new Date()) {
     payments: view.payments,
     some_bills_only: view.someBillsOnly,
     payment_failed_on: view.failedOn,
+    ...(view.lastBill
+      ? { last_bill_on: view.lastBill.on, last_bill_amount: view.lastBill.amount, last_bill_currency: view.lastBill.currency }
+      : {}),
     history_state: historyState(sub, own ? own.syncStatus === "error" : false),
     searched_since: sub.historySearchedSince ? day(sub.historySearchedSince) : null,
   };

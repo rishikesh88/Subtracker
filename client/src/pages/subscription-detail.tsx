@@ -49,6 +49,10 @@ interface PaymentView {
   payments: PaymentRow[];
   some_bills_only: boolean;
   payment_failed_on: string | null;
+  /** Only when there are bills but no counted payment. */
+  last_bill_on?: string;
+  last_bill_amount?: string | null;
+  last_bill_currency?: string | null;
   history_state: "searching" | "cant_update" | "manual" | "ok";
   searched_since: string | null;
 }
@@ -1283,6 +1287,15 @@ function PaymentsSection({
                 {payments.map((p, i) => row(p, `${p.date}-${p.source}-${i}`, i > 0))}
               </ul>
             )
+          ) : view?.last_bill_on ? (
+            <p className="surface-card px-4 py-4 text-[13.5px] leading-normal text-ink-body" data-testid="last-bill">
+              <span className="font-semibold text-ink">
+                Last bill: {formatDay(view.last_bill_on)}
+                {view.last_bill_amount != null && ` · ${formatCurrency(Number(view.last_bill_amount), view.last_bill_currency ?? fallbackCurrency)}`}
+              </span>
+              <br />
+              We found bills but no receipt yet.
+            </p>
           ) : (
             view?.history_state === 'ok' && (
               <p className="surface-card py-6 text-center text-[13px] text-muted-foreground" data-testid="payments-empty">
@@ -1297,7 +1310,7 @@ function PaymentsSection({
               {view?.searched_since ? ` From your emails since ${formatMonthYear(view.searched_since)}.` : ''}
             </p>
           )}
-          {view?.some_bills_only && (
+          {view?.some_bills_only && !view.last_bill_on && (
             <p className="text-[12px] text-muted-foreground" data-testid="bills-only-note">
               Some months only have a bill, so they are not listed.
             </p>
