@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Link } from "wouter";
-import { Archive, Check, ChevronDown, CircleCheck, Clock, Plus, Receipt } from "lucide-react";
+import { Archive, Check, ChevronDown, CircleCheck, Clock, Plus, Receipt, X } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
@@ -14,6 +14,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ServiceLogo } from "@/components/ServiceLogo";
 import { SuggestionEvidence, type ReviewSuggestion } from "@/components/ReviewCard";
 import { cn } from "@/lib/utils";
@@ -88,6 +98,8 @@ export default function CombinedReviewInbox() {
   const [gone, setGone] = useState<Record<string, true>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  /* The bulk action waiting for a yes, with the ids it will act on. */
+  const [confirmBulk, setConfirmBulk] = useState<{ decision: "approve" | "reject"; ids: string[] } | null>(null);
 
   const suggestionsQuery = useQuery<{ suggestions: ReviewSuggestion[]; total: number }>({
     queryKey: [`/api/suggestions?userId=${userId}&page=1&pageSize=${PAGE_SIZE}`],
@@ -150,17 +162,27 @@ export default function CombinedReviewInbox() {
     if (openKey === undefined && visible.length > 0) setOpenKey(visible[0].key);
   }, [openKey, visible]);
 
+  /* The new-subscription rows under the active filter, never a payment
+     question: what Approve all / Reject all act on. With the payment filter
+     there are none, so the buttons are hidden; with one, the row's own
+     buttons suffice. */
+  const bulkIds = useMemo(
+    () => visible.filter((i): i is Extract<Item, { kind: "new" }> => i.kind === "new").map((i) => i.suggestion.id),
+    [visible],
+  );
+  const showBulk = bulkIds.length > 1;
+
   const shown = showAll ? visible : visible.slice(0, FIRST_ROWS);
   const hiddenCount = visible.length - shown.length;
 
   // --- Decisions ---------------------------------------------------------
 
-  const undoSuggestions = async (id: string, createdSubscriptionIds: string[]) => {
+  const undoSuggestions = async (ids: string[], createdSubscriptionIds: string[]) => {
     try {
-      await apiRequest("POST", "/api/suggestions/undo", { suggestionIds: [id], createdSubscriptionIds });
+      await apiRequest("POST", "/api/suggestions/undo", { suggestionIds: ids, createdSubscriptionIds });
       setGone((prev) => {
         const next = { ...prev };
-        delete next[`s:${id}`];
+        for (const id of ids) delete next[`s:${id}`];
         return next;
       });
       invalidateAll();
@@ -174,11 +196,11 @@ export default function CombinedReviewInbox() {
   };
 
   const decideSuggestion = useMutation({
-    mutationFn: async ({ s, decision }: { s: ReviewSuggestion; decision: "approve" | "reject" }) => {
+    mutationFn: async ({ ids, decision }: { ids: string[]; decision: "approve" | "reject" }) => {
       const response = await apiRequest(
         "POST",
         decision === "approve" ? "/api/suggestions/approve" : "/api/suggestions/reject",
-        decision === "approve" ? { userId, suggestionIds: [s.id] } : { suggestionIds: [s.id] },
+        decision === "approve" ? { userId, suggestionIds: ids } : { suggestionIds: ids },
       );
       return response.json();
     },
@@ -189,7 +211,7 @@ export default function CombinedReviewInbox() {
     if (busyKey) return;
     setBusyKey(key);
     try {
-      const result = await decideSuggestion.mutateAsync({ s, decision });
+      const result = await decideSuggestion.mutateAsync({ ids: [s.id], decision });
       setGone((prev) => ({ ...prev, [key]: true }));
       invalidateAll();
       toast({
@@ -198,7 +220,42 @@ export default function CombinedReviewInbox() {
           decision === "approve" ? "It's on your dashboard now." : "It won't be suggested again from these emails.",
         duration: 6000,
         action: (
-          <ToastAction altText="Undo" onClick={() => undoSuggestions(s.id, result.createdSubscriptionIds ?? [])}>
+          <ToastAction altText="Undo" onClick={() => undoSuggestions([s.id], result.createdSubscriptionIds ?? [])}>
+            Undo
+          </ToastAction>
+        ),
+      });
+    } catch {
+      toast({
+        title: decision === "approve" ? "Couldn't approve" : "Couldn't reject",
+        description: "Nothing was changed. Try again in a moment.",
+        variant: "destructive",
+      });
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  /* Approve all / Reject all: the same two endpoints with a list, the same
+     toast wording and Undo as the original inbox's bulk buttons. */
+  const decideMany = async (ids: string[], decision: "approve" | "reject") => {
+    if (busyKey || ids.length === 0) return;
+    setBusyKey("bulk");
+    try {
+      const result = await decideSuggestion.mutateAsync({ ids, decision });
+      setGone((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[`s:${id}`] = true;
+        return next;
+      });
+      invalidateAll();
+      toast({
+        title: decision === "approve" ? `${ids.length} subscriptions added` : `${ids.length} suggestions rejected`,
+        description:
+          decision === "approve" ? "They're on your dashboard now." : "They won't be suggested again from these emails.",
+        duration: 6000,
+        action: (
+          <ToastAction altText="Undo" onClick={() => undoSuggestions(ids, result.createdSubscriptionIds ?? [])}>
             Undo
           </ToastAction>
         ),
@@ -320,6 +377,33 @@ export default function CombinedReviewInbox() {
                   );
                 })}
               </div>
+              <div className="flex flex-wrap items-center gap-2">
+              {showBulk && (
+                <>
+                  <button
+                    type="button"
+                    className="btn-base btn-ghost h-[34px] px-3 text-[13.5px] font-semibold !text-destructive hover:!bg-destructive-soft"
+                    onClick={() => setConfirmBulk({ decision: "reject", ids: bulkIds })}
+                    disabled={busyKey !== null}
+                    aria-label={`Reject all ${bulkIds.length} new subscriptions`}
+                    data-testid="review-reject-all"
+                  >
+                    <X size={15} strokeWidth={2.2} aria-hidden="true" />
+                    Reject all
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-base btn-secondary h-[34px] px-3.5 text-[13.5px] font-semibold !text-success !border-success hover:!bg-success-soft"
+                    onClick={() => setConfirmBulk({ decision: "approve", ids: bulkIds })}
+                    disabled={busyKey !== null}
+                    aria-label={`Approve all ${bulkIds.length} new subscriptions`}
+                    data-testid="review-approve-all"
+                  >
+                    <Check size={15} strokeWidth={2.4} aria-hidden="true" />
+                    Approve all
+                  </button>
+                </>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -341,6 +425,7 @@ export default function CombinedReviewInbox() {
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
+              </div>
             </div>
           )}
 
@@ -411,6 +496,46 @@ export default function CombinedReviewInbox() {
           )}
         </div>
       </main>
+
+      <AlertDialog open={confirmBulk !== null} onOpenChange={(open) => { if (!open) setConfirmBulk(null); }}>
+        <AlertDialogContent data-testid="review-bulk-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmBulk?.decision === "approve"
+                ? `Approve ${confirmBulk.ids.length} new subscriptions?`
+                : `Reject ${confirmBulk?.ids.length ?? 0} suggestions?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmBulk?.decision === "approve"
+                ? "They are added to your dashboard."
+                : "Not a subscription: they won't be suggested again from these emails. You can still add one manually later."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              className="btn-base btn-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="review-bulk-cancel"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmBulk) void decideMany(confirmBulk.ids, confirmBulk.decision);
+                setConfirmBulk(null);
+              }}
+              className={cn(
+                "btn-base border-none font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                confirmBulk?.decision === "approve"
+                  ? "bg-success text-white hover:bg-success/90"
+                  : "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+              )}
+              data-testid="review-bulk-confirm"
+            >
+              {confirmBulk?.decision === "approve" ? "Approve all" : "Reject all"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
