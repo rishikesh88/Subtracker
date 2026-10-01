@@ -175,14 +175,20 @@ export class OutlookService implements EmailProviderAdapter {
     filter: string,
     max: number,
     onTokenRefresh: (tokens: OAuthTokens) => Promise<void>,
+    /**
+     * A KQL full-text query (subject, body, sender) used as $search instead of
+     * `filter`. Graph refuses $search together with $filter, so the caller
+     * must apply the date window to the result itself.
+     */
+    search?: string,
   ): Promise<{ messages: NormalizedEmailMetadata[]; accessToken: string }> {
     const run = async (token: string) => {
       const client = this.createClient(token);
       const out: NormalizedEmailMetadata[] = [];
-      let request: any = client
+      const base: any = client
         .api('/me/messages')
-        .select('id,subject,from,receivedDateTime,bodyPreview,hasAttachments')
-        .filter(filter)
+        .select('id,subject,from,receivedDateTime,bodyPreview,hasAttachments');
+      let request: any = (search ? base.search(search) : base.filter(filter))
         .top(Math.min(Math.max(max, 1), 100));
       let response: any = await request.get();
       for (let page = 0; page < 10; page++) {

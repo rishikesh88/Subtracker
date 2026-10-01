@@ -356,6 +356,37 @@ export function buildOutlookNameFilter(clues: string[], since: Date): string | n
   return `receivedDateTime ge ${since.toISOString()} and (${Array.from(new Set(parts)).join(" or ")})`;
 }
 
+/**
+ * Graph $search value (KQL, full text over subject, body and sender) for a
+ * name search, so a receipt that names the company only in its body is found.
+ * Graph cannot combine $search with $filter, so the date window is applied by
+ * the caller (see withinWindow). Terms are reduced to letters, digits and
+ * spaces: nothing that could change the query's meaning (quotes, colons,
+ * parentheses, operators) survives. Words of one name are ANDed, names ORed.
+ * The whole expression is wrapped in double quotes, as Graph requires.
+ */
+export function buildOutlookNameSearch(clues: string[]): string | null {
+  const terms: string[] = [];
+  for (const clue of clues) {
+    const needles = nameNeedles(clue);
+    if (needles.length === 0) continue;
+    const words = needles[needles.length - 1]
+      .replace(/[\u0000-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u00bf\u00d7\u00f7]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w && !/^(and|or|not)$/i.test(w));
+    if (words.length === 0) continue;
+    const term = words.length === 1 ? words[0] : `(${words.join(" AND ")})`;
+    if (!terms.includes(term)) terms.push(term);
+  }
+  if (terms.length === 0) return null;
+  return `"${terms.join(" OR ")}"`;
+}
+
+/** $search cannot be combined with a date $filter, so a listed message is checked against the window here. */
+export function withinWindow(receivedAtMs: number, since: Date): boolean {
+  return Number.isFinite(receivedAtMs) && receivedAtMs >= since.getTime();
+}
+
 /** The earliest moment the search covers. */
 export function searchSince(now: Date, days = HISTORY_DAYS): Date {
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);

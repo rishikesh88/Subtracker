@@ -5,6 +5,8 @@ import {
   buildNameClues,
   buildNameGmailQuery,
   buildOutlookNameFilter,
+  buildOutlookNameSearch,
+  withinWindow,
   companyKeys,
   historyDetails,
   isPlanName,
@@ -233,6 +235,15 @@ console.log("Searching by company name (no sender to search)");
   check("gmailQueriesFor: own-sender query first, then the by-name one", gmailQueriesFor(plan, ["Railway"]), [buildNameOwnSenderGmailQuery(plan.byName!.clues), gq]);
   check("own-sender query", buildNameOwnSenderGmailQuery(["Railway"]), "(from:railway) newer_than:365d (receipt OR invoice OR payment OR renewal OR charged OR billing OR subscription OR cancel OR cancelled)");
   check("outlook name filter (subject)", buildOutlookNameFilter(["Railway"], searchSince(NOW)), "receivedDateTime ge 2025-09-29T10:00:00.000Z and (contains(subject,'railway'))");
+  check("outlook name search: full text, one name", buildOutlookNameSearch(["Railway"]), '"railway"');
+  check("outlook name search: several clues ORed", buildOutlookNameSearch(["Railway", "Acme Cloud"]), '"railway OR acme"');
+  check("outlook name search: duplicates collapse", buildOutlookNameSearch(["Railway", "railway"]), '"railway"');
+  check("outlook name search: quotes, colons, parens never survive inside the term", /^"[^"\\:()]+"$/.test(buildOutlookNameSearch(['Rail"way:(x) \\ from:evil', "Railway"])!), true);
+  check("outlook name search: nothing searchable gives null", buildOutlookNameSearch([]), null);
+  check("outlook name search: no date filter inside it", buildOutlookNameSearch(["Railway"])!.includes("receivedDateTime"), false);
+  check("window: inside", withinWindow(NOW.getTime() - 1000, searchSince(NOW)), true);
+  check("window: before it", withinWindow(searchSince(NOW).getTime() - 1, searchSince(NOW)), false);
+  check("window: bad date", withinWindow(NaN, searchSince(NOW)), false);
   const by = plan.byName!;
   const stripe = { fromEmail: "invoice+statements+acct_1A@stripe.com", fromName: "Railway Corporation", subject: "Your receipt from Railway Corporation #2139-9980", text: "Receipt from Railway Corporation $5.90 Paid September 18, 2026 Hobby plan", currency: "USD" };
   check("Stripe sender naming the company: kept", keepEmailByName(stripe, by), { keep: true });

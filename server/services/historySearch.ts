@@ -53,6 +53,8 @@ import {
   buildNameClues,
   buildOutlookFilter,
   buildOutlookNameFilter,
+  buildOutlookNameSearch,
+  withinWindow,
   datedCancellation,
   decideSearch,
   describeFailure,
@@ -752,7 +754,23 @@ async function searchOutlook(ctx: SearchContext, account: any, budget: number): 
 
   let found: Awaited<ReturnType<typeof outlookService.searchMessages>>;
   try {
-    found = await outlookService.searchMessages(accessToken, refreshToken, filter, budget, onTokenRefresh);
+    // By name: full text first (subject, body, sender), so a receipt that
+    // names the company only in its body is found. If Graph refuses that
+    // query, or it lists nothing, the old subject-only filter runs instead.
+    const search = byName ? buildOutlookNameSearch(ctx.plan.byName!.clues) : null;
+    found = { messages: [], accessToken };
+    if (search) {
+      try {
+        const full = await outlookService.searchMessages(accessToken, refreshToken, filter, budget, onTokenRefresh, search);
+        found = { accessToken: full.accessToken, messages: full.messages.filter((m) => withinWindow(m.internalDate, ctx.since)) };
+      } catch (searchError) {
+        console.warn(`${LOG} Outlook full-text name search failed, using subject search: ${describeFailure(searchError)}`);
+      }
+      accessToken = found.accessToken;
+    }
+    if (found.messages.length === 0) {
+      found = await outlookService.searchMessages(accessToken, refreshToken, filter, budget, onTokenRefresh);
+    }
   } catch (error) {
     // A search by name is a best effort: Graph may refuse a filter on a
     // field it cannot match, and that must not fail the whole search.
