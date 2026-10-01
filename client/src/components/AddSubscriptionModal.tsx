@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import type { UploadResult } from "@uppy/core";
 import { ArrowLeft, Check, Plus, Search, Upload, X } from "lucide-react";
 
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -13,7 +12,7 @@ import {
   type CatalogueService,
 } from "@/lib/serviceCatalogue";
 import { ServiceLogo } from "@/components/ServiceLogo";
-import { ObjectUploader } from "@/components/ObjectUploader";
+import { ObjectUploader, type UploadResult } from "@/components/ObjectUploader";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 
 /* -------------------------------------------------------------------------
@@ -203,9 +202,7 @@ export function AddSubscriptionModal({ open, onOpenChange }: AddSubscriptionModa
     return { method: "PUT" as const, url: uploadURL };
   }
 
-  function handleUploadComplete(
-    result: UploadResult<Record<string, unknown>, Record<string, unknown>>
-  ) {
+  function handleUploadComplete(result: UploadResult) {
     const added = (result.successful ?? []).map((file) => ({
       fileUrl: String(file.uploadURL),
       fileName: file.name ?? "receipt",
@@ -638,7 +635,7 @@ function OwnerAndReceipt({
   invoices: PendingInvoice[];
   onRemoveInvoice: (index: number) => void;
   onGetUploadParameters: () => Promise<{ method: "PUT"; url: string }>;
-  onUploadComplete: (result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => void;
+  onUploadComplete: (result: UploadResult) => void;
   onUploadError: (message: string) => void;
 }) {
   return (

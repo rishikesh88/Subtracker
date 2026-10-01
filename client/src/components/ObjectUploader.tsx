@@ -1,9 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
-import Uppy from "@uppy/core";
-import AwsS3 from "@uppy/aws-s3";
-import type { UploadResult } from "@uppy/core";
 import { Loader2 } from "lucide-react";
+
+/** One uploaded file, in the shape the callers already read. */
+export interface UploadedFile {
+  name: string;
+  type: string;
+  size: number;
+  /** The storage address without the signature (what the server normalises). */
+  uploadURL: string;
+}
+
+export interface UploadResult {
+  successful: UploadedFile[];
+  failed: { name: string; error: string }[];
+}
 
 interface ObjectUploaderProps {
   maxNumberOfFiles?: number;
@@ -13,9 +24,7 @@ interface ObjectUploaderProps {
     method: "PUT";
     url: string;
   }>;
-  onComplete?: (
-    result: UploadResult<Record<string, unknown>, Record<string, unknown>>
-  ) => void;
+  onComplete?: (result: UploadResult) => void;
   onError?: (message: string) => void;
   buttonClassName?: string;
   children: ReactNode;
@@ -25,12 +34,13 @@ interface ObjectUploaderProps {
  * Uploads invoice files to object storage through a presigned PUT.
  *
  * The button opens the operating system's file picker and starts the upload
- * as soon as something is chosen. It used to open a dialog that held a second
- * button that opened the picker -- two windows to do one thing. The picker is
- * already a file browser, so there was nothing for the dialog to add.
+ * as soon as something is chosen.
  *
- * Uppy stays because the presigned-URL flow and the uploadURL that the caller
- * reads back off the result both come from it.
+ * The PUT is a plain fetch, not Uppy. Uppy's S3 uploader insists on reading
+ * the ETag response header and, when the bucket's CORS rule does not expose
+ * it, stops without ever finishing or failing: the button sat on "Uploading"
+ * and nothing was saved. A PUT needs nothing back from the bucket, so there
+ * is nothing here that depends on how its CORS is set beyond allowing PUT.
  */
 export function ObjectUploader({
   maxNumberOfFiles = 10,
@@ -44,79 +54,67 @@ export function ObjectUploader({
 }: ObjectUploaderProps) {
   const [isUploading, setIsUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const uppyRef = useRef<Uppy | null>(null);
 
-  if (!uppyRef.current) {
-    uppyRef.current = new Uppy({
-      restrictions: { maxNumberOfFiles, maxFileSize, allowedFileTypes },
-      // Chosen means upload. There is no review step to wait for any more.
-      autoProceed: true,
-    }).use(AwsS3, {
-      shouldUseMultipart: false,
-      getUploadParameters: onGetUploadParameters,
+  const extensionOf = (name: string) => {
+    const dot = name.lastIndexOf('.');
+    return dot < 0 ? '' : name.slice(dot).toLowerCase();
+  };
+
+  const uploadOne = async (file: File): Promise<UploadedFile> => {
+    const { url } = await onGetUploadParameters();
+    const response = await fetch(url, {
+      method: 'PUT',
+      body: file,
+      headers: file.type ? { 'Content-Type': file.type } : undefined,
     });
-  }
-
-  const uppy = uppyRef.current;
-
-  const handleUploadStart = useCallback(() => setIsUploading(true), []);
-
-  const handleComplete = useCallback(
-    (result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => {
-      setIsUploading(false);
-      onComplete?.(result);
-      // Clear the queue so the next pick starts from nothing rather than
-      // re-uploading what was chosen last time.
-      uppy.cancelAll();
-    },
-    [uppy, onComplete]
-  );
-
-  // A file Uppy refuses -- too large, wrong type -- never reaches 'upload',
-  // so without this the button would sit there and nothing would be said.
-  const handleRestrictionFailed = useCallback(
-    (_file: unknown, error: Error) => {
-      setIsUploading(false);
-      onError?.(error.message);
-    },
-    [onError]
-  );
-
-  const handleError = useCallback(
-    (error: Error) => {
-      setIsUploading(false);
-      onError?.(error.message);
-    },
-    [onError]
-  );
-
-  useEffect(() => {
-    uppy.on('upload', handleUploadStart);
-    uppy.on('complete', handleComplete);
-    uppy.on('restriction-failed', handleRestrictionFailed);
-    uppy.on('error', handleError);
-
-    return () => {
-      uppy.off('upload', handleUploadStart);
-      uppy.off('complete', handleComplete);
-      uppy.off('restriction-failed', handleRestrictionFailed);
-      uppy.off('error', handleError);
+    if (!response.ok) {
+      throw new Error(`Storage answered ${response.status}`);
+    }
+    return {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      uploadURL: url.split('?')[0],
     };
-  }, [uppy, handleUploadStart, handleComplete, handleRestrictionFailed, handleError]);
+  };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = Array.from(e.target.files || []);
-    selected.forEach((file) => {
-      try {
-        uppy.addFile({ name: file.name, type: file.type, data: file });
-      } catch (err) {
-        // addFile throws on a restriction; 'restriction-failed' has already
-        // reported it to the caller, so there is nothing to add here.
-        console.error('Error adding file:', err);
-      }
-    });
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files || []);
     // Reset so choosing the same file twice in a row still fires onChange.
     e.target.value = '';
+    if (picked.length === 0) return;
+
+    if (picked.length > maxNumberOfFiles) {
+      onError?.(`You can upload up to ${maxNumberOfFiles} files at a time`);
+      return;
+    }
+
+    const allowed = allowedFileTypes.map((t) => t.toLowerCase());
+    const files: File[] = [];
+    for (const file of picked) {
+      if (allowed.length > 0 && !allowed.includes(extensionOf(file.name))) {
+        onError?.(`${file.name} is not a supported file type`);
+      } else if (file.size > maxFileSize) {
+        onError?.(`${file.name} is larger than ${Math.round(maxFileSize / 1048576)} MB`);
+      } else {
+        files.push(file);
+      }
+    }
+    if (files.length === 0) return;
+
+    setIsUploading(true);
+    const result: UploadResult = { successful: [], failed: [] };
+    for (const file of files) {
+      try {
+        result.successful.push(await uploadOne(file));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Upload failed';
+        result.failed.push({ name: file.name, error: message });
+        onError?.(`${file.name}: ${message}`);
+      }
+    }
+    setIsUploading(false);
+    onComplete?.(result);
   };
 
   return (

@@ -1,7 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import type { Subscription, Invoice, GmailAccount, OutlookAccount } from "@shared/schema";
-import type { UploadResult } from "@uppy/core";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,13 +19,14 @@ import { SiGoogle } from "react-icons/si";
 import { useState, useEffect, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { ObjectUploader } from "@/components/ObjectUploader";
+import { ObjectUploader, type UploadResult } from "@/components/ObjectUploader";
 import { InvoicePreview, previewKind, downloadUrl } from "@/components/InvoicePreview";
 import { cn } from "@/lib/utils";
 import { displayCategory, statusBadge, formatDate, formatCurrency, relativeFromNow, FREQUENCY_LABEL, FREQUENCY_SUFFIX } from "@/lib/format";
 import { useMoney } from "@/hooks/useMoney";
 import { ServiceLogo } from "@/components/ServiceLogo";
 import { useFeature } from "@/hooks/useFeature";
+import { splitDocuments, DOCUMENT_LIMIT } from "@/lib/documentKind";
 import {
   STATUS_FEATURE,
   LIFECYCLE_BADGE,
@@ -82,6 +82,9 @@ export default function SubscriptionDetail({
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   // The invoice currently being looked at, or null when nothing is open.
   const [previewInvoice, setPreviewInvoice] = useState<Invoice | null>(null);
+  // Invoices and receipts show the newest few; these are the lists opened out.
+  const [showAllInvoices, setShowAllInvoices] = useState(false);
+  const [showAllReceipts, setShowAllReceipts] = useState(false);
 
   const subscriptionId = idFromProps ?? params?.id;
 
@@ -282,31 +285,34 @@ export default function SubscriptionDetail({
   };
 
   // Handle upload complete
-  const handleUploadComplete = async (result: UploadResult<Record<string, unknown>, Record<string, unknown>>) => {
-    if (result.successful && result.successful.length > 0) {
-      for (const file of result.successful) {
-        const fileUrl = file.uploadURL;
-        const fileName = file.name;
-        const fileType = file.type || 'application/octet-stream';
-        const fileSize = file.size || 0;
-
-        try {
-          await apiRequest('POST', `/api/subscriptions/${subscriptionId}/invoices`, {
-            fileUrl,
-            fileName,
-            fileType,
-            fileSize,
-            source: 'manual',
-          });
-        } catch (error) {
-          console.error('Failed to save invoice:', error);
-        }
+  const handleUploadComplete = async (result: UploadResult) => {
+    if (result.successful.length === 0) return;
+    let saved = 0;
+    for (const file of result.successful) {
+      try {
+        await apiRequest('POST', `/api/subscriptions/${subscriptionId}/invoices`, {
+          fileUrl: file.uploadURL,
+          fileName: file.name,
+          fileType: file.type || 'application/octet-stream',
+          fileSize: file.size || 0,
+          source: 'manual',
+        });
+        saved += 1;
+      } catch (error) {
+        console.error('Failed to save invoice:', error);
+        toast({
+          title: "That file wasn't saved",
+          description: file.name,
+          variant: "destructive",
+        });
       }
+    }
 
-      queryClient.invalidateQueries({ queryKey: ['/api/subscriptions', subscriptionId, 'invoices'] });
+    queryClient.invalidateQueries({ queryKey: ['/api/subscriptions', subscriptionId, 'invoices'] });
+    if (saved > 0) {
       toast({
-        title: "Success",
-        description: `${result.successful.length} invoice(s) uploaded successfully`,
+        title: "Uploaded",
+        description: `${saved} file${saved === 1 ? '' : 's'} uploaded`,
       });
     }
   };
@@ -374,6 +380,88 @@ export default function SubscriptionDetail({
   const startedDate = earliestKnownDate(subscription, invoices);
 
   const hasSourceAccount = !!(gmailAccount || outlookAccount);
+
+  const documents = splitDocuments(invoices);
+
+  const uploadButton = (
+    <ObjectUploader
+      maxNumberOfFiles={10}
+      maxFileSize={10485760}
+      allowedFileTypes={['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.doc']}
+      onGetUploadParameters={handleGetUploadParameters}
+      onComplete={handleUploadComplete}
+      onError={(message) =>
+        toast({ title: "That file wasn't uploaded", description: message, variant: "destructive" })
+      }
+      buttonClassName="btn-base btn-secondary"
+    >
+      <Upload size={15} strokeWidth={2} />
+      Upload
+    </ObjectUploader>
+  );
+
+  /* One file in the Invoices or Receipts list. */
+  const invoiceRow = (invoice: Invoice, isLast: boolean) => (
+      <div
+        key={invoice.id}
+        className={cn(
+          "flex items-center gap-3 p-3",
+          !isLast && "border-b border-line-soft",
+          previewKind(invoice) !== "none" && "cursor-pointer hover:bg-line-soft"
+        )}
+        data-testid={`invoice-${invoice.id}`}
+        onClick={() => previewKind(invoice) !== "none" && setPreviewInvoice(invoice)}
+        role={previewKind(invoice) !== "none" ? "button" : undefined}
+      >
+        <FileText size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
+        <div className="flex-1 min-w-0">
+          <p className="text-[13px] text-ink truncate">{invoice.fileName}</p>
+          <p className="text-[11.5px] text-muted-foreground mt-0.5">
+            {formatDate(invoice.uploadedAt)}
+          </p>
+        </div>
+        <div className="flex items-center gap-1 flex-none">
+          {/* Only shown when there is actually a file. Some merchants
+              put the receipt in the email body and attach nothing,
+              and those rows have no URL to open. */}
+          {invoice.fileUrl && previewKind(invoice) !== "none" && (
+            <button
+              type="button"
+              onClick={() => setPreviewInvoice(invoice)}
+              aria-label={`Preview ${invoice.fileName}`}
+              className="btn-base btn-ghost w-7 h-7 px-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid={`preview-invoice-${invoice.id}`}
+            >
+              <Eye size={15} strokeWidth={2} />
+            </button>
+          )}
+          {invoice.fileUrl && (
+            <a
+              href={downloadUrl(invoice.fileUrl)}
+              download={invoice.fileName}
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`Download ${invoice.fileName}`}
+              className="btn-base btn-ghost w-7 h-7 px-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid={`download-invoice-${invoice.id}`}
+            >
+              <Download size={15} strokeWidth={2} />
+            </a>
+          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              deleteInvoiceMutation.mutate(invoice.id);
+            }}
+            disabled={deleteInvoiceMutation.isPending}
+            className="btn-base btn-ghost w-7 h-7 px-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-testid={`delete-invoice-${invoice.id}`}
+          >
+            <Trash2 size={15} strokeWidth={2} className="text-destructive" />
+          </button>
+        </div>
+      </div>
+  );
 
   return (
     <div
@@ -660,101 +748,84 @@ export default function SubscriptionDetail({
         />
       )}
 
-      {/* 4. Invoices */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="t-label">
-            Invoices
-            {invoices.length > 0 && (
-              <span className="text-muted-foreground font-normal"> · {invoices.length}</span>
-            )}
-          </h3>
-          <ObjectUploader
-            maxNumberOfFiles={10}
-            maxFileSize={10485760}
-            allowedFileTypes={['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.doc']}
-            onGetUploadParameters={handleGetUploadParameters}
-            onComplete={handleUploadComplete}
-            onError={(message) =>
-              toast({ title: "That file wasn't uploaded", description: message, variant: "destructive" })
-            }
-            buttonClassName="btn-base btn-secondary"
-          >
-            <Upload size={15} strokeWidth={2} />
-            Upload
-          </ObjectUploader>
-        </div>
-
-        <div className="surface-card overflow-hidden" data-testid="invoices-section">
-          {invoices.length === 0 ? (
-            <p className="py-8 text-center text-[13px] text-muted-foreground">
-              Nothing found for this subscription yet.
-            </p>
-          ) : (
-            invoices.map((invoice, idx) => (
-              <div
-                key={invoice.id}
-                className={cn(
-                  "flex items-center gap-3 p-3",
-                  idx !== invoices.length - 1 && "border-b border-line-soft",
-                  previewKind(invoice) !== "none" && "cursor-pointer hover:bg-line-soft"
-                )}
-                data-testid={`invoice-${invoice.id}`}
-                onClick={() => previewKind(invoice) !== "none" && setPreviewInvoice(invoice)}
-                role={previewKind(invoice) !== "none" ? "button" : undefined}
-              >
-                <FileText size={15} strokeWidth={2} className="text-muted-foreground flex-none" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] text-ink truncate">{invoice.fileName}</p>
-                  <p className="text-[11.5px] text-muted-foreground mt-0.5">
-                    {formatDate(invoice.uploadedAt)}
-                  </p>
+      {/* 4. Invoices. With the switch, bills and receipts sit in their own
+           lists, five at a time. */}
+      {statusOn ? (
+        <>
+          {invoices.length === 0 && (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="t-label">Invoices</h3>
+                {uploadButton}
+              </div>
+              <div className="surface-card overflow-hidden" data-testid="invoices-section">
+                <p className="py-8 text-center text-[13px] text-muted-foreground">
+                  Nothing found for this subscription yet.
+                </p>
+              </div>
+            </div>
+          )}
+          {([
+            { key: "invoices", title: "Invoices", files: documents.invoices, all: showAllInvoices, setAll: setShowAllInvoices, upload: true },
+            { key: "receipts", title: "Receipts", files: documents.receipts, all: showAllReceipts, setAll: setShowAllReceipts, upload: documents.invoices.length === 0 },
+          ] as const).map((group) => {
+            if (group.files.length === 0) return null;
+            const shown = group.all ? group.files : group.files.slice(0, DOCUMENT_LIMIT);
+            const rest = group.files.length - DOCUMENT_LIMIT;
+            const listId = `${group.key}-list`;
+            return (
+              <div key={group.key} className="flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="t-label">
+                    {group.title}
+                    <span className="text-muted-foreground font-normal"> · {group.files.length}</span>
+                  </h3>
+                  {group.upload && uploadButton}
                 </div>
-                <div className="flex items-center gap-1 flex-none">
-                  {/* Only shown when there is actually a file. Some merchants
-                      put the receipt in the email body and attach nothing,
-                      and those rows have no URL to open. */}
-                  {invoice.fileUrl && previewKind(invoice) !== "none" && (
+                <div className="surface-card overflow-hidden" data-testid={`${group.key}-section`}>
+                  <div id={listId}>
+                    {shown.map((invoice, idx) => invoiceRow(invoice, idx === shown.length - 1))}
+                  </div>
+                  {rest > 0 && (
                     <button
                       type="button"
-                      onClick={() => setPreviewInvoice(invoice)}
-                      aria-label={`Preview ${invoice.fileName}`}
-                      className="btn-base btn-ghost w-7 h-7 px-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      data-testid={`preview-invoice-${invoice.id}`}
+                      onClick={() => group.setAll(!group.all)}
+                      aria-expanded={group.all}
+                      aria-controls={listId}
+                      className="w-full h-[42px] border-t border-line-soft text-[13px] font-semibold text-accent hover:bg-line-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                      data-testid={`${group.key}-toggle`}
                     >
-                      <Eye size={15} strokeWidth={2} />
+                      {group.all ? "Show less" : `Show ${rest} more`}
                     </button>
                   )}
-                  {invoice.fileUrl && (
-                    <a
-                      href={downloadUrl(invoice.fileUrl)}
-                      download={invoice.fileName}
-                      onClick={(e) => e.stopPropagation()}
-                      aria-label={`Download ${invoice.fileName}`}
-                      className="btn-base btn-ghost w-7 h-7 px-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      data-testid={`download-invoice-${invoice.id}`}
-                    >
-                      <Download size={15} strokeWidth={2} />
-                    </a>
-                  )}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteInvoiceMutation.mutate(invoice.id);
-                    }}
-                    disabled={deleteInvoiceMutation.isPending}
-                    className="btn-base btn-ghost w-7 h-7 px-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    data-testid={`delete-invoice-${invoice.id}`}
-                  >
-                    <Trash2 size={15} strokeWidth={2} className="text-destructive" />
-                  </button>
                 </div>
               </div>
-            ))
-          )}
+            );
+          })}
+        </>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="t-label">
+              Invoices
+              {invoices.length > 0 && (
+                <span className="text-muted-foreground font-normal"> · {invoices.length}</span>
+              )}
+            </h3>
+            {uploadButton}
+          </div>
+
+          <div className="surface-card overflow-hidden" data-testid="invoices-section">
+            {invoices.length === 0 ? (
+              <p className="py-8 text-center text-[13px] text-muted-foreground">
+                Nothing found for this subscription yet.
+              </p>
+            ) : (
+              invoices.map((invoice, idx) => invoiceRow(invoice, idx === invoices.length - 1))
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* 5. Actions. With the switch: a bar along the bottom, Delete on the
            left and the status answer on the right. */}

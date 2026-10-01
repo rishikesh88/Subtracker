@@ -47,7 +47,7 @@ import {
   isValidFeatureKey,
   normaliseTags,
 } from "../lib/featureFlags";
-import { STATUS_FEATURE, statusRowsForAdmin, statusEnabledFor, rereadStoredPayments, removeStoredCreditCardEmails, removeStoredBankEmails } from "../services/subscriptionStatus";
+import { STATUS_FEATURE, statusRowsForAdmin, statusEnabledFor, rereadStoredPayments, removeStoredCreditCardEmails, removeStoredBankEmails, removeDuplicateInvoices, type DuplicateInvoiceResult } from "../services/subscriptionStatus";
 import { queueAllForUser, queueHistorySearch } from "../services/historySearch";
 
 /**
@@ -572,16 +572,20 @@ export function registerAdminRoutes(app: Express): void {
       // "From scratch" also reads the payments saved at approvals and syncs
       // again with today's rules, so one click refreshes everything.
       let reread: { checked: number; changed: number; removed: number } | null = null;
+      // Duplicate invoices are removed before searching, so the search starts clean.
+      let duplicates: DuplicateInvoiceResult | null = null;
       if (subscriptionId) {
         const sub = await storage.getSubscription(subscriptionId);
         if (!sub || sub.userId !== user.id) return res.status(404).json({ message: "No such subscription." });
         if (fresh) {
+          duplicates = await removeDuplicateInvoices(user.id, [sub.id]);
           await storage.clearHistoryFindings(user.id, [sub.id]);
           reread = await rereadStoredPayments(user.id, [sub.id]);
         }
         queued = await queueHistorySearch(user.id, [sub.id], { force: true });
       } else if (fresh) {
         const ids = (await storage.getSubscriptions(user.id)).map((s) => s.id);
+        duplicates = await removeDuplicateInvoices(user.id, ids);
         const cleared = await storage.clearHistoryFindings(user.id, ids);
         console.log(`[Admin] History findings cleared: ${cleared.payments} payment(s), ${cleared.emails} email(s)`);
         reread = await rereadStoredPayments(user.id, ids);
@@ -592,12 +596,14 @@ export function registerAdminRoutes(app: Express): void {
       console.log(`[Admin] History search queued for ${queued} subscription(s)`);
       if (reread) console.log(`[Admin] Re-read ${reread.checked} saved payment(s): ${reread.changed} changed, ${reread.removed} removed`);
       const rereadNote = reread ? ` Re-read ${reread.checked} saved payment${reread.checked === 1 ? "" : "s"}: ${reread.changed} changed, ${reread.removed} removed.` : "";
+      const dupNote = duplicates ? ` Removed ${duplicates.removed} duplicate invoice${duplicates.removed === 1 ? "" : "s"} (kept ${duplicates.kept}).` : "";
       res.json({
         queued,
         reread,
+        duplicates,
         message: (queued === 0
           ? "Nothing to search: everything is already searched or searching."
-          : `Searching history for ${queued} subscription${queued === 1 ? "" : "s"}.`) + rereadNote,
+          : `Searching history for ${queued} subscription${queued === 1 ? "" : "s"}.`) + rereadNote + dupNote,
       });
     } catch (error) {
       console.error("[Admin] Failed to queue a history search:", error);
@@ -650,6 +656,30 @@ export function registerAdminRoutes(app: Express): void {
     } catch (error) {
       console.error("[Admin] Failed to remove bank emails:", error);
       res.status(500).json({ message: error instanceof Error && /fingerprint secret/.test(error.message) ? error.message : "Could not remove those emails." });
+    }
+  });
+
+  // One-time clean-up for a person with the switch on: removes invoices filed
+  // from email more than once (see removeDuplicateInvoices). Manual uploads
+  // are never touched.
+  app.post("/admin/api/users/:id/remove-duplicate-invoices", requireAdmin, requireAdminCsrf, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.params.id);
+      if (!user) return res.status(404).json({ message: "No such user." });
+      if (!(await statusEnabledFor(user.id))) {
+        return res.status(409).json({ message: "Subscription status is not on for this person." });
+      }
+      const r = await removeDuplicateInvoices(user.id);
+      console.log(`[Admin] Duplicate invoices removed: ${r.removed} row(s), ${r.kept} kept, ${r.files} file(s), ${r.fileFailures} file failure(s)`);
+      res.json({
+        ...r,
+        message:
+          `Removed ${r.removed} duplicate invoice${r.removed === 1 ? "" : "s"} (kept ${r.kept}), deleted ${r.files} file${r.files === 1 ? "" : "s"}` +
+          (r.fileFailures ? ` (${r.fileFailures} could not be deleted)` : "") + ".",
+      });
+    } catch (error) {
+      console.error("[Admin] Failed to remove duplicate invoices:", error);
+      res.status(500).json({ message: "Could not remove the duplicate invoices." });
     }
   });
 

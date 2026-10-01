@@ -724,13 +724,13 @@ export function stillActiveUntil(
 interface KindRules { failed: RegExp; refund: RegExp; pause: RegExp }
 
 const SUBJECT_RULES: KindRules = {
-  failed: /\b(payment|charge|transaction|renewal)\s+(of\s+\S+\s+)?(has\s+)?(failed|declined|unsuccessful|was\s+declined|did\s+not\s+go\s+through)|\b(card|payment)\s+(was\s+)?declined|could\s*n[o'’]?t\s+(process|charge)|could\s+not\s+(process|charge)|unable\s+to\s+(process|charge)|update\s+your\s+payment\s+(method|details|information)|payment\s+issue|past\s+due|could\s*n[o'’]?t\s+be\s+(processed|charged)|could\s+not\s+be\s+(processed|charged)|(did\s*n[o'’]?t|did\s+not)\s+go\s+through|(has|have)\s+not\s+been\s+processed|(was\s*n[o'’]?t|was\s+not)\s+(successful|processed)|(billing|payment)\s+(problem|issue)|problem\s+with\s+your\s+(billing|payment)/i,
+  failed: /\b(payment|charge|transaction|renewal)\s+(of\s+\S+\s+)?(has\s+)?(failed|declined|unsuccessful|was\s+declined|did\s+not\s+go\s+through)|\b(card|payment)\s+(was\s+)?declined|could\s*n[o'’]?t\s+(process|charge)|could\s+not\s+(process|charge)|unable\s+to\s+(process|charge)|update\s+your\s+payment\s+(method|details|information)|payment\s+issue|past\s+due|could\s*n[o'’]?t\s+be\s+(processed|charged)|could\s+not\s+be\s+(processed|charged)|(did\s*n[o'’]?t|did\s+not)\s+go\s+through|(has|have)\s+not\s+been\s+processed|(was\s*n[o'’]?t|was\s+not)\s+(successful|processed)|(billing|payment)\s+(problem|issue)|problem\s+with\s+your\s+(billing|payment)|\b(payment|charge|renewal)\s+(was|has\s+been|is)\s+unsuccessful|\bupdate\s+(your\s+)?payment\b/i,
   refund: /\brefund(ed|s)?\b/i,
   pause: /\bpaused\b|\bpause\s+(confirmed|confirmation)\b/i,
 };
 
 const BODY_RULES: KindRules = {
-  failed: /\b(payment|charge|renewal)\s+(of\s+\S+\s+)?(has\s+)?(failed|was\s+declined|was\s+unsuccessful)|could\s*n[o'’]?t\s+(process|charge)|could\s+not\s+(process|charge)|unable\s+to\s+(process|charge)\s+your|could\s*n[o'’]?t\s+be\s+(processed|charged)|could\s+not\s+be\s+(processed|charged)|(did\s*n[o'’]?t|did\s+not)\s+go\s+through|(has|have)\s+not\s+been\s+processed|(was\s*n[o'’]?t|was\s+not)\s+(successful|processed)|(billing|payment)\s+problem|problem\s+with\s+your\s+(billing|payment)/i,
+  failed: /\b(payment|charge|renewal)\s+(of\s+\S+\s+)?(has\s+)?(failed|was\s+declined|was\s+unsuccessful)|could\s*n[o'’]?t\s+(process|charge)|could\s+not\s+(process|charge)|unable\s+to\s+(process|charge)\s+your|could\s*n[o'’]?t\s+be\s+(processed|charged)|could\s+not\s+be\s+(processed|charged)|(did\s*n[o'’]?t|did\s+not)\s+go\s+through|(has|have)\s+not\s+been\s+processed|(was\s*n[o'’]?t|was\s+not)\s+(successful|processed)|(billing|payment)\s+problem|problem\s+with\s+your\s+(billing|payment)|\b(payment|charge|renewal)\s+(has\s+been|is)\s+unsuccessful/i,
   refund: /\brefund\s+(has\s+been|was|is\s+being)\s+(issued|processed|initiated|approved)|we('ve|\s+have)\s+(issued\s+(you\s+)?a\s+refund|refunded)|(has|have)\s+been\s+refunded|was\s+refunded/i,
   pause: /\b(has\s+been|is\s+now|was)\s+paused|\bpaused\s+(until|till|through)|we('ve|\s+have)\s+paused/i,
 };
@@ -752,6 +752,7 @@ const PAID = new RegExp(
   "(we('ve|\\s+have)\\s+)?received\\s+(a|your)\\s+payment|thank\\s+you\\s+for\\s+your\\s+(payment|purchase|order)|" +
   "thanks\\s+for\\s+your\\s+(payment|purchase|order)|you('ve|\\s+have)\\s+(been\\s+)?(paid|charged)|" +
   "has\\s+been\\s+(charged|renewed|paid)|was\\s+(charged|renewed|paid)|successfully\\s+(renewed|paid|charged)|" +
+  "successfully\\s+processed\\s+your\\s+payment|processed\\s+your\\s+payment|payment\\s+(has\\s+been|was)\\s+(successfully\\s+)?processed|" +
   "order\\s+confirmation|we('ve|\\s+have)\\s+charged|amount\\s+paid|paid\\s+on|invoice\\s+paid|status:?\\s*paid)\\b|" +
   "\\bpaid\\s+(?:on\\s+)?" + DATE_PATTERN,
   "i",

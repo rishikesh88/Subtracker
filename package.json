@@ -30,7 +30,9 @@
     "test:bank": "tsx server/lib/bankAlert.test.ts",
     "test:concurrency": "tsx server/lib/concurrency.test.ts",
     "test:status-view": "tsx server/lib/statusView.test.ts",
-    "test:lifecycle": "tsx client/src/lib/lifecycle.test.ts"
+    "test:lifecycle": "tsx client/src/lib/lifecycle.test.ts",
+    "test:invoices": "tsx server/lib/invoiceDuplicates.test.ts",
+    "test:documents": "tsx client/src/lib/documentKind.test.ts"
   },
   "engines": {
     "node": "22.x"

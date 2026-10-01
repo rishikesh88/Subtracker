@@ -290,8 +290,12 @@ export function buildGmailQuery(domains: string[], nameTerm: string | null = nul
 export function gmailQueriesFor(plan: SenderPlan, serviceName: Clues, days = HISTORY_DAYS): string[] {
   const queries: string[] = [];
   if (plan.byName) {
+    // The company's own mail first: it is what is kept, and bank alerts that
+    // only mention the name must not crowd it out of the listing. The broader
+    // query (name anywhere) follows; what the first read is not read again.
+    const own = buildNameOwnSenderGmailQuery(plan.byName.clues, days);
     const query = buildNameGmailQuery(plan.byName.clues, days);
-    return query ? [query] : [];
+    return [own, query].filter((q): q is string => Boolean(q));
   }
   if (plan.owned.length > 0) queries.push(buildGmailQuery(plan.owned, null, days));
   const term = nameSearchTerm(serviceName);
@@ -318,6 +322,25 @@ export function buildNameGmailQuery(clues: string[], days = HISTORY_DAYS): strin
   if (terms.length === 0) return null;
   const keywords = `(${HISTORY_KEYWORDS.join(" OR ")})`;
   return [`(${terms.join(" OR ")})`, `newer_than:${days}d`, keywords].filter(Boolean).join(" ");
+}
+
+/**
+ * `(from:netflix) newer_than:365d (receipt OR ...)`: the company's own mail,
+ * matched on the sender's name or address ("info@account.netflix.com").
+ */
+export function buildNameOwnSenderGmailQuery(clues: string[], days = HISTORY_DAYS): string | null {
+  const terms: string[] = [];
+  for (const clue of clues) {
+    const needles = nameNeedles(clue);
+    if (needles.length === 0) continue;
+    const pick = needles[needles.length - 1].replace(/\+/g, "").trim();
+    if (!pick) continue;
+    const term = pick.includes(" ") ? `from:"${pick}"` : `from:${pick}`;
+    if (!terms.includes(term)) terms.push(term);
+  }
+  if (terms.length === 0) return null;
+  const keywords = `(${HISTORY_KEYWORDS.join(" OR ")})`;
+  return [`(${terms.join(" OR ")})`, `newer_than:${days}d`, keywords].join(" ");
 }
 
 /** Graph $filter for a name search: subject only, since Graph cannot match a sender's name or domain. */
@@ -466,6 +489,9 @@ export function keepEmailByName(
   }
 
   const currency = (email.currency ?? "").trim().toUpperCase();
+  // The company's own notice with no amount in it ("Your payment was
+  // unsuccessful") has no currency to compare; its own sender is proof enough.
+  if (!currency && fromSender && !processor) return { keep: true };
   if (!currency || currency !== byName.currency.trim().toUpperCase()) return { keep: false, why: "wrong_currency" };
   return { keep: true };
 }
