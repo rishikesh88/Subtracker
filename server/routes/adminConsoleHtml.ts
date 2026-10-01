@@ -1165,6 +1165,12 @@ ${head("Verloq Admin")}
 
       var hist = document.createElement("td");
       hist.appendChild(el("div", "", s.history_label || "Not searched yet"));
+      (s.history_details || []).forEach(function (line) {
+        hist.appendChild(el("div", "cell-sub", line));
+      });
+      if (s.last_bill_at && !s.last_payment_at) {
+        hist.appendChild(el("div", "cell-sub", "Last bill " + fmtDay(s.last_bill_at)));
+      }
       if (s.history_status === "done" || s.history_status === "failed") {
         var again = el("button", "btn btn-ghost btn-sm", "Search again");
         again.type = "button";

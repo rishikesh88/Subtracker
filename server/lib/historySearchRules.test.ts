@@ -1,5 +1,18 @@
 /* Run: npm run test:history */
 import {
+  NOTE_BANK_ALERTS_ONLY,
+  assignByPrice,
+  buildNameClues,
+  buildNameGmailQuery,
+  buildOutlookNameFilter,
+  companyKeys,
+  historyDetails,
+  isPlanName,
+  isProcessorSender,
+  keepEmailByName,
+  priceFits,
+  searchCoverage,
+  siblingsOf,
   HISTORY_DAYS,
   MAX_MESSAGES_PER_SUBSCRIPTION,
   MAX_RETRIES,
@@ -26,6 +39,7 @@ import {
   searchSince,
   selectNewMessageIds,
   worthSaving,
+  type SenderPlan,
 } from "./historySearchRules";
 
 let passed = 0, failed = 0;
@@ -104,16 +118,18 @@ check("generic brand word", nameTooGeneric("Apple"), true);
 check("distinct name", nameTooGeneric("iCloud+"), false);
 check("hand-added skipped", decideSearch({ serviceName: "Gym", linkedFromEmails: [], merchantEmail: null }), { search: false, note: NOTE_ADDED_BY_HAND });
 check("shared-only + generic name skipped", decideSearch({ serviceName: "One", linkedFromEmails: ["no_reply@email.apple.com"], merchantEmail: null }), { search: false, note: NOTE_NAME_TOO_GENERIC });
-check("only a bank sender: nothing to search", decideSearch({ serviceName: "Claude Pro", linkedFromEmails: ["alerts@hdfcbank.net"], merchantEmail: null }), { search: false, note: NOTE_NO_SENDER });
+check("only a bank sender and a generic name: nothing to search", decideSearch({ serviceName: "Max", linkedFromEmails: ["alerts@hdfcbank.net"], merchantEmail: null }), { search: false, note: NOTE_NO_SENDER });
+check("only a bank sender but a company name: searched by name", (decideSearch({ serviceName: "Netflix", linkedFromEmails: ["alerts@hdfcbank.net"], merchantEmail: null, currency: "INR" }) as any).plan?.byName?.clues, ["Netflix"]);
 check("merchant email alone is enough", (decideSearch({ serviceName: "Netflix", linkedFromEmails: [], merchantEmail: "info@netflix.com" }) as any).plan?.owned, ["netflix.com"]);
 check("shared + distinct name searched", decideSearch({ serviceName: "iCloud+", linkedFromEmails: ["no_reply@email.apple.com"], merchantEmail: null }).search, true);
 check("generic name with an owned domain still searched", decideSearch({ serviceName: "Max", linkedFromEmails: ["billing@max.com"], merchantEmail: null }).search, true);
 
 console.log("New messages and the cap");
-check("already stored skipped", selectNewMessageIds(["a", "b", "c"], new Set(["b"]), 60), ["a", "c"]);
-check("repeats dropped", selectNewMessageIds(["a", "a", "b"], new Set(), 60), ["a", "b"]);
+check("already stored skipped", selectNewMessageIds(["a", "b", "c"], new Set(["b"]), 150), ["a", "c"]);
+check("repeats dropped", selectNewMessageIds(["a", "a", "b"], new Set(), 150), ["a", "b"]);
 const many = Array.from({ length: 150 }, (_, i) => `m${i}`);
-check("capped at 60", selectNewMessageIds(many, new Set(), MAX_MESSAGES_PER_SUBSCRIPTION).length, 60);
+check("capped at 150", selectNewMessageIds(many.concat(["x1", "x2"]), new Set(), MAX_MESSAGES_PER_SUBSCRIPTION).length, 150);
+check("the cap is 150", MAX_MESSAGES_PER_SUBSCRIPTION, 150);
 check("cap counts only new ones", selectNewMessageIds(many, new Set(["m0", "m1"]), 3), ["m2", "m3", "m4"]);
 check("nothing left in budget", selectNewMessageIds(many, new Set(), 0), []);
 
@@ -156,6 +172,116 @@ check("pending reads as searching", historyLabel({ historyStatus: "pending", his
 check("done", historyLabel({ historyStatus: "done", historySearchedSince: "2025-10-02", historyError: null }), "Since Oct 2025");
 check("failed", historyLabel({ historyStatus: "failed", historySearchedSince: null, historyError: "the mailbox needs to be reconnected" }), "Couldn't search: the mailbox needs to be reconnected");
 check("hand-added", historyLabel({ historyStatus: "done", historySearchedSince: null, historyError: NOTE_ADDED_BY_HAND }), "Not searched: added by hand");
+
+console.log("Partial searches say so (the 150-email budget)");
+{
+  const full = searchCoverage({ since: searchSince(NOW), truncated: false, oldestRead: new Date("2026-01-10T00:00:00Z") });
+  check("budget not hit: the whole window", full, { searchedSince: "2025-09-29", partial: false, note: null });
+  const cut = searchCoverage({ since: searchSince(NOW), truncated: true, oldestRead: new Date("2026-03-12T08:00:00Z") });
+  check("budget hit: searched since is the oldest email reached", cut.searchedSince, "2026-03-12");
+  check("budget hit: partial", cut.partial, true);
+  check("budget hit: note names the cap and the month", cut.note, "Partial: read newest 150 emails, back to Mar 2026");
+  check("never claims more than the window", searchCoverage({ since: searchSince(NOW), truncated: true, oldestRead: new Date("2024-01-01T00:00:00Z") }).searchedSince, "2025-09-29");
+  check("admin headline says Partial", historyLabel({ historyStatus: "done", historySearchedSince: "2026-03-12", historyError: cut.note, historyPartial: true }), "Partial, since mar 2026");
+  check("admin headline: complete search unchanged", historyLabel({ historyStatus: "done", historySearchedSince: "2025-09-29", historyError: null, historyPartial: false }), "Since Sep 2025");
+}
+
+console.log("Admin details: counts, skipped, notes");
+check("counts, bills, skipped and a note",
+  historyDetails({ historyStatus: "done", historySearchedSince: "2025-09-29", historyError: NOTE_BANK_ALERTS_ONLY, historyRead: 40, historySaved: 12, historySkipped: 3 }, 2),
+  ["40 read · 12 saved · 2 bills with no receipt", "3 skipped (no matching price)", "Found through bank alerts only"]);
+check("one bill reads singular", historyDetails({ historyStatus: "done", historySearchedSince: "2025-09-29", historyError: null, historyRead: 5, historySaved: 1, historySkipped: 0 }, 1), ["5 read · 1 saved · 1 bill with no receipt"]);
+check("nothing to show before a search", historyDetails({ historyStatus: "running", historySearchedSince: null, historyError: null }), []);
+check("not searched: no details", historyDetails({ historyStatus: "done", historySearchedSince: null, historyError: NOTE_ADDED_BY_HAND }), []);
+
+console.log("Name clues: order, plan names, old names");
+{
+  const clues = buildNameClues({
+    merchantName: "Anthropic, PBC",
+    serviceName: "Claude",
+    remembered: [{ name: "Claude Pro", origin: "approval" }, { name: "Hobby plan", origin: "rename" }, { name: "Old Name Co", origin: "rename" }, { name: "claude", origin: "rename" }],
+  });
+  check("order: merchant, approval, current, then old names; repeats dropped", clues.search, ["Anthropic, PBC", "Claude Pro", "Claude", "Old Name Co"]);
+  check("a plan name is body-only, never a search clue", clues.bodyOnly, ["Hobby plan"]);
+  check("plan-name detection", [isPlanName("Hobby plan"), isPlanName("Pro"), isPlanName("Claude Pro"), isPlanName("Railway")], [true, true, false, false]);
+  check("too-generic names dropped", buildNameClues({ merchantName: null, serviceName: "One", remembered: [{ name: "Apple", origin: "rename" }] }).search, []);
+  const renamed = buildNameClues({ merchantName: null, serviceName: "Railway", remembered: [{ name: "Hobby plan", origin: "rename" }] });
+  check("renamed from a plan name: current name searched, old name body-only", [renamed.search, renamed.bodyOnly], [["Railway"], ["Hobby plan"]]);
+  const old = buildNameClues({ merchantName: null, serviceName: "My Streaming", remembered: [{ name: "Memorisely", origin: "rename" }] });
+  check("old name is a search clue", old.search, ["My Streaming", "Memorisely"]);
+  check("name-only search with only plan names: nothing to search", decideSearch({ serviceName: "Hobby plan", linkedFromEmails: ["alerts@hdfcbank.net"], merchantEmail: null, clues: buildNameClues({ merchantName: null, serviceName: "Hobby plan", remembered: [] }) }), { search: false, note: NOTE_NO_SENDER });
+  check("shared sender recognised by an old name", namesSubscription({ subject: "Your receipt from Apple", text: "iCloud+ 50 GB" }, ["Storage", "iCloud+"]), true);
+}
+
+console.log("Searching by company name (no sender to search)");
+{
+  const decision = decideSearch({
+    serviceName: "Railway",
+    linkedFromEmails: ["alerts@hdfcbank.net", "receipts@stripe.com"],
+    merchantEmail: null,
+    clues: buildNameClues({ merchantName: null, serviceName: "Railway", remembered: [{ name: "Hobby plan", origin: "rename" }] }),
+    currency: "USD",
+  });
+  check("bank and processor senders only: searched by name", decision.search, true);
+  const plan = (decision as any).plan as SenderPlan;
+  check("plan carries clues, plan name and currency", plan.byName, { clues: ["Railway"], bodyClues: ["Hobby plan"], currency: "USD" });
+  const gq = buildNameGmailQuery(plan.byName!.clues);
+  check("gmail query is by company name", gq, '(("railway" OR from:railway)) newer_than:365d (receipt OR invoice OR payment OR renewal OR charged OR billing OR subscription OR cancel OR cancelled)');
+  check("plan name is never in the query", gq!.includes("hobby"), false);
+  check("gmailQueriesFor uses it", gmailQueriesFor(plan, ["Railway"]), [gq]);
+  check("outlook name filter (subject)", buildOutlookNameFilter(["Railway"], searchSince(NOW)), "receivedDateTime ge 2025-09-29T10:00:00.000Z and (contains(subject,'railway'))");
+  const by = plan.byName!;
+  const stripe = { fromEmail: "invoice+statements+acct_1A@stripe.com", fromName: "Railway Corporation", subject: "Your receipt from Railway Corporation #2139-9980", text: "Receipt from Railway Corporation $5.90 Paid September 18, 2026 Hobby plan", currency: "USD" };
+  check("Stripe sender naming the company: kept", keepEmailByName(stripe, by), { keep: true });
+  check("Stripe sender, display name is Stripe but the body names the company: kept", keepEmailByName({ ...stripe, fromName: "Stripe" }, by), { keep: true });
+  check("Stripe receipt for another company: dropped", keepEmailByName({ ...stripe, fromName: "Stripe", subject: "Your receipt from Acme", text: "Receipt from Acme $5.90" }, by), { keep: false, why: "not_named" });
+  check("Stripe receipt whose body only has the plan name: recognised (the plan name helps the body, it never started a search)", keepEmailByName({ ...stripe, fromName: "Stripe", subject: "Your receipt #2139-9980", text: "Receipt $5.90 Hobby plan" }, by), { keep: true });
+  check("wrong currency (Indian Railways): dropped", keepEmailByName({ fromEmail: "irctc@railways.in", fromName: "Indian Railways", subject: "Payment receipt", text: "Railway ticket receipt Rs 540", currency: "INR" }, by), { keep: false, why: "wrong_currency" });
+  check("no currency: dropped", keepEmailByName({ ...stripe, currency: null }, by), { keep: false, why: "wrong_currency" });
+  check("sender's own address names the company: kept", keepEmailByName({ fromEmail: "billing@railway.com", fromName: "", subject: "Your invoice", text: "invoice $5", currency: "USD" }, by), { keep: true });
+  check("an unrelated sender: dropped", keepEmailByName({ fromEmail: "news@example.com", fromName: "Example", subject: "Receipt", text: "railway $5", currency: "USD" }, by), { keep: false, why: "other_sender" });
+  check("a bank alert naming the company is never a source", keepEmailByName({ fromEmail: "alerts@hdfcbank.net", fromName: "HDFC Bank", subject: "Alert: $5.90 spent at Railway", text: "payment of $5.90 at Railway", currency: "USD" }, by), { keep: false, why: "other_sender" });
+  check("a card issuer is never a source", keepEmailByName({ fromEmail: "no-reply@sbicard.com", fromName: "SBI Card Railway", subject: "Transaction receipt", text: "Railway", currency: "USD" }, by), { keep: false, why: "other_sender" });
+  check("no billing word: dropped", keepEmailByName({ ...stripe, subject: "Railway news", text: "hello" }, by), { keep: false, why: "no_keyword" });
+  check("keepEmail routes a name plan through the name rules", keepEmail(stripe, plan, ["Railway"]), { keep: true });
+  check("processor detection", [isProcessorSender("a@stripe.com"), isProcessorSender("a@mail.stripe.com"), isProcessorSender("a@hdfcbank.net")], [true, true, false]);
+  check("intermediaries are still dropped from sender plans", planSenders(["alerts@hdfcbank.net", "receipts@stripe.com", "info@mailer.netflix.com"]).owned, ["netflix.com"]);
+  check("a name search is not shortcut by a generic name", decideSearch({ serviceName: "Max", linkedFromEmails: ["alerts@hdfcbank.net"], merchantEmail: null }).search, false);
+  check("Google One by its full name", nameTooGeneric("Google One"), false);
+}
+
+console.log("Companies with several subscriptions: assign by price");
+{
+  const mk = (id: string, serviceName: string, amount: string, senders: string[] = ["ebill@airtel.com"], extra: Partial<SubA> = {}): SubA =>
+    ({ id, serviceName, merchantName: "Airtel", merchantEmail: null, amount, currency: "INR", senders, ...extra });
+  type SubA = Parameters<typeof companyKeys>[0];
+  const mobile = mk("a1", "Airtel Mobile", "399.00");
+  const broadband = mk("a2", "Airtel Broadband", "1179.00");
+  const black = mk("a3", "Airtel Black", "1885.64");
+  const netflix = mk("n1", "Netflix", "649.00", ["info@mailer.netflix.com"], { merchantName: "Netflix" });
+  const all = [mobile, broadband, black, netflix];
+  check("company key: sender domain and brand word", companyKeys(black), ["domain:airtel.com", "name:airtel"]);
+  check("siblings of Airtel Black", siblingsOf(black, all).map((s) => s.id), ["a1", "a2"]);
+  check("Netflix has no siblings", siblingsOf(netflix, all), []);
+  check("bank senders do not make a company", companyKeys({ ...netflix, merchantName: null, serviceName: "Max", senders: ["alerts@hdfcbank.net"] }), []);
+  check("price fit: same price", priceFits({ amount: 1885.64, currency: "INR" }, black), true);
+  check("price fit: within a unit", priceFits({ amount: 1886.2 }, black), true);
+  check("price fit: other plan's price", priceFits({ amount: 399 }, black), false);
+  check("price fit: other currency", priceFits({ amount: 1885.64, currency: "USD" }, black), false);
+  check("price fit: no amount", priceFits({ amount: null }, black), false);
+  const group = [black, mobile, broadband];
+  check("Black bill goes to Black", assignByPrice({ amount: 1885.64, currency: "INR" }, group), "a3");
+  check("mobile receipt goes to Mobile", assignByPrice({ amount: 399, currency: "INR" }, group), "a1");
+  check("same answer in any order", assignByPrice({ amount: 1179, currency: "INR" }, [broadband, mobile, black]), assignByPrice({ amount: 1179, currency: "INR" }, [black, broadband, mobile]));
+  check("no price fits: skipped (null)", assignByPrice({ amount: 2500, currency: "INR" }, group), null);
+  check("no amount: skipped (null)", assignByPrice({ amount: null }, group), null);
+  check("equal prices tie to the lower id", assignByPrice({ amount: 499 }, [{ id: "z", amount: "499", currency: "INR" }, { id: "b", amount: "499", currency: "INR" }]), "b");
+}
+
+console.log("PDF text helps decide what is saved");
+check("unclear subject, PDF says amount paid: saved", worthSaving({ subject: "Auto Secure", text: "Hello", amount: null, attachmentText: "Invoice-1.pdf\nAmount paid Rs 4,999" }, NOW), "payment");
+check("name search needs wording: an amount alone is not enough", worthSaving({ subject: "Railway", text: "Rs. 649 plans", amount: 649 }, NOW, { requireWording: true }), null);
+check("name search: receipt wording is enough", worthSaving({ subject: "Your receipt from Railway", text: "", amount: 5.9 }, NOW, { requireWording: true }), "payment");
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

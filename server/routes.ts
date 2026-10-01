@@ -1754,6 +1754,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Subscription not found" });
       }
 
+      // A renamed subscription remembers its old name for the history search
+      // (only for users with the subscription_status switch; never throws).
+      if (updates.serviceName && updates.serviceName.trim() !== existingSubscription.serviceName.trim()) {
+        try {
+          const { rememberOldName } = await import("./services/subscriptionStatus");
+          await rememberOldName(userId, id, existingSubscription.serviceName, updates.serviceName);
+        } catch (nameError) {
+          console.error("[Status] Could not remember an old name (non-fatal):", nameError);
+        }
+      }
+
       res.json(updatedSubscription);
     } catch (error) {
       console.error("Update subscription error:", error);
