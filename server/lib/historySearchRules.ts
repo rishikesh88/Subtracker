@@ -593,6 +593,18 @@ export function assignByPrice(
 // How far back the search really got
 // ---------------------------------------------------------------------------
 
+/** A search by company name stops after this many emails in a row that were not about the subscription. */
+export const EARLY_STOP_AFTER = 60;
+
+/**
+ * Whether a search by name should stop reading: it has read `notKeptInARow`
+ * emails since the last one it kept, and that is at least the limit. Only for
+ * a search by name; one by linked senders always reads on.
+ */
+export function shouldStopEarly(byName: boolean, notKeptInARow: number): boolean {
+  return byName && notKeptInARow >= EARLY_STOP_AFTER;
+}
+
 /**
  * Where a finished search really reached. When the message budget ran out
  * before the window was covered (`truncated`), the search only got back as far
@@ -603,8 +615,19 @@ export function searchCoverage(input: {
   truncated: boolean;
   oldestRead: Date | null;
   max?: number;
+  /** A search by name gave up early: this many emails in a row were not about the subscription. */
+  stoppedEarly?: number | null;
 }): { searchedSince: string; partial: boolean; note: string | null } {
   const windowStart = dayStringOf(input.since);
+  if (input.stoppedEarly && input.oldestRead && !isNaN(input.oldestRead.getTime())) {
+    const reached = dayStringOf(input.oldestRead);
+    const searchedSince = reached < windowStart ? windowStart : reached;
+    return {
+      searchedSince,
+      partial: true,
+      note: `Partial: stopped after ${input.stoppedEarly} emails in a row that were not about it, back to ${monthYear(searchedSince)}`,
+    };
+  }
   if (!input.truncated || !input.oldestRead || isNaN(input.oldestRead.getTime())) {
     return { searchedSince: windowStart, partial: false, note: null };
   }

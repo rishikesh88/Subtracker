@@ -6,6 +6,9 @@ import {
   classifyPaymentEmail,
   isCreditCardBill,
   attachmentTextOf,
+  paymentFromEmail,
+  decideReread,
+  creditCardEmailIds,
   paidDay,
   reconcileBills,
   BILL_NO_RECEIPT_LABEL,
@@ -503,6 +506,58 @@ check("loose date: day first", parseLooseDay("5 Oct 2026", NOW), "2026-10-05");
 check("loose date: ISO", parseLooseDay("2026-10-05", NOW), "2026-10-05");
 check("loose date: nonsense", parseLooseDay("soon", NOW), null);
 check("loose date: absurd year", parseLooseDay("1970-01-01", NOW), null);
+
+
+console.log("Re-reading stored payments");
+{
+  const email = (subject: string, content: string, amount: number | null, receivedAt = "2026-08-29") =>
+    ({ subject, content, receivedAt, extractedAmount: amount === null ? null : String(amount), extractedCurrency: null as string | null });
+  const stored = (e: ReturnType<typeof email>, over: Record<string, unknown> = {}) => {
+    const f = paymentFromEmail(e, "INR", NOW)!;
+    return { ...f, ...over };
+  };
+  const reread = (row: Record<string, any>, e: ReturnType<typeof email>) => decideReread(row as any, paymentFromEmail(e, "INR", NOW));
+
+  // Claude: stored as a Bill (invoice) by an older rule; now a confirm-payment notice, not a payment.
+  const claude = email("Important: Confirm your $23.60 payment to Anthropic, PBC", "Confirm your payment to Anthropic, PBC. You have an outstanding invoice.", 23.6);
+  const claudeStored = { kind: "invoice", documentType: "invoice", paidStatus: "due", dueOn: null, amount: "23.60", currency: "USD", paidAt: "2026-08-29", pausedUntil: null };
+  check("claude confirm-payment stored as Bill: removed", reread(claudeStored, claude).action, "remove");
+
+  // Airtel reminders stored as receipts (amount-only fallback): now bills, due, kept.
+  const airtelStored = { kind: "receipt", documentType: "receipt", paidStatus: "paid", dueOn: null, amount: "1471.46", currency: "INR", paidAt: "2026-09-20", pausedUntil: null };
+  for (const subject of [
+    "your mobile postpaid bill is overdue",
+    "your mobile postpaid bill is due today",
+    "your mobile postpaid bill is due in 2 days",
+    "your mobile postpaid bill is due soon",
+  ]) {
+    const e = email(subject, "Rs 1471.46", 1471.46, "2026-09-20");
+    const d = reread(airtelStored, e);
+    check(`airtel '${subject}': updated to a bill`, d.action === "update" ? [d.fields.kind, d.fields.paidStatus] : d.action, ["invoice", "due"]);
+    check(`airtel '${subject}': not counted after the update`, d.action === "update" ? countedPayments([{ paidAt: d.fields.paidAt, amount: d.fields.amount, currency: d.fields.currency, kind: d.fields.kind, pausedUntil: d.fields.pausedUntil }]).length : -1, 0);
+  }
+
+  // A genuine receipt is left alone, and a changed amount is picked up.
+  const genuine = email("Your receipt from Railway Corporation", "Paid September 18, 2026 $5.90", 5.9, "2026-09-19");
+  check("genuine receipt: unchanged", reread(stored(genuine), genuine).action, "keep");
+  check("genuine receipt with a date/amount as Date and number types: unchanged",
+    reread(stored(genuine, { paidAt: new Date("2026-09-18T00:00:00Z"), amount: 5.9 }), genuine).action, "keep");
+  const changed = reread(stored(genuine, { amount: "6.90" }), genuine);
+  check("a stale amount is updated", changed.action === "update" ? changed.fields.amount : changed.action, "5.90");
+}
+
+console.log("Credit card clean-up selection");
+{
+  const rows = [
+    { id: "a", subject: "Your HDFC credit card statement for Sep 2026", content: "Total amount due Rs 12,000" },
+    { id: "b", subject: "Credit card bill due in 2 days", content: "Pay now" },
+    { id: "c", subject: "Your receipt from Railway Corporation", content: "Paid $5.90" },
+    { id: "d", subject: "Netflix", content: "Your credit card was charged Rs 649" },
+    { id: "e", subject: null, content: null },
+  ];
+  check("only credit card bills are selected", creditCardEmailIds(rows), ["a", "b"]);
+  check("nothing selected for none", creditCardEmailIds([]), []);
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

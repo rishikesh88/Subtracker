@@ -47,7 +47,7 @@ import {
   isValidFeatureKey,
   normaliseTags,
 } from "../lib/featureFlags";
-import { STATUS_FEATURE, statusRowsForAdmin, statusEnabledFor } from "../services/subscriptionStatus";
+import { STATUS_FEATURE, statusRowsForAdmin, statusEnabledFor, rereadStoredPayments, removeStoredCreditCardEmails } from "../services/subscriptionStatus";
 import { queueAllForUser, queueHistorySearch } from "../services/historySearch";
 
 /**
@@ -569,29 +569,61 @@ export function registerAdminRoutes(app: Express): void {
       // new one is not held back by emails it already stored.
       const fresh = req.body?.fresh === true;
       let queued: number;
+      // "From scratch" also reads the payments saved at approvals and syncs
+      // again with today's rules, so one click refreshes everything.
+      let reread: { checked: number; changed: number; removed: number } | null = null;
       if (subscriptionId) {
         const sub = await storage.getSubscription(subscriptionId);
         if (!sub || sub.userId !== user.id) return res.status(404).json({ message: "No such subscription." });
-        if (fresh) await storage.clearHistoryFindings(user.id, [sub.id]);
+        if (fresh) {
+          await storage.clearHistoryFindings(user.id, [sub.id]);
+          reread = await rereadStoredPayments(user.id, [sub.id]);
+        }
         queued = await queueHistorySearch(user.id, [sub.id], { force: true });
       } else if (fresh) {
         const ids = (await storage.getSubscriptions(user.id)).map((s) => s.id);
         const cleared = await storage.clearHistoryFindings(user.id, ids);
         console.log(`[Admin] History findings cleared: ${cleared.payments} payment(s), ${cleared.emails} email(s)`);
+        reread = await rereadStoredPayments(user.id, ids);
         queued = await queueHistorySearch(user.id, ids, { force: true });
       } else {
         queued = await queueAllForUser(user.id);
       }
       console.log(`[Admin] History search queued for ${queued} subscription(s)`);
+      if (reread) console.log(`[Admin] Re-read ${reread.checked} saved payment(s): ${reread.changed} changed, ${reread.removed} removed`);
+      const rereadNote = reread ? ` Re-read ${reread.checked} saved payment${reread.checked === 1 ? "" : "s"}: ${reread.changed} changed, ${reread.removed} removed.` : "";
       res.json({
         queued,
-        message: queued === 0
+        reread,
+        message: (queued === 0
           ? "Nothing to search: everything is already searched or searching."
-          : `Searching history for ${queued} subscription${queued === 1 ? "" : "s"}.`,
+          : `Searching history for ${queued} subscription${queued === 1 ? "" : "s"}.`) + rereadNote,
       });
     } catch (error) {
       console.error("[Admin] Failed to queue a history search:", error);
       res.status(500).json({ message: "Could not start the search." });
+    }
+  });
+
+  // One-time clean-up for a person with the switch on: deletes their stored
+  // emails that are credit card bills or statements, and the payments read
+  // from them.
+  app.post("/admin/api/users/:id/remove-credit-card-emails", requireAdmin, requireAdminCsrf, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.params.id);
+      if (!user) return res.status(404).json({ message: "No such user." });
+      if (!(await statusEnabledFor(user.id))) {
+        return res.status(409).json({ message: "Subscription status is not on for this person." });
+      }
+      const removed = await removeStoredCreditCardEmails(user.id);
+      console.log(`[Admin] Credit card emails removed: ${removed.emails} email(s), ${removed.payments} payment(s)`);
+      res.json({
+        ...removed,
+        message: `Removed ${removed.emails} credit card email${removed.emails === 1 ? "" : "s"} (and ${removed.payments} payment${removed.payments === 1 ? "" : "s"} read from them).`,
+      });
+    } catch (error) {
+      console.error("[Admin] Failed to remove credit card emails:", error);
+      res.status(500).json({ message: "Could not remove those emails." });
     }
   });
 

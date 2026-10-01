@@ -19,13 +19,14 @@ import { storage, type ApprovedForStatus, type PaymentSourceEmail } from "../sto
 import { isEnabled } from "../lib/featureFlags";
 import { generateServiceKey } from "../utils/serviceKey";
 import {
-  classifyPaymentEmail,
   computeLifecycle,
   countedPayments,
+  creditCardEmailIds,
+  decideReread,
   explainPayments,
   dayString,
-  paidDay,
   parseLooseDay,
+  paymentFromEmail,
   reconcileBills,
   stillActiveUntil,
   REASON_TEXT,
@@ -55,34 +56,9 @@ export function paymentsFromEmails(
 ): InsertPayment[] {
   const rows: InsertPayment[] = [];
   for (const email of emails) {
-    const paidAt = dayString(email.receivedAt as any);
-    if (!paidAt) continue;
-    const amount = email.extractedAmount === null || email.extractedAmount === undefined || email.extractedAmount === ""
-      ? null
-      : Number(email.extractedAmount);
-    const verdict = classifyPaymentEmail(
-      { subject: email.subject, content: email.content, amount, attachmentText: email.attachmentText },
-      now,
-    );
-    if (!verdict) continue;
-    const hasAmount = amount !== null && isFinite(amount);
-    rows.push({
-      userId,
-      subscriptionId: subscription.id,
-      emailId: email.id,
-      // A receipt is dated by the "Paid <date>" in it; anything else by its email.
-      paidAt: verdict.kind === "receipt" ? paidDay(paidAt, verdict.paidOn) : paidAt,
-      amount: hasAmount ? amount!.toFixed(2) : null,
-      // The email's own currency where it has one; the subscription's only
-      // when there is an amount for it to describe.
-      currency: email.extractedCurrency || (hasAmount ? subscription.currency : null),
-      kind: verdict.kind,
-      pausedUntil: verdict.pausedUntil,
-      documentType: verdict.documentType,
-      paidStatus: verdict.paidStatus,
-      dueOn: verdict.dueOn,
-      source,
-    });
+    const fields = paymentFromEmail(email, subscription.currency, now);
+    if (!fields) continue;
+    rows.push({ userId, subscriptionId: subscription.id, emailId: email.id, ...fields, source });
   }
   return rows;
 }
@@ -307,6 +283,39 @@ export async function recomputeForUser(userId: string, now = new Date(), onlyIds
   }
 }
 
+/**
+ * Reads the stored emails behind payments saved at an approval or a sync
+ * again with today's rules, for these subscriptions. A payment whose reading
+ * changed is updated; one that is no longer a payment is deleted. Emails and
+ * payments without an email are never touched. The lifecycle of the
+ * subscriptions is recomputed afterwards. Callers check the switch.
+ */
+export async function rereadStoredPayments(
+  userId: string,
+  subscriptionIds: string[],
+  now = new Date(),
+): Promise<{ checked: number; changed: number; removed: number }> {
+  const stored = await storage.getStoredPaymentsWithEmails(userId, subscriptionIds);
+  const updates: { id: string; fields: Partial<InsertPayment> }[] = [];
+  const removeIds: string[] = [];
+  for (const { payment, email, subscriptionCurrency } of stored) {
+    const decision = decideReread(payment, paymentFromEmail(email, subscriptionCurrency, now));
+    if (decision.action === "remove") removeIds.push(payment.id);
+    else if (decision.action === "update") updates.push({ id: payment.id, fields: decision.fields });
+  }
+  await storage.applyPaymentRereads(userId, updates, removeIds);
+  if (subscriptionIds.length > 0) await recomputeForUser(userId, now, subscriptionIds);
+  return { checked: stored.length, changed: updates.length, removed: removeIds.length };
+}
+
+/** One-time clean-up: deletes this person's stored credit card emails and the payments read from them. */
+export async function removeStoredCreditCardEmails(userId: string): Promise<{ emails: number; payments: number }> {
+  const ids = creditCardEmailIds(await storage.getEmailsForCreditCardCheck(userId));
+  const removed = await storage.deleteEmailsWithPayments(userId, ids);
+  if (removed.emails > 0 || removed.payments > 0) await recomputeForUser(userId);
+  return removed;
+}
+
 // ---------------------------------------------------------------------------
 // The person's own answers (API for the later screens)
 // ---------------------------------------------------------------------------
@@ -368,6 +377,7 @@ export async function statusRowsForAdmin(userId: string) {
           kind: p.kind,
           document_type: p.documentType ?? null,
           paid_status: p.paidStatus ?? null,
+          due_on: p.dueOn ? String(p.dueOn) : null,
           counted: why[i].counted,
           note: why[i].note,
           amount: p.amount === null || p.amount === undefined ? null : String(p.amount),

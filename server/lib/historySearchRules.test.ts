@@ -12,6 +12,7 @@ import {
   keepEmailByName,
   priceFits,
   searchCoverage,
+  shouldStopEarly,
   siblingsOf,
   HISTORY_DAYS,
   MAX_MESSAGES_PER_SUBSCRIPTION,
@@ -292,6 +293,17 @@ console.log("Credit card bills are never kept");
   check("credit card bill: not worth saving, even with a PDF-like amount", worthSaving({ ...cc, amount: 58317.58 }, NOW), null);
   check("credit card bill: not worth saving in a name search either", worthSaving({ ...cc, amount: 58317.58 }, NOW, { requireWording: true }), null);
   check("a normal receipt is still kept", keepEmail({ fromEmail: "info@mailer.netflix.com", subject: "Your receipt from Netflix", text: "Paid by credit card ending 4242. Amount paid Rs 649" }, netflixPlan, "Netflix"), { keep: true });
+}
+
+
+console.log("Early stop for a search by name");
+{
+  check("name search: 59 not kept in a row: keeps reading", shouldStopEarly(true, 59), false);
+  check("name search: 60 not kept in a row: stops", shouldStopEarly(true, 60), true);
+  check("senders search: never stops early", shouldStopEarly(false, 500), false);
+  const early = searchCoverage({ since: searchSince(NOW), truncated: false, oldestRead: new Date("2026-03-12T08:00:00Z"), stoppedEarly: 60 });
+  check("early stop is Partial with an honest note", [early.partial, early.note], [true, "Partial: stopped after 60 emails in a row that were not about it, back to Mar 2026"]);
+  check("no early stop: coverage unchanged", searchCoverage({ since: searchSince(NOW), truncated: false, oldestRead: new Date("2026-03-12T08:00:00Z"), stoppedEarly: null }).partial, false);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

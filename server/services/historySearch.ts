@@ -32,6 +32,8 @@ import { GmailService } from "./gmail";
 import { OutlookService } from "./outlook";
 import { EmailParser } from "./emailParser";
 import { storeInvoiceAttachment } from "../lib/invoiceAttachment";
+import { mapWithConcurrency } from "../lib/concurrency";
+import { withRetry } from "../lib/retryTransient";
 import { attachmentTextOf, classifyPaymentEmail, dayString } from "../lib/statusRules";
 import {
   statusEnabledFor,
@@ -65,6 +67,7 @@ import {
   searchSince,
   siblingsOf,
   selectNewMessageIds,
+  shouldStopEarly,
   worthSaving,
   type CompanySub,
   type NameClues,
@@ -79,6 +82,8 @@ const MAX_SYNC_WAIT_MS = 3 * 60 * 60 * 1000;
 const LIST_LIMIT = 200;
 /** Outlook's filter names exact addresses; more than this and Graph refuses it. */
 const MAX_OUTLOOK_ADDRESSES = 10;
+/** Attachments downloaded and stored at once; a few at a time keeps clear of Gmail and storage rate limits. */
+const ATTACHMENT_CONCURRENCY = 3;
 
 // ---------------------------------------------------------------------------
 // Worker bookkeeping (in memory, this process only)
@@ -432,7 +437,7 @@ async function searchSubscription(
   const tally: Tally = { listed: 0, fetched: 0, notKept: 0, notPayment: 0, saved: 0, duplicate: 0, skipped: 0, otherSubscription: 0 };
   const saved: Email[] = [];
   let budget = MAX_MESSAGES_PER_SUBSCRIPTION;
-  const reach = { truncated: false, oldest: null as Date | null };
+  const reach = { truncated: false, oldest: null as Date | null, stoppedEarly: null as number | null };
   const ctx: SearchContext = { userId, sub, plan, clues, group, since, stored, tally, saved, reach, checkSync };
 
   try {
@@ -460,7 +465,7 @@ async function searchSubscription(
     );
   }
 
-  const coverage = searchCoverage({ since, truncated: reach.truncated, oldestRead: reach.oldest });
+  const coverage = searchCoverage({ since, truncated: reach.truncated, oldestRead: reach.oldest, stoppedEarly: reach.stoppedEarly });
   let note = coverage.note;
   if (!note) {
     try {
@@ -511,7 +516,7 @@ interface SearchContext {
   tally: Tally;
   saved: Email[];
   /** Set when messages were left unread for want of budget, with the oldest date actually read. */
-  reach: { truncated: boolean; oldest: Date | null };
+  reach: { truncated: boolean; oldest: Date | null; stoppedEarly: number | null };
   checkSync: () => Promise<void>;
 }
 
@@ -554,6 +559,7 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
   const names = [...ctx.clues.search, ...ctx.clues.bodyOnly];
   const byName = Boolean(ctx.plan.byName);
   let read = 0;
+  let stopped = false;
   for (const query of gmailQueriesFor(ctx.plan, names)) {
     if (budget - read <= 0) {
       ctx.reach.truncated = true;
@@ -574,6 +580,11 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
     ctx.tally.fetched += messages.length;
     const gmail = gmailService.getGmailClient(accessToken, account.refreshToken);
 
+    // First decide, cheaply and in order, which messages are kept; then fetch
+    // their attachments a few at a time; then save in the original order, so
+    // what is stored is exactly what one-by-one would have stored.
+    const toSave: { msg: any; parsed: ReturnType<typeof parser.parseEmail>; receivedAt: Date }[] = [];
+    let notKeptInARow = 0;
     for (const msg of messages) {
       if (!msg?.id) continue;
       const parsed = parser.parseEmail(msg);
@@ -588,8 +599,16 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
       );
       if (!verdict.keep) {
         ctx.tally.notKept++;
+        // A name search that keeps nothing for a long run gives up (marked Partial).
+        notKeptInARow++;
+        if (shouldStopEarly(byName, notKeptInARow)) {
+          ctx.reach.stoppedEarly = notKeptInARow;
+          stopped = true;
+          break;
+        }
         continue;
       }
+      notKeptInARow = 0;
       // A PDF is kept whatever the words say: every invoice file is stored.
       // (Not in a search by name, where the words must say it: a found file is
       // downloaded and stored, and nothing but the name links it to the person.)
@@ -608,13 +627,25 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
         else ctx.tally.otherSubscription++;
         continue;
       }
-      await ctx.checkSync();
+      toSave.push({ msg, parsed, receivedAt });
+    }
 
-      let attachmentData: string | null = null;
-      if (msg.payload?.parts) {
-        const result = await gmailService.processAttachments(gmail, msg.id, msg, ctx.userId);
-        if (result.attachments.length > 0) attachmentData = JSON.stringify(result);
-      }
+    const downloads = await mapWithConcurrency(toSave, ATTACHMENT_CONCURRENCY, async ({ msg }) => {
+      await ctx.checkSync();
+      if (!msg.payload?.parts) return null;
+      const result = await withRetry(
+        () => gmailService.processAttachments(gmail, msg.id, msg, ctx.userId),
+        { label: `${LOG} attachments` },
+      );
+      return result.attachments.length > 0 ? JSON.stringify(result) : null;
+    });
+
+    for (let i = 0; i < toSave.length; i++) {
+      const { msg, parsed, receivedAt } = toSave[i];
+      const download = downloads[i];
+      // A failure surfaces at its own place, after the ones before it are saved.
+      if (!download.ok) throw download.error;
+      const attachmentData = download.value;
 
       await saveFound(ctx, {
         userId: ctx.userId,
@@ -634,6 +665,7 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
         processed: true,
       });
     }
+    if (stopped) break;
   }
   return read;
 }
@@ -752,19 +784,23 @@ async function searchOutlook(ctx: SearchContext, account: any, budget: number): 
     await ctx.checkSync();
 
     const storedAttachments = email.attachments
-      ? await Promise.all(
-          email.attachments.map(async (attachment) => {
-            const { contentBase64, ...rest } = attachment;
-            if (!contentBase64) return rest;
-            const objectStoragePath = await storeInvoiceAttachment({
+      ? (await mapWithConcurrency(email.attachments, ATTACHMENT_CONCURRENCY, async (attachment) => {
+          const { contentBase64, ...rest } = attachment;
+          if (!contentBase64) return rest;
+          const objectStoragePath = await withRetry(
+            () => storeInvoiceAttachment({
               buffer: Buffer.from(contentBase64, "base64"),
               filename: rest.filename,
               mimeType: rest.mimeType,
               userId: ctx.userId,
-            });
-            return { ...rest, objectStoragePath };
-          }),
-        )
+            }),
+            { label: `${LOG} attachment storage` },
+          );
+          return { ...rest, objectStoragePath };
+        })).map((r) => {
+          if (!r.ok) throw r.error;
+          return r.value;
+        })
       : undefined;
 
     await saveFound(ctx, {

@@ -1735,6 +1735,97 @@ export class DatabaseStorage implements IStorage {
     return new Map(rows.map((r: { id: string; subject: string }) => [r.id, r.subject] as [string, string]));
   }
 
+  /**
+   * Payments saved at an approval or a sync (never a history search's) for
+   * these subscriptions, each with the stored email it was read from. Rows
+   * without an email are left out: there is nothing to read again.
+   */
+  async getStoredPaymentsWithEmails(
+    userId: string,
+    subscriptionIds: string[],
+  ): Promise<{ payment: Payment; email: PaymentSourceEmail; subscriptionCurrency: string }[]> {
+    if (subscriptionIds.length === 0) return [];
+    const rows = await this.db
+      .select({
+        payment: payments,
+        subscriptionCurrency: subscriptions.currency,
+        id: emails.id,
+        subject: emails.subject,
+        content: sql<string | null>`left(${emails.content}, 1500)`,
+        receivedAt: emails.receivedAt,
+        extractedAmount: emails.extractedAmount,
+        extractedCurrency: emails.extractedCurrency,
+        attachmentData: sql<string | null>`CASE WHEN length(${emails.attachmentData}) <= 400000 THEN ${emails.attachmentData} END`,
+      })
+      .from(payments)
+      .innerJoin(emails, and(eq(emails.id, payments.emailId), eq(emails.userId, userId)))
+      .innerJoin(subscriptions, and(eq(subscriptions.id, payments.subscriptionId), eq(subscriptions.userId, userId)))
+      .where(and(
+        eq(payments.userId, userId),
+        inArray(payments.subscriptionId, subscriptionIds),
+        inArray(payments.source, ['sync', 'approval']),
+      ));
+    return rows.map((r: any) => ({
+      payment: r.payment as Payment,
+      subscriptionCurrency: r.subscriptionCurrency as string,
+      email: {
+        id: r.id,
+        subject: r.subject,
+        content: r.content,
+        receivedAt: r.receivedAt,
+        extractedAmount: r.extractedAmount,
+        extractedCurrency: r.extractedCurrency,
+        attachmentText: attachmentTextOf(r.attachmentData),
+      },
+    }));
+  }
+
+  /**
+   * Applies a re-reading of stored payments: new values for some rows, and
+   * some rows deleted. Only payment rows change; emails are never touched.
+   */
+  async applyPaymentRereads(
+    userId: string,
+    updates: { id: string; fields: Partial<InsertPayment> }[],
+    removeIds: string[],
+  ): Promise<void> {
+    for (const u of updates) {
+      await this.db.update(payments).set(u.fields).where(and(eq(payments.id, u.id), eq(payments.userId, userId)));
+    }
+    if (removeIds.length > 0) {
+      await this.db.delete(payments).where(and(eq(payments.userId, userId), inArray(payments.id, removeIds)));
+    }
+  }
+
+  /** Subject and the start of the body of every stored email of this person (for the credit card clean-up). */
+  async getEmailsForCreditCardCheck(userId: string): Promise<{ id: string; subject: string; content: string | null }[]> {
+    return this.db
+      .select({ id: emails.id, subject: emails.subject, content: sql<string | null>`left(${emails.content}, 1500)` })
+      .from(emails)
+      .where(eq(emails.userId, userId));
+  }
+
+  /** Deletes these emails of this person and the payments read from them. Returns the counts. */
+  async deleteEmailsWithPayments(userId: string, emailIds: string[]): Promise<{ emails: number; payments: number }> {
+    if (emailIds.length === 0) return { emails: 0, payments: 0 };
+    let removedPayments = 0;
+    let removedEmails = 0;
+    for (let i = 0; i < emailIds.length; i += 500) {
+      const chunk = emailIds.slice(i, i + 500);
+      const p = await this.db
+        .delete(payments)
+        .where(and(eq(payments.userId, userId), inArray(payments.emailId, chunk)))
+        .returning({ id: payments.id });
+      const e = await this.db
+        .delete(emails)
+        .where(and(eq(emails.userId, userId), inArray(emails.id, chunk)))
+        .returning({ id: emails.id });
+      removedPayments += p.length;
+      removedEmails += e.length;
+    }
+    return { emails: removedEmails, payments: removedPayments };
+  }
+
   /** Newest first. */
   async getPaymentsForSubscription(subscriptionId: string, userId: string): Promise<Payment[]> {
     return this.db
