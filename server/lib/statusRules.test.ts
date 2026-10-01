@@ -584,5 +584,48 @@ console.log("Credit card clean-up selection");
   check("no payments and no notices: unchanged", sr(run({ payments: [] })), "active/no_payments");
 }
 
+/* --- Issue #52: a bill summary's "Payment made" line is not a receipt ---- */
+{
+  const k = (subject: string, content: string) => classifyPaymentEmail({ subject, content, amount: 1885.64 }, NOW)?.kind ?? null;
+  const BILL_BODY = [
+    "Hi Rishikesh,", "",
+    "Your Airtel Black bill for Jul'26 is ready.", "",
+    "Bill Summary",
+    "Bill Number  AB2607123456",
+    "Bill Date  01 Jul 2026",
+    "Due Date  16 Jul 2026",
+    "Previous Balance  ₹1,885.64",
+    "Payment made  ₹1,885.64",
+    "Last Payment Made  -₹1,885.64",
+    "Current Charges  ₹1,885.64",
+    "Total Amount Payable  ₹1,885.64", "",
+    "Pay now on the Airtel Thanks app to avoid late fees.",
+  ].join("\n");
+  const bill = classifyPaymentEmail({ subject: "Bill for your Airtel Black account - Jul'26", content: BILL_BODY, amount: 1885.64 }, NOW);
+  check("airtel bill with Payment made lines: invoice", bill?.kind, "invoice");
+  check("airtel bill: due, not paid", [bill?.paidStatus, bill?.dueOn], ["due", "2026-07-16"]);
+  check("airtel bill is not a counted payment", countedPayments([pay("2026-07-01", 1885.64, bill!.kind as any)]).length, 0);
+  const noLines = BILL_BODY.split("\n").filter((l) => !/payment made/i.test(l)).join("\n");
+  check("same bill without those lines: unchanged", k("Bill for your Airtel Black account - Jul'26", noLines), "invoice");
+  check("bill wording only in the body still wins", k("Your Airtel statement", BILL_BODY), "invoice");
+
+  const RECEIPT_BODY = [
+    "Hi Rishikesh,", "",
+    "Thank you for your payment. We have received your payment for Airtel Black.", "",
+    "Payment Receipt",
+    "Amount paid on 29 Sep 2026  ₹1,885.64",
+    "Mode  UPI",
+    "Transaction ID  AIR29092026XYZ", "",
+    "Payment made successfully.",
+  ].join("\n");
+  const rec = classifyPaymentEmail({ subject: "Payment received for your Airtel Black account", content: RECEIPT_BODY, amount: 1885.64 }, NOW);
+  check("airtel receipt: receipt", rec?.kind, "receipt");
+  check("airtel receipt counts", countedPayments([pay("2026-09-29", 1885.64, rec!.kind as any)]).length, 1);
+  check("subject Receipt still wins over a due-ish body", k("Receipt for your Airtel payment", "Payment made ₹1,885.64\nDue Date 16 Oct 2026"), "receipt");
+  check("bill body with Amount paid on: receipt", k("Your Airtel bill", "Total Amount Payable 0\nPayment made 1,885.64\nAmount paid on 29 Sep 2026"), "receipt");
+  check("Payment made alone, no bill wording: receipt as before", k("Airtel", "Payment made ₹1,885.64"), "receipt");
+  check("bill with footer 'payment received, thank you': as before", k("Bill for your Airtel account", "Due Date 16 Jul 2026\nTotal Amount Payable 1,885.64\n\nPayment received, thank you."), "receipt");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -808,6 +808,27 @@ const DUE_ON = new RegExp("\\b(?:due\\s+date|due\\s+on|due\\s+by|pay\\s+by)\\s*:
 type Verdict = PaymentKind | "skip" | null;
 
 /**
+ * A bill summary's own lines: "Payment made Rs 1,885.64", "Last Payment Made
+ * -Rs 1,885.64". They describe the previous bill's payment, not this email.
+ */
+const BILL_SUMMARY_PAYMENT_LINE = /^[^\S\n]*(?:last\s+payment(?:\s+made)?|payment\s+made)\b(?!\s+(?:on|successfully))[^\n]{0,40}$/gim;
+/** Bill wording in the body itself: a due date or a total payable. */
+const BILL_BODY_WORDING = /\b(due\s+date|total\s+(amount\s+)?(payable|due)|amount\s+payable|amount\s+due)\b/i;
+/** A clear receipt phrase: with one of these a "payment made" line is not just bill summary. */
+const CLEAR_RECEIPT = /\b(amount\s+paid|paid\s+on|payment\s+received\s+on)\b|(?:^|\n)[^\n]{0,40}\breceipt\b[^\n]{0,40}(?:\n|$)/i;
+
+/**
+ * The body with a bill summary's "Payment made" / "Last payment" lines taken
+ * out, when the email is a bill (bill wording in the subject or body) and has
+ * no clear receipt phrase. Otherwise the body unchanged.
+ */
+function withoutBillSummaryPayments(subject: string, body: string): string {
+  if (!(DUE.test(subject) || BILL_BODY_WORDING.test(body))) return body;
+  if (CLEAR_RECEIPT.test(`${subject}\n${body.replace(BILL_SUMMARY_PAYMENT_LINE, "")}`)) return body;
+  return body.replace(BILL_SUMMARY_PAYMENT_LINE, "");
+}
+
+/**
  * One piece of text, read for what it says about a payment. `strict` marks a
  * body (as opposed to a subject), where a "please confirm" wording is only
  * believed when nothing in it says the payment was received.
@@ -910,7 +931,7 @@ export function classifyPaymentEmail(email: {
   attachmentText?: string | null;
 }, now: Date = new Date(), options: { requireWording?: boolean } = {}): PaymentReading | null {
   const subject = email.subject ?? "";
-  const body = (email.content ?? "").slice(0, 1500);
+  const body = withoutBillSummaryPayments(subject, (email.content ?? "").slice(0, 1500));
   // Failures, refunds and pauses keep being read from the first 600
   // characters only: that is where the news is, and a footer further down
   // ("see our refund policy") must not turn a receipt into one.
