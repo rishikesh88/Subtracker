@@ -1,8 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
+import type { Email } from "@shared/schema";
 import { EmailAnalysis } from "@/components/EmailAnalysis";
 
 export default function Emails() {
-  const { data: emails, isLoading } = useQuery({ 
+  const { data: emails, isLoading } = useQuery<Email[]>({ 
     queryKey: ['/api/emails'] 
   });
 

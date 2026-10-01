@@ -6,6 +6,7 @@ import { type Email } from "@shared/schema";
 
 interface EmailAnalysisProps {
   emails: Email[];
+  isLoading?: boolean;
 }
 
 export function EmailAnalysis({ emails }: EmailAnalysisProps) {
