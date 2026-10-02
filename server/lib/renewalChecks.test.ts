@@ -26,7 +26,7 @@ import {
   type JobDeps,
   type ReminderIo,
 } from "./renewalJob";
-import { buildReconnectEmail, shortDay } from "../services/reconnectEmail";
+import { buildReconnectEmail } from "../services/reconnectEmail";
 
 let passed = 0, failed = 0;
 function check(label: string, actual: unknown, expected: unknown) {
@@ -429,53 +429,27 @@ async function main() {
   console.log("\nReconnect email: the builder");
   {
     const base = { to: "me@example.com", appUrl: "https://app.verloq.co/" };
-    const many = buildReconnectEmail({
-      ...base,
-      mailboxes: ["rishikesh@example.com"],
-      subscriptions: [
-        { name: "Airtel Black", lastPaidOn: "2026-09-29" },
-        { name: "Claude Pro", lastPaidOn: "2026-09-30" },
-        { name: "Netflix", lastPaidOn: "2026-06-03" },
-        { name: "Spotify", lastPaidOn: "2026-05-01" },
-      ],
-    });
-    check("subject", many.subject, "Reconnect your inbox so Verloq can keep checking your payments");
-    ok("heading", many.html.includes("Verloq needs you to reconnect your inbox"));
-    ok("preheader", many.html.includes("Your subscriptions are safe. We just can&#39;t see new payments until you reconnect."));
-    ok("body names the mailbox", many.html.includes("Access to rishikesh@example.com has expired, so we could not check it for new payments. Your subscriptions and payment history are safe."));
-    ok("plural intro with the count", many.html.includes("Until you reconnect, we cannot tell whether these 4 subscriptions are still being paid:"));
-    ok("shows three names, 'and 1 more'", many.html.includes("Airtel Black") && many.html.includes("Claude Pro") && many.html.includes("Netflix") && !many.html.includes("Spotify") && many.html.includes("and 1 more"));
-    ok("last paid as Mon D", many.html.includes("last paid Sep 29") && many.html.includes("last paid Jun 3"));
-    ok("button links to settings", many.html.includes('href="https://app.verloq.co/settings"') && many.html.includes("Reconnect rishikesh@example.com"));
-    ok("note and footer", many.html.includes("It takes about 10 seconds. We will pick up where we left off.") && many.html.includes("at most once a week"));
-    ok("footer links", many.html.includes("verloq.co") && many.html.includes("privacy.html"));
-    ok("plain text version", many.text.includes("- Airtel Black: last paid Sep 29") && many.text.includes("and 1 more") && many.text.includes("Reconnect rishikesh@example.com: https://app.verloq.co/settings"));
-    ok("never an amount", !/[$€£₹]|\d+\.\d{2}\b(?!em)|amount|price/i.test(many.text) && !/[$€£₹]|amount|price/i.test(many.html));
+    const one = buildReconnectEmail({ ...base, mailboxes: ["rishikesh@example.com"] });
+    check("subject", one.subject, "Reconnect your inbox so Verloq can keep checking your payments");
+    ok("heading", one.html.includes("Verloq needs you to reconnect your inbox"));
+    ok("preheader", one.html.includes("Verloq lost access to your inbox. Reconnect it to keep your payment checks running."));
+    ok("body names the mailbox", one.html.includes("Access to rishikesh@example.com has expired, so Verloq can no longer check it for new payments. Your payment history is safe."));
+    ok("button links to settings", one.html.includes('href="https://app.verloq.co/settings"') && one.html.includes("Reconnect rishikesh@example.com"));
+    ok("note and footer", one.html.includes("It takes about 10 seconds. We will pick up where we left off.") && one.html.includes("at most once a week"));
+    ok("footer links", one.html.includes("verloq.co") && one.html.includes("privacy.html"));
+    ok("plain text version", one.text.includes("Reconnect rishikesh@example.com: https://app.verloq.co/settings") && one.text.includes("Your payment history is safe."));
+    ok("never mentions a subscription", !/subscription/i.test(one.html) && !/subscription/i.test(one.text));
+    ok("never an amount", !/[$€£₹]|\d+\.\d{2}\b(?!em)|amount|price/i.test(one.text) && !/[$€£₹]|amount|price/i.test(one.html));
 
-    const exactly3 = buildReconnectEmail({ ...base, mailboxes: ["a@x.com"], subscriptions: many.html ? [{ name: "A", lastPaidOn: null }, { name: "B", lastPaidOn: null }, { name: "C", lastPaidOn: null }] : [] });
-    ok("exactly 3: no 'and K more'", !exactly3.html.includes("more") && !exactly3.text.includes("more"));
-    ok("no payment date: just the name", !exactly3.html.includes("last paid"));
-    ok("N is 3 in the intro", exactly3.html.includes("these 3 subscriptions"));
-
-    const one = buildReconnectEmail({ ...base, mailboxes: ["a@x.com"], subscriptions: [{ name: "Claude Pro", lastPaidOn: "2026-09-30" }] });
-    ok("singular: 'this subscription', no '1 subscriptions'", one.html.includes("whether this subscription is still being paid:") && !one.html.includes("1 subscriptions"));
-
-    const two = buildReconnectEmail({ ...base, mailboxes: ["a@x.com", "b@y.com"], subscriptions: [{ name: "Claude Pro", lastPaidOn: "2026-09-30" }] });
+    const two = buildReconnectEmail({ ...base, mailboxes: ["a@x.com", "b@y.com"] });
     ok("two mailboxes are both named in one email", two.html.includes("a@x.com and b@y.com") && two.text.includes("a@x.com and b@y.com"));
-    const three = buildReconnectEmail({ ...base, mailboxes: ["a@x.com", "b@y.com", "c@z.com"], subscriptions: [{ name: "Claude Pro", lastPaidOn: null }] });
+    ok("two mailboxes: one plural button", two.html.includes("Reconnect your inboxes") && two.html.includes("check those inboxes"));
+    const three = buildReconnectEmail({ ...base, mailboxes: ["a@x.com", "b@y.com", "c@z.com"] });
     ok("three mailboxes: commas and 'and'", three.html.includes("a@x.com, b@y.com and c@z.com"));
 
-    const hostile = buildReconnectEmail({
-      ...base,
-      mailboxes: ['<img src=x onerror=alert(1)>@evil.com'],
-      subscriptions: [{ name: '<script>alert("x")</script> & Co', lastPaidOn: "2026-09-30" }],
-      appUrl: 'https://app.verloq.co/"><script>',
-    });
-    ok("names are escaped", !hostile.html.includes("<script>") && hostile.html.includes("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; Co"));
+    const hostile = buildReconnectEmail({ ...base, mailboxes: ['<img src=x onerror=alert(1)>@evil.com'], appUrl: 'https://app.verloq.co/"><script>' });
     ok("mailbox is escaped", !hostile.html.includes("<img src=x") && hostile.html.includes("&lt;img src=x onerror=alert(1)&gt;@evil.com"));
     ok("the link is escaped", !hostile.html.includes('"><script>'));
-
-    check("shortDay", [shortDay("2026-09-05"), shortDay("2026-01-31"), shortDay(null), shortDay("nope"), shortDay("2026-13-01")], ["Sep 5", "Jan 31", null, null, null]);
   }
 
   console.log(`\n${passed} passed, ${failed} failed`);

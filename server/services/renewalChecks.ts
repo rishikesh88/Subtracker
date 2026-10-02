@@ -150,19 +150,18 @@ const deps: JobDeps = {
       if (!user?.email) return false;
       const maps = await mailboxMaps(userId);
       const keys = new Set(mailboxes.map(mailboxKey));
-      // Subscriptions that cannot be checked while those mailboxes are expired.
+      // Only worth an email when something is tracked on those mailboxes. The
+      // email itself names no subscription.
       const affected = (await storage.getSubscriptions(userId))
         .filter((s) => {
           const m = mailboxOf(s, maps.gmail, maps.outlook);
           return m !== null && keys.has(mailboxKey(m)) && !isStopped(toCandidate(s, m));
         })
-        .map((s) => ({ name: s.serviceName, lastPaidOn: dayString(s.lastPaymentAt) }))
-        .sort((a, b) => (b.lastPaidOn ?? "").localeCompare(a.lastPaidOn ?? "") || a.name.localeCompare(b.name));
+        ;
       if (affected.length === 0) return "nothing_to_say";
       return sendReconnectEmail({
         to: user.email,
         mailboxes: mailboxes.map((m) => m.address),
-        subscriptions: affected,
         appUrl: APP_BASE_URL,
       });
     },
