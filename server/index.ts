@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { setupVite, serveStatic, log } from "./vite";
 import { refreshRates } from "./lib/exchangeRates";
 import { resumeHistorySearches } from "./services/historySearch";
+import { startRenewalScheduler } from "./services/renewalChecks";
 import fs from "fs";
 import path from "path";
 
@@ -145,6 +146,11 @@ app.use((req, res, next) => {
     // for users with the subscription_status switch. After the switches are
     // set up, since each user's switch is checked. Never throws.
     void resumeHistorySearches();
+
+    // The daily renewal checks (status refresh, narrow payment checks, the
+    // reconnect reminder), for users with the switch. One run per day, kept by
+    // a database claim; RENEWAL_CHECKS_ENABLED=false turns it off.
+    startRenewalScheduler();
 
     // Fill the rate table before the first page asks for a total. This never
     // rejects -- a failure leaves the fallback in place and says so in the log

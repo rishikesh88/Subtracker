@@ -1577,6 +1577,236 @@ export class DatabaseStorage implements IStorage {
       CREATE UNIQUE INDEX IF NOT EXISTS uq_subscription_name_history
         ON subscription_name_history (subscription_id, lower(name))
     `);
+    await this.ensureRenewalCheckTables();
+  }
+
+  // ---------------------------------------------------------------------
+  // Renewal-based background checks (also only for `subscription_status`)
+  // ---------------------------------------------------------------------
+
+  /** Tables of the daily renewal job (server/lib/renewalChecks.ts). Idempotent; must match shared/schema.ts. */
+  async ensureRenewalCheckTables(): Promise<void> {
+    await this.db.execute(sql`
+      CREATE TABLE IF NOT EXISTS renewal_check_state (
+        subscription_id varchar PRIMARY KEY REFERENCES subscriptions(id) ON DELETE CASCADE,
+        user_id varchar NOT NULL,
+        cycle_renewal_on date,
+        attempts integer NOT NULL DEFAULT 0,
+        first_attempt_on date,
+        last_checked_on date,
+        last_checked_at timestamp,
+        next_check_on date,
+        error_count integer NOT NULL DEFAULT 0,
+        last_error text
+      )
+    `);
+    await this.db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_renewal_check_state_user ON renewal_check_state (user_id)
+    `);
+    await this.db.execute(sql`
+      CREATE TABLE IF NOT EXISTS renewal_job_state (
+        name text PRIMARY KEY,
+        last_run_day date,
+        started_at timestamp,
+        finished_at timestamp,
+        users integer NOT NULL DEFAULT 0,
+        checked integer NOT NULL DEFAULT 0,
+        found integer NOT NULL DEFAULT 0,
+        failures integer NOT NULL DEFAULT 0,
+        reconnect_marked integer NOT NULL DEFAULT 0,
+        emails_sent integer NOT NULL DEFAULT 0
+      )
+    `);
+    await this.db.execute(sql`
+      CREATE TABLE IF NOT EXISTS mailbox_reconnect_state (
+        account_id varchar NOT NULL,
+        provider text NOT NULL,
+        user_id varchar NOT NULL,
+        flagged_at timestamp NOT NULL DEFAULT now(),
+        PRIMARY KEY (account_id, provider)
+      )
+    `);
+    await this.db.execute(sql`
+      CREATE INDEX IF NOT EXISTS idx_mailbox_reconnect_user ON mailbox_reconnect_state (user_id)
+    `);
+    await this.db.execute(sql`
+      CREATE TABLE IF NOT EXISTS reconnect_email_state (
+        user_id varchar PRIMARY KEY,
+        last_sent_at timestamp NOT NULL
+      )
+    `);
+  }
+
+  /**
+   * Takes today's run of the daily job, atomically: true for exactly one
+   * caller per day (across restarts and instances). A same-day run that
+   * started over `staleMs` ago and never finished can be taken over, so a
+   * restart mid-run still finishes the day. Same rule as decideClaim.
+   */
+  async claimRenewalRun(today: string, staleMs: number): Promise<boolean> {
+    const staleSeconds = Math.max(1, Math.round(staleMs / 1000));
+    const result = await this.db.execute(sql`
+      INSERT INTO renewal_job_state AS r (name, last_run_day, started_at, finished_at)
+      VALUES ('daily', ${today}::date, now(), NULL)
+      ON CONFLICT (name) DO UPDATE SET
+        users = CASE WHEN r.last_run_day = EXCLUDED.last_run_day THEN r.users ELSE 0 END,
+        checked = CASE WHEN r.last_run_day = EXCLUDED.last_run_day THEN r.checked ELSE 0 END,
+        found = CASE WHEN r.last_run_day = EXCLUDED.last_run_day THEN r.found ELSE 0 END,
+        failures = CASE WHEN r.last_run_day = EXCLUDED.last_run_day THEN r.failures ELSE 0 END,
+        reconnect_marked = CASE WHEN r.last_run_day = EXCLUDED.last_run_day THEN r.reconnect_marked ELSE 0 END,
+        emails_sent = CASE WHEN r.last_run_day = EXCLUDED.last_run_day THEN r.emails_sent ELSE 0 END,
+        last_run_day = EXCLUDED.last_run_day,
+        started_at = EXCLUDED.started_at,
+        finished_at = NULL
+      WHERE r.last_run_day IS NULL
+         OR r.last_run_day < EXCLUDED.last_run_day
+         OR (r.last_run_day = EXCLUDED.last_run_day AND r.finished_at IS NULL
+             AND r.started_at < now() - make_interval(secs => ${staleSeconds}))
+      RETURNING r.name
+    `);
+    return (((result as any)?.rows ?? []) as any[]).length > 0;
+  }
+
+  /** Records the counts of the run that just ended (added to what an earlier, interrupted run of the same day recorded). */
+  async finishRenewalRun(stats: { users: number; checked: number; found: number; failures: number; reconnectMarked: number; emailsSent: number }): Promise<void> {
+    await this.db.execute(sql`
+      UPDATE renewal_job_state SET
+        finished_at = now(),
+        users = users + ${stats.users},
+        checked = checked + ${stats.checked},
+        found = found + ${stats.found},
+        failures = failures + ${stats.failures},
+        reconnect_marked = reconnect_marked + ${stats.reconnectMarked},
+        emails_sent = emails_sent + ${stats.emailsSent}
+      WHERE name = 'daily'
+    `);
+  }
+
+  /** The last run's numbers and the mailboxes waiting to be reconnected, for the admin console. */
+  async getRenewalSummary(): Promise<{
+    lastRunDay: string | null;
+    startedAt: string | null;
+    finishedAt: string | null;
+    users: number;
+    checked: number;
+    found: number;
+    failures: number;
+    reconnectMarked: number;
+    emailsSent: number;
+    mailboxesNeedingReconnect: number;
+  }> {
+    const run = await this.db.execute(sql`
+      SELECT to_char(last_run_day, 'YYYY-MM-DD') AS last_run_day, started_at, finished_at,
+             users, checked, found, failures, reconnect_marked, emails_sent
+      FROM renewal_job_state WHERE name = 'daily'
+    `);
+    const flagged = await this.db.execute(sql`SELECT count(*)::int AS n FROM mailbox_reconnect_state`);
+    const row = ((run as any)?.rows ?? [])[0] as any;
+    const iso = (v: any) => (v ? new Date(v).toISOString() : null);
+    return {
+      lastRunDay: row?.last_run_day ?? null,
+      startedAt: iso(row?.started_at),
+      finishedAt: iso(row?.finished_at),
+      users: Number(row?.users ?? 0),
+      checked: Number(row?.checked ?? 0),
+      found: Number(row?.found ?? 0),
+      failures: Number(row?.failures ?? 0),
+      reconnectMarked: Number(row?.reconnect_marked ?? 0),
+      emailsSent: Number(row?.emails_sent ?? 0),
+      mailboxesNeedingReconnect: Number((((flagged as any)?.rows ?? [])[0] as any)?.n ?? 0),
+    };
+  }
+
+  /** Everyone who has at least one subscription: the people the daily job considers (each is then switch-checked). */
+  async getUserIdsWithSubscriptions(): Promise<string[]> {
+    const result = await this.db.execute(sql`SELECT DISTINCT user_id FROM subscriptions ORDER BY user_id`);
+    return (((result as any)?.rows ?? []) as any[]).map((r) => String(r.user_id));
+  }
+
+  async getRenewalCheckStates(userId: string): Promise<{
+    subscriptionId: string;
+    cycleRenewalOn: string | null;
+    attempts: number;
+    firstAttemptOn: string | null;
+    lastCheckedOn: string | null;
+    nextCheckOn: string | null;
+    errorCount: number;
+  }[]> {
+    const result = await this.db.execute(sql`
+      SELECT subscription_id, to_char(cycle_renewal_on, 'YYYY-MM-DD') AS cycle_renewal_on, attempts,
+             to_char(first_attempt_on, 'YYYY-MM-DD') AS first_attempt_on,
+             to_char(last_checked_on, 'YYYY-MM-DD') AS last_checked_on,
+             to_char(next_check_on, 'YYYY-MM-DD') AS next_check_on, error_count
+      FROM renewal_check_state WHERE user_id = ${userId}
+    `);
+    return (((result as any)?.rows ?? []) as any[]).map((r) => ({
+      subscriptionId: String(r.subscription_id),
+      cycleRenewalOn: r.cycle_renewal_on ?? null,
+      attempts: Number(r.attempts ?? 0),
+      firstAttemptOn: r.first_attempt_on ?? null,
+      lastCheckedOn: r.last_checked_on ?? null,
+      nextCheckOn: r.next_check_on ?? null,
+      errorCount: Number(r.error_count ?? 0),
+    }));
+  }
+
+  async saveRenewalCheckState(
+    userId: string,
+    s: { subscriptionId: string; cycleRenewalOn: string | null; attempts: number; firstAttemptOn: string | null; lastCheckedOn: string | null; nextCheckOn: string | null; errorCount: number },
+    lastError: string | null = null,
+  ): Promise<void> {
+    await this.db.execute(sql`
+      INSERT INTO renewal_check_state AS c
+        (subscription_id, user_id, cycle_renewal_on, attempts, first_attempt_on, last_checked_on, last_checked_at, next_check_on, error_count, last_error)
+      VALUES
+        (${s.subscriptionId}, ${userId}, ${s.cycleRenewalOn}::date, ${s.attempts}, ${s.firstAttemptOn}::date, ${s.lastCheckedOn}::date, now(),
+         ${s.nextCheckOn}::date, ${s.errorCount}, ${lastError})
+      ON CONFLICT (subscription_id) DO UPDATE SET
+        cycle_renewal_on = EXCLUDED.cycle_renewal_on, attempts = EXCLUDED.attempts, first_attempt_on = EXCLUDED.first_attempt_on,
+        last_checked_on = EXCLUDED.last_checked_on, last_checked_at = EXCLUDED.last_checked_at, next_check_on = EXCLUDED.next_check_on,
+        error_count = EXCLUDED.error_count, last_error = EXCLUDED.last_error
+    `);
+  }
+
+  /** Mailboxes (by "provider:id") flagged as needing a reconnect, all people. */
+  async getReconnectFlags(userId: string): Promise<{ accountId: string; provider: string; flaggedAt: Date }[]> {
+    const result = await this.db.execute(sql`
+      SELECT account_id, provider, flagged_at FROM mailbox_reconnect_state WHERE user_id = ${userId}
+    `);
+    return (((result as any)?.rows ?? []) as any[]).map((r) => ({
+      accountId: String(r.account_id),
+      provider: String(r.provider),
+      flaggedAt: new Date(r.flagged_at),
+    }));
+  }
+
+  async flagMailboxNeedsReconnect(userId: string, accountId: string, provider: string): Promise<void> {
+    await this.db.execute(sql`
+      INSERT INTO mailbox_reconnect_state (account_id, provider, user_id) VALUES (${accountId}, ${provider}, ${userId})
+      ON CONFLICT (account_id, provider) DO NOTHING
+    `);
+  }
+
+  /** Called when the mailbox's tokens are replaced through the connect flow. Never throws: it must not break connecting. */
+  async clearMailboxNeedsReconnect(accountId: string, provider: string): Promise<void> {
+    try {
+      await this.db.execute(sql`DELETE FROM mailbox_reconnect_state WHERE account_id = ${accountId} AND provider = ${provider}`);
+    } catch (error) {
+      console.error('[Renewal] Could not clear a mailbox reconnect flag (non-fatal):', error);
+    }
+  }
+
+  async getReconnectEmailLastSent(userId: string): Promise<Date | null> {
+    const result = await this.db.execute(sql`SELECT last_sent_at FROM reconnect_email_state WHERE user_id = ${userId}`);
+    const row = ((result as any)?.rows ?? [])[0] as any;
+    return row?.last_sent_at ? new Date(row.last_sent_at) : null;
+  }
+
+  async markReconnectEmailSent(userId: string): Promise<void> {
+    await this.db.execute(sql`
+      INSERT INTO reconnect_email_state (user_id, last_sent_at) VALUES (${userId}, now())
+      ON CONFLICT (user_id) DO UPDATE SET last_sent_at = EXCLUDED.last_sent_at
+    `);
   }
 
   // ---------------------------------------------------------------------

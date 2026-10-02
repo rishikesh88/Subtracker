@@ -49,6 +49,7 @@ import {
 } from "../lib/featureFlags";
 import { STATUS_FEATURE, statusRowsForAdmin, statusEnabledFor, rereadStoredPayments, removeStoredCreditCardEmails, removeStoredBankEmails, removeDuplicateInvoices, type DuplicateInvoiceResult } from "../services/subscriptionStatus";
 import { queueAllForUser, queueHistorySearch } from "../services/historySearch";
+import { renewalChecksEnabled } from "../lib/renewalChecks";
 
 /**
  * Sends an admin page, uncacheable.
@@ -352,6 +353,28 @@ export function registerAdminRoutes(app: Express): void {
     }
   });
 
+  // The daily renewal checks: when they last ran and what they did. Small, read only.
+  app.get("/admin/api/background-checks", requireAdmin, async (_req, res) => {
+    try {
+      const summary = await storage.getRenewalSummary();
+      res.json({
+        enabled: renewalChecksEnabled(),
+        lastRunDay: summary.lastRunDay,
+        lastRunAt: summary.finishedAt ?? summary.startedAt,
+        finished: summary.finishedAt !== null,
+        people: summary.users,
+        checked: summary.checked,
+        found: summary.found,
+        failures: summary.failures,
+        remindersSent: summary.emailsSent,
+        mailboxesNeedingReconnect: summary.mailboxesNeedingReconnect,
+      });
+    } catch (error) {
+      console.error("[Admin] Failed to load the background checks summary:", error);
+      res.status(500).json({ message: "Could not load the background checks summary." });
+    }
+  });
+
   app.get("/admin/api/users/:id", requireAdmin, async (req, res) => {
     try {
       const detail = await storage.getUserDetailForAdmin(req.params.id);
@@ -387,7 +410,20 @@ export function registerAdminRoutes(app: Express): void {
         }
       }
 
-      res.json({ ...normaliseUserRow(detail), subscriptions_detail, features, status_payments });
+      // Mailboxes the daily background check found expired (only ever set for
+      // people with the switch on). Optional, like features above.
+      let mailboxes = detail.mailboxes ?? [];
+      try {
+        const flags = await storage.getReconnectFlags(req.params.id);
+        if (flags.length > 0) {
+          const flagged = new Set(flags.map((f) => `${f.provider}:${f.accountId}`));
+          mailboxes = mailboxes.map((m: any) => ({ ...m, needs_reconnect: flagged.has(`${m.provider}:${m.id}`) }));
+        }
+      } catch (error) {
+        console.error("[Admin] Failed to load a user's reconnect flags:", error);
+      }
+
+      res.json({ ...normaliseUserRow(detail), mailboxes, subscriptions_detail, features, status_payments });
     } catch (error) {
       console.error("[Admin] Failed to load a user:", error);
       res.status(500).json({ message: "Could not load that user." });

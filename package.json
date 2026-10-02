@@ -32,7 +32,8 @@
     "test:status-view": "tsx server/lib/statusView.test.ts",
     "test:lifecycle": "tsx client/src/lib/lifecycle.test.ts",
     "test:invoices": "tsx server/lib/invoiceDuplicates.test.ts",
-    "test:documents": "tsx client/src/lib/documentKind.test.ts"
+    "test:documents": "tsx client/src/lib/documentKind.test.ts",
+    "test:renewal": "tsx server/lib/renewalChecks.test.ts"
   },
   "engines": {
     "node": "22.x"
