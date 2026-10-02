@@ -69,10 +69,13 @@ import {
   searchCoverage,
   searchSince,
   siblingsOf,
+  assignSharedReceipt,
+  isSharedReceiptSender,
   selectNewMessageIds,
   shouldStopEarly,
   worthSaving,
   type CompanySub,
+  type SharedCandidate,
   type NameClues,
   type SenderPlan,
 } from "../lib/historySearchRules";
@@ -379,6 +382,39 @@ interface Outcome {
 const NOT_SEARCHED = { read: null, saved: null, skipped: 0, partial: false };
 
 /** The subscription as the company-matching rules see it. */
+/**
+ * The subscriptions of the person that read the same shared sender (Apple,
+ * Google...) as this one, each with the amounts it has been paid, so a receipt
+ * can be given to the one it is about. Null when this one reads no such sender.
+ */
+async function sharedPoolFor(
+  userId: string,
+  sub: Subscription,
+  linked: string[],
+  allSubs: Subscription[],
+  sendersBySub: Map<string, string[]>,
+): Promise<SearchContext["shared"]> {
+  const mySenders = [...linked, ...(sub.merchantEmail ? [sub.merchantEmail] : [])];
+  const domains = new Set(mySenders.filter(isSharedReceiptSender).map((a) => registrableDomain(domainOf(a))));
+  if (domains.size === 0) return null;
+  const sharing = allSubs.filter(
+    (s) => s.id !== sub.id && (sendersBySub.get(s.id) ?? []).some((a) => domains.has(registrableDomain(domainOf(a)))),
+  );
+  const candidate = async (s: Subscription, senders: string[]): Promise<SharedCandidate> => ({
+    id: s.id,
+    serviceName: s.serviceName,
+    merchantName: s.merchantName,
+    amount: s.amount,
+    currency: s.currency,
+    senders,
+    detectedAt: s.detectedAt ? new Date(s.detectedAt).getTime() : 0,
+    recordedAmounts: (await storage.getPaymentsForSubscription(s.id, userId)).map((p) => p.amount),
+  });
+  const me = await candidate(sub, mySenders);
+  const all = await Promise.all(sharing.map((s) => candidate(s, sendersBySub.get(s.id) ?? [])));
+  return { me, all };
+}
+
 function asCompanySub(sub: Subscription, senders: string[]): CompanySub {
   return {
     id: sub.id,
@@ -438,6 +474,7 @@ async function searchSubscription(
   const mine = asCompanySub(sub, linked);
   const siblings = siblingsOf(mine, allSubs.map((s) => asCompanySub(s, sendersBySub.get(s.id) ?? [])));
   const group = siblings.length > 0 ? [mine, ...siblings] : [];
+  const shared = await sharedPoolFor(userId, sub, linked, allSubs, sendersBySub);
 
   const [gmailAccounts, outlookAccounts, stored] = await Promise.all([
     storage.getGmailAccounts(userId),
@@ -475,7 +512,7 @@ async function searchSubscription(
   const saved: Email[] = [];
   let budget = MAX_MESSAGES_PER_SUBSCRIPTION;
   const reach = { truncated: false, oldest: null as Date | null, stoppedEarly: null as number | null };
-  const ctx: SearchContext = { userId, sub, plan, clues, group, since, days, stored, tally, saved, reach, checkSync };
+  const ctx: SearchContext = { userId, sub, plan, clues, group, shared, since, days, stored, tally, saved, reach, checkSync };
 
   try {
     for (const mailbox of mailboxes) {
@@ -505,7 +542,7 @@ async function searchSubscription(
       `${LOG} "${sub.serviceName}": ${tally.listed} listed, ${tally.fetched} read, ` +
       `${tally.notKept} not about it, ${tally.notPayment} not a payment by the rules (skipped), ${tally.saved} saved` +
       (tally.duplicate ? `, ${tally.duplicate} already stored` : "") +
-      (tally.skipped ? `, ${tally.skipped} skipped (no matching price)` : "") +
+      (tally.skipped ? `, ${tally.skipped} skipped (no matching price or product name)` : "") +
       (tally.otherSubscription ? `, ${tally.otherSubscription} for another subscription of the company` : ""),
     );
   }
@@ -607,11 +644,24 @@ function noteReached(ctx: SearchContext, receivedAt: Date | null | undefined): v
  * (by price)? 'other' means it fits a sibling, whose own search will take it;
  * 'none' means no subscription of the company fits, and it is counted as skipped.
  */
-function belongsHere(ctx: SearchContext, amount: number | null | undefined, currency: string | null | undefined): "here" | "other" | "none" {
-  if (ctx.group.length === 0) return "here";
-  const id = assignByPrice({ amount, currency }, ctx.group);
-  if (id === null) return "none";
-  return id === ctx.sub.id ? "here" : "other";
+function belongsHere(
+  ctx: SearchContext,
+  amount: number | null | undefined,
+  currency: string | null | undefined,
+  email?: { fromEmail: string | null | undefined; subject: string | null | undefined; text: string | null | undefined },
+): "here" | "other" | "none" {
+  if (ctx.group.length > 0) {
+    const id = assignByPrice({ amount, currency }, ctx.group);
+    if (id === null) return "none";
+    if (id !== ctx.sub.id) return "other";
+  }
+  // A shared sender (Apple, Google...): the receipt goes to the one subscription its price or product name fits.
+  if (email && ctx.shared) {
+    const verdict = assignSharedReceipt({ ...email, amount, currency }, ctx.shared.me, ctx.shared.all, { requireGroup: true });
+    if (verdict === "none") return "none";
+    if (verdict === "other") return "other";
+  }
+  return "here";
 }
 
 interface SearchContext {
@@ -621,6 +671,8 @@ interface SearchContext {
   clues: NameClues;
   /** This subscription and the other subscriptions of its company; empty when it is the only one. */
   group: CompanySub[];
+  /** This subscription and the others reading the same shared sender (Apple, Google...), with their known prices; null when it reads none. */
+  shared: { me: SharedCandidate; all: SharedCandidate[] } | null;
   since: Date;
   /** How many days back `since` is, for Gmail's newer_than. */
   days: number;
@@ -733,7 +785,7 @@ async function searchGmail(ctx: SearchContext, account: any, budget: number): Pr
         continue;
       }
       // A company with several subscriptions: the one whose price fits takes it.
-      const here = belongsHere(ctx, parsed.extractedAmount, parsed.extractedCurrency);
+      const here = belongsHere(ctx, parsed.extractedAmount, parsed.extractedCurrency, { fromEmail: parsed.fromEmail, subject: parsed.subject, text: parsed.content });
       if (here !== "here") {
         if (here === "none") ctx.tally.skipped++;
         else ctx.tally.otherSubscription++;
@@ -903,7 +955,7 @@ async function searchOutlook(ctx: SearchContext, account: any, budget: number): 
       ctx.tally.notPayment++;
       continue;
     }
-    const here = belongsHere(ctx, parsed.extractedAmount, parsed.extractedCurrency);
+    const here = belongsHere(ctx, parsed.extractedAmount, parsed.extractedCurrency, { fromEmail: email.fromEmail, subject: email.subject, text: email.body });
     if (here !== "here") {
       if (here === "none") ctx.tally.skipped++;
       else ctx.tally.otherSubscription++;

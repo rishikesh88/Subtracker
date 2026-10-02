@@ -1,5 +1,6 @@
 import { type Email, type Subscription } from "@shared/schema";
 import { storage } from "../storage";
+import { generateServiceKey } from "../utils/serviceKey";
 
 interface SubscriptionCandidate {
   serviceName: string;
@@ -233,6 +234,7 @@ export class SubscriptionDetector {
       return await storage.createSubscription({
         userId,
         serviceName: candidate.serviceName,
+        serviceKey: generateServiceKey(candidate.serviceName, candidate.frequency),
         amount: candidate.amount.toString(),
         currency: candidate.currency,
         frequency: candidate.frequency,

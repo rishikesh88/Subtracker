@@ -647,6 +647,123 @@ export function assignByPrice(
 }
 
 // ---------------------------------------------------------------------------
+// Receipts from a sender shared by several products (Apple, Google, ...)
+// ---------------------------------------------------------------------------
+
+/** Tolerance for a receipt amount against a subscription's known price. */
+export const SHARED_PRICE_TOLERANCE = 0.02;
+
+/** Senders whose one address bills many products: the shared senders, Microsoft and the payment processors. */
+export function isSharedReceiptSender(address: string | null | undefined): boolean {
+  const domain = domainOf(address);
+  if (!domain) return false;
+  return isSharedSender(domain) || /(^|\.)(microsoft|microsoftonline)\.com$/.test(domain) || isProcessorSender(address);
+}
+
+/** A subscription that reads receipts from a shared sender, with the prices it is known to cost. */
+export interface SharedCandidate {
+  id: string;
+  serviceName: string;
+  merchantName?: string | null;
+  amount: string | number;
+  currency: string;
+  /** The senders of the emails linked to it. */
+  senders: string[];
+  /** When it was detected (ms); the older one wins a tie. */
+  detectedAt: number;
+  /** The amounts of its already-recorded payments, so a price change is not mistaken for another product. */
+  recordedAmounts: (string | number | null)[];
+}
+
+/** The most common recorded amount(s) (all of them on a tie): what it has really been costing. */
+export function usualAmounts(recorded: (string | number | null)[]): number[] {
+  const counts = new Map<number, number>();
+  for (const raw of recorded) {
+    const n = raw === null || raw === "" ? NaN : Number(raw);
+    if (isFinite(n) && n > 0) counts.set(n, (counts.get(n) ?? 0) + 1);
+  }
+  const top = Math.max(0, ...Array.from(counts.values()));
+  return top === 0 ? [] : Array.from(counts.entries()).filter(([, c]) => c === top).map(([n]) => n);
+}
+
+function sharedNeedles(c: SharedCandidate): string[] {
+  const out = needlesFor([c.serviceName, c.merchantName]);
+  // "Apple One Family" is billed as "Apple One": the brand word plus the next one.
+  for (const name of [c.serviceName, c.merchantName]) {
+    const words = normaliseText(String(name ?? "").replace(/\([^)]*\)/g, " ")).split(" ");
+    if (words.length >= 3 && SHARED_BRAND_WORDS.has(words[0])) {
+      const two = `${words[0]} ${words[1]}`;
+      if (!out.includes(two)) out.push(two);
+    }
+  }
+  return out;
+}
+
+function namedBy(c: SharedCandidate, text: string): boolean {
+  const haystack = " " + normaliseText(text) + " ";
+  return sharedNeedles(c).some((needle) => new RegExp(`(^|[^a-z0-9+])${escapeRe(needle)}(?=[^a-z0-9+]|$)`).test(haystack));
+}
+
+function priceDistance(amount: number, c: SharedCandidate): number {
+  const prices = [Number(c.amount), ...usualAmounts(c.recordedAmounts)].filter((n) => isFinite(n) && n > 0);
+  let best = Infinity;
+  for (const price of prices) {
+    const d = Math.abs(amount - price);
+    if (d <= price * SHARED_PRICE_TOLERANCE) best = Math.min(best, d);
+  }
+  return best;
+}
+
+/**
+ * Which subscription a receipt from a shared sender is about. A subscription
+ * takes it when its amount is within 2% of the price it costs (the current
+ * one or the usual recorded one, in its currency) or when the receipt names
+ * its product. Among those that qualify the receipt goes to one only: both
+ * price and name, then price, then name; on a tie the nearest price, then the
+ * older subscription. It looks only at the email and the candidates, so it is
+ * the same whichever subscription is being searched.
+ *
+ * 'not_shared': not a shared sender, or the subscription does not read that
+ * sender, so this rule does not apply. 'none': it qualifies for nobody.
+ */
+export function assignSharedReceipt(
+  email: {
+    fromEmail: string | null | undefined;
+    subject?: string | null;
+    text?: string | null;
+    amount: number | string | null | undefined;
+    currency?: string | null;
+  },
+  me: SharedCandidate,
+  all: SharedCandidate[],
+  options: { requireGroup?: boolean } = {},
+): "here" | "other" | "none" | "not_shared" {
+  if (!isSharedReceiptSender(email.fromEmail)) return "not_shared";
+  const domain = registrableDomain(domainOf(email.fromEmail));
+  const reads = (c: SharedCandidate) => c.senders.some((a) => registrableDomain(domainOf(a)) === domain);
+  if (!reads(me)) return "not_shared";
+  const pool = [me, ...all.filter((c) => c.id !== me.id && reads(c))];
+  // A processor's mail with no other subscription to tell apart from: left to the name rules.
+  if (options.requireGroup && pool.length === 1 && !isSharedSender(domain)) return "not_shared";
+
+  const amount = email.amount === null || email.amount === undefined || email.amount === "" ? NaN : Number(email.amount);
+  const currency = (email.currency ?? "").trim().toUpperCase();
+  const text = `${email.subject ?? ""} ${email.text ?? ""}`;
+  const scored = pool.map((c) => {
+    if (currency && currency !== c.currency.trim().toUpperCase()) return { c, score: 0, distance: Infinity };
+    const distance = isFinite(amount) && amount > 0 ? priceDistance(amount, c) : Infinity;
+    const byPrice = distance !== Infinity;
+    const byName = namedBy(c, text);
+    return { c, score: (byPrice ? 2 : 0) + (byName ? 1 : 0), distance };
+  });
+  const qualified = scored
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score || a.distance - b.distance || a.c.detectedAt - b.c.detectedAt || a.c.id.localeCompare(b.c.id));
+  if (qualified.length === 0) return "none";
+  return qualified[0].c.id === me.id ? "here" : "other";
+}
+
+// ---------------------------------------------------------------------------
 // How far back the search really got
 // ---------------------------------------------------------------------------
 

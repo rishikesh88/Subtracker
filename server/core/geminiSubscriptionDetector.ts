@@ -602,7 +602,7 @@ ${cancellation ? CANCELLATION_INSTRUCTION : ''}IMPORTANT: Include renewal remind
   }
 
   // Convert Gemini suggestions to our Subscription format
-  convertSuggestionsToSubscriptions(suggestions: SubscriptionSuggestion[], userId: string): Subscription[] {
+  convertSuggestionsToSubscriptions(suggestions: SubscriptionSuggestion[], userId: string): Array<Partial<Subscription> & { id: string; userId: string }> {
     return suggestions.map(suggestion => ({
       id: `suggested_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       userId,
