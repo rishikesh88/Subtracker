@@ -807,6 +807,12 @@ select.signup__input:invalid { color: #9BA1B2; }
 
 .doc__date { font-size: 14px; color: var(--faint); margin: 0 0 40px; }
 
+.breadcrumb { margin: 0 0 22px; }
+.breadcrumb ol { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 14px; color: var(--faint); }
+.breadcrumb li + li::before { content: "/"; margin-right: 8px; color: var(--faint); }
+.breadcrumb a { color: var(--muted); text-decoration: none; }
+.breadcrumb a:hover, .breadcrumb a:focus-visible { color: var(--ink); text-decoration: underline; }
+
 .callout {
   padding: 28px 32px;
   margin-bottom: 14px;
