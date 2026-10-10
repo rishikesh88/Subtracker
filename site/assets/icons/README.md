@@ -17,11 +17,14 @@ The rest of this file records what was done to them and why.
 
 ## What is here
 
-    slack.png    figma.png    notion.jpeg    claude.png
-    canva.png    adobe.jpeg   google.png
+    slack.webp    figma.webp    notion.webp    claude.webp
+    canva.webp    adobe.webp    google.webp
 
-Two are JPEG because that is how they were supplied. The `<img src>` in each row
-matches the real extension; do not rename a JPEG to `.png`.
+They are 96 x 96 WebP (about 1 to 5 KB each). The originals were 400 x 400 PNG
+and JPEG files of 12 to 52 KB each, shown at 30 px; they were resized and
+converted on 6 October 2026 with the same 79% inset described below. Keep
+replacements at 96 x 96 or larger (the chip is 30 px, so that is 3x for sharp
+phones).
 
 ## They were normalised, and that mattered
 
@@ -44,7 +47,7 @@ different built-in margins. Measured against their own canvas:
 
 Slack would have rendered at roughly half Adobe's size in the same tile. So the
 four outliers were trimmed to their content bounding box and re-centred on a
-square 400×400 transparent canvas with the mark at 79% — the inset Notion
+square transparent canvas with the mark at 79% — the inset Notion
 already had. Adobe and Canva were left untouched, full-bleed, as designed.
 
 Aspect ratios were preserved and nothing was recoloured or cropped into the
@@ -56,8 +59,8 @@ size next to the others.
 
 ## Format
 
-- **PNG for flat marks** — lossless, and transparency lets the tile show
-  through. **80×80 minimum**; these are 400×400.
+- **WebP for flat marks** — transparency lets the tile show through.
+  **90×90 minimum**; these are 96×96.
 - **Square.** `object-fit: cover` on a non-square source crops it.
 
 ## The markup
@@ -66,7 +69,7 @@ Each row carries:
 
 ```html
 <span class="ledger__chip ledger__chip--icon">
-  <img src="assets/icons/slack.png" alt="">
+  <img src="assets/icons/slack.webp" width="30" height="30" alt="">
 </span>
 ```
 

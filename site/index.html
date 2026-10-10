@@ -17,17 +17,82 @@
 <meta property="og:image" content="https://verloq.co/assets/og-cover.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Verloq: know what your company actually spends on software.">
+<meta property="og:locale" content="en_US">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Verloq: know what your company spends on software">
 <meta name="twitter:description" content="Verloq reads the receipts in your billing inbox and turns them into one list.">
 <meta name="twitter:image" content="https://verloq.co/assets/og-cover.png">
+<meta name="twitter:image:alt" content="Verloq: know what your company actually spends on software.">
 
 <link rel="icon" href="assets/favicon.svg?v=2" type="image/svg+xml">
 <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+<link rel="preconnect" href="https://cdn.brandfetch.io">
 <link rel="preload" href="assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="assets/fonts/literata-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/styles.css">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://verloq.co/#organization",
+      "name": "Verloq",
+      "url": "https://verloq.co/",
+      "logo": "https://verloq.co/assets/logo.svg"
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://verloq.co/#website",
+      "name": "Verloq",
+      "url": "https://verloq.co/",
+      "publisher": {
+        "@id": "https://verloq.co/#organization"
+      }
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://verloq.co/#faq",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Which mailbox should we connect?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Gmail or Outlook, whichever one your vendors already write to, usually billing@ or accounts@. Connect more than one if receipts are split across inboxes; Verloq reconciles them into a single list."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Do you need our bank or card details?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. Verloq works from the receipts vendors email you and nothing else. It has no connection to your bank, your cards or your accounting system, and it cannot see or make a payment."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Can Verloq change anything in our mailbox?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "No. The permission it asks for is read-only. It cannot send, delete, label, archive or alter a message."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "What happens if we stop using it?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Disconnecting a mailbox deletes Verloq’s stored keys and it stops reading at once. With Google it also cancels the permission for you. Microsoft gives an app no way to do that, so remove Verloq yourself in your Microsoft account. To close your account entirely, email us."
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
 </head>
 
 <body>
@@ -36,7 +101,7 @@
 <header>
   <nav class="nav" aria-label="Main">
     <div class="nav__left">
-      <a class="brand" href="index.html">
+      <a class="brand" href="/">
         <img src="assets/logo.svg" width="27" height="27" alt="">
         <span class="brand__name">Verloq</span>
       </a>
@@ -120,7 +185,7 @@
         <div class="ledger__row">
           <div class="ledger__line">
             <div class="ledger__service">
-              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/slack.com?c=1idwgleETHtUU8VOV6t" alt="" onerror="this.onerror=null;this.src='assets/icons/slack.png'"></span>
+              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/slack.com?c=1idwgleETHtUU8VOV6t" width="30" height="30" loading="lazy" decoding="async" alt="" onerror="this.onerror=null;this.src='assets/icons/slack.webp'"></span>
               <span class="ledger__name">Slack</span>
               <span class="cadence cadence--monthly">Monthly</span>
             </div>
@@ -134,7 +199,7 @@
         <div class="ledger__row">
           <div class="ledger__line">
             <div class="ledger__service">
-              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/figma.com?c=1idwgleETHtUU8VOV6t" alt="" onerror="this.onerror=null;this.src='assets/icons/figma.png'"></span>
+              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/figma.com?c=1idwgleETHtUU8VOV6t" width="30" height="30" loading="lazy" decoding="async" alt="" onerror="this.onerror=null;this.src='assets/icons/figma.webp'"></span>
               <span class="ledger__name">Figma</span>
               <span class="cadence cadence--monthly">Monthly</span>
             </div>
@@ -148,7 +213,7 @@
         <div class="ledger__row">
           <div class="ledger__line">
             <div class="ledger__service">
-              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/notion.so?c=1idwgleETHtUU8VOV6t" alt="" onerror="this.onerror=null;this.src='assets/icons/notion.jpeg'"></span>
+              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/notion.so?c=1idwgleETHtUU8VOV6t" width="30" height="30" loading="lazy" decoding="async" alt="" onerror="this.onerror=null;this.src='assets/icons/notion.webp'"></span>
               <span class="ledger__name">Notion</span>
               <span class="cadence cadence--monthly">Monthly</span>
             </div>
@@ -162,7 +227,7 @@
         <div class="ledger__row">
           <div class="ledger__line">
             <div class="ledger__service">
-              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/claude.ai?c=1idwgleETHtUU8VOV6t" alt="" onerror="this.onerror=null;this.src='assets/icons/claude.png'"></span>
+              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/claude.ai?c=1idwgleETHtUU8VOV6t" width="30" height="30" loading="lazy" decoding="async" alt="" onerror="this.onerror=null;this.src='assets/icons/claude.webp'"></span>
               <span class="ledger__name">Claude</span>
               <span class="cadence cadence--monthly">Monthly</span>
             </div>
@@ -176,7 +241,7 @@
         <div class="ledger__row">
           <div class="ledger__line">
             <div class="ledger__service">
-              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/canva.com?c=1idwgleETHtUU8VOV6t" alt="" onerror="this.onerror=null;this.src='assets/icons/canva.png'"></span>
+              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/canva.com?c=1idwgleETHtUU8VOV6t" width="30" height="30" loading="lazy" decoding="async" alt="" onerror="this.onerror=null;this.src='assets/icons/canva.webp'"></span>
               <span class="ledger__name">Canva</span>
               <span class="cadence cadence--monthly">Monthly</span>
             </div>
@@ -190,7 +255,7 @@
         <div class="ledger__row">
           <div class="ledger__line">
             <div class="ledger__service">
-              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/adobe.com?c=1idwgleETHtUU8VOV6t" alt="" onerror="this.onerror=null;this.src='assets/icons/adobe.jpeg'"></span>
+              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/adobe.com?c=1idwgleETHtUU8VOV6t" width="30" height="30" loading="lazy" decoding="async" alt="" onerror="this.onerror=null;this.src='assets/icons/adobe.webp'"></span>
               <span class="ledger__name">Adobe Creative Cloud</span>
               <span class="cadence cadence--yearly">Yearly</span>
             </div>
@@ -204,7 +269,7 @@
         <div class="ledger__row">
           <div class="ledger__line">
             <div class="ledger__service">
-              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/google.com?c=1idwgleETHtUU8VOV6t" alt="" onerror="this.onerror=null;this.src='assets/icons/google.png'"></span>
+              <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/google.com?c=1idwgleETHtUU8VOV6t" width="30" height="30" loading="lazy" decoding="async" alt="" onerror="this.onerror=null;this.src='assets/icons/google.webp'"></span>
               <span class="ledger__name">Google Workspace</span>
               <span class="cadence cadence--yearly">Yearly</span>
             </div>
@@ -265,7 +330,7 @@
       <div class="filings">
         <div class="filings__head">
           <span class="filings__brand">
-            <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/claude.ai?c=1idwgleETHtUU8VOV6t" alt="" onerror="this.onerror=null;this.src='assets/icons/claude.png'"></span>
+            <span class="ledger__chip ledger__chip--icon"><img src="https://cdn.brandfetch.io/claude.ai?c=1idwgleETHtUU8VOV6t" width="30" height="30" loading="lazy" decoding="async" alt="" onerror="this.onerror=null;this.src='assets/icons/claude.webp'"></span>
             <span class="filings__title">Claude</span>
           </span>
           <span class="ledger__meta">6 filed</span>
@@ -410,7 +475,7 @@
         <details class="faq__item">
           <summary class="faq__q">Which mailbox should we connect?</summary>
           <p class="faq__a">
-            Gmail or Outlook &mdash; whichever one your vendors already write to,
+            Gmail or Outlook, whichever one your vendors already write to,
             usually billing@ or accounts@. Connect more than one if receipts are
             split across inboxes; Verloq reconciles them into a single list.
           </p>
@@ -475,7 +540,7 @@
 <footer class="site-footer">
   <div class="site-footer__top">
     <div>
-      <a class="brand" href="index.html">
+      <a class="brand" href="/">
         <img src="assets/logo.svg" width="27" height="27" alt="" style="filter:brightness(0) invert(1)">
         <span class="brand__name">Verloq</span>
       </a>

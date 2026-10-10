@@ -68,10 +68,10 @@ Only one is genuinely missing.
 
 | File | Size | Status |
 |---|---|---|
-| `assets/og-cover.png` | 1200 × 630 | **Missing.** Referenced by the social-preview meta on both pages. Without it, links shared to Slack, WhatsApp or LinkedIn show a broken image |
+| `assets/og-cover.png` | 1200 × 630 | Done (added 6 October 2026). Referenced by the social-preview meta on both pages |
 | `assets/favicon.svg` | 32 × 32 | Done |
 | `assets/logo.svg` | 28 × 28 | Done |
-| `assets/icons/` (7 files) | 400 × 400 | Done — the brand marks in the sample ledger |
+| `assets/icons/` (7 files) | 96 × 96 WebP | Done — the brand marks in the sample ledger |
 
 Nothing else. Apart from the seven service icons the site uses no photographs —
 every other graphic is SVG or a CSS gradient. If you would rather I generate the
@@ -238,8 +238,8 @@ public_html/
       literata-latin.woff2
       manrope-latin.woff2
     icons/
-      slack.png   figma.png   notion.jpeg   claude.png
-      canva.png   adobe.jpeg  google.png
+      slack.webp  figma.webp  notion.webp  claude.webp
+      canva.webp  adobe.webp  google.webp
 ```
 
 `DEPLOY.md` and `assets/icons/README.md` are notes for you, not part of the
