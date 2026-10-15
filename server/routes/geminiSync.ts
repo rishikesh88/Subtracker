@@ -14,6 +14,7 @@ import { verifyCurrency } from "../lib/currencyCheck";
 import { refreshRates } from "../lib/exchangeRates";
 import { pickEvidence } from "../lib/evidence";
 import { splitBankMail } from "../lib/bankAlert";
+import { splitPrivateMail, privateKind, privateSubscriptionKind } from "../lib/privateMail";
 import { sendSyncSummaryEmail } from "../services/syncSummaryEmail";
 import { APP_BASE_URL } from "../config";
 import {
@@ -216,6 +217,43 @@ type StageReporter = (
   details?: Record<string, unknown>
 ) => void;
 
+/** The whole email, judged by privateMail.ts. Only the opening of the body is read. */
+function isPrivateEmail(fromEmail: any, fromName: any, subject: any, body: any): boolean {
+  const text = typeof body === 'string' ? body.slice(0, 1500) : '';
+  return privateKind({ sender: fromEmail, fromName, subject, snippet: text }) !== null;
+}
+
+/**
+ * The last safety net: a suggestion that is really insurance, health, a loan,
+ * an investment or Verloq itself is dropped before it is saved, and the
+ * emails only it cited are deleted. Changes geminiResults and savedEmails in place.
+ */
+async function dropPrivateSuggestions(userId: string, geminiResults: { subscriptions: any[] }, savedEmails: any[]): Promise<void> {
+  const bySender = (s: any) => {
+    const ids = new Set<string>(s.evidenceEmailIds ?? []);
+    return savedEmails.filter((e) => ids.has(e.gmailId));
+  };
+  const isPrivate = (s: any) =>
+    privateSubscriptionKind({ serviceName: s.serviceName, merchantName: s.merchantName, category: s.category }) !== null ||
+    bySender(s).some((e) => isPrivateEmail(e.fromEmail, e.fromName, e.subject, e.content));
+  const dropped = geminiResults.subscriptions.filter(isPrivate);
+  if (dropped.length === 0) return;
+  geminiResults.subscriptions = geminiResults.subscriptions.filter((s) => !dropped.includes(s));
+  const keptIds = new Set<string>(geminiResults.subscriptions.flatMap((s) => s.evidenceEmailIds ?? []));
+  const doomed = dropped.flatMap(bySender).filter((e) => !keptIds.has(e.gmailId));
+  const doomedIds = Array.from(new Set(doomed.map((e) => e.id)));
+  if (doomedIds.length > 0) {
+    try {
+      await storage.deleteEmailsWithPayments(userId, doomedIds);
+    } catch (error) {
+      console.error('Could not delete private emails (non-fatal):', (error as Error).message);
+    }
+  }
+  const gone = new Set(doomedIds);
+  savedEmails.splice(0, savedEmails.length, ...savedEmails.filter((e) => !gone.has(e.id)));
+  console.log(`🔒 ${dropped.length} private suggestion(s) dropped, ${doomedIds.length} email(s) deleted`);
+}
+
 export function registerGeminiRoutes(app: Express) {
   // Get progress notification function from parent scope
   const sendProgressUpdate = (globalThis as any).sendProgressUpdate || (() => {});
@@ -403,7 +441,17 @@ export function registerGeminiRoutes(app: Express) {
       }));
       if (bankMail.length > 0) console.log(`🔒 ${bankMail.length} bank/card emails kept out of the sync`);
 
-      const detectionResults = transactionDetector.filterCandidates(sendableMetadata);
+      // Privacy: insurance, health, loan and investment mail, and Verloq's own
+      // mail, goes no further than this list either (see privateMail.ts).
+      const { kept: shareableMetadata, dropped: privateMail } = splitPrivateMail(sendableMetadata, (m) => ({
+        sender: m.fromEmail,
+        fromName: m.fromName,
+        subject: m.subject,
+        snippet: m.snippet,
+      }));
+      if (privateMail.length > 0) console.log(`🔒 ${privateMail.length} private emails kept out of the sync`);
+
+      const detectionResults = transactionDetector.filterCandidates(shareableMetadata);
       
       console.log(`\n📊 Phase 1 Detection Results:`);
       console.log(`   ✅ High confidence: ${detectionResults.stats.high}`);
@@ -475,6 +523,14 @@ export function registerGeminiRoutes(app: Express) {
         }
       }
       
+      // A second look with the whole email in hand: private mail the preview did
+      // not give away is still dropped before it is stored or sent to a model.
+      const privateParsed = parsedEmails.filter((e: any) => isPrivateEmail(e.fromEmail, e.fromName, e.subject, e.content));
+      if (privateParsed.length > 0) {
+        console.log(`🔒 ${privateParsed.length} private emails dropped after reading`);
+        parsedEmails.splice(0, parsedEmails.length, ...parsedEmails.filter((e: any) => !privateParsed.includes(e)));
+      }
+
       console.log(`✅ Parsed ${parsedEmails.length} emails`);
       
       // Phase 2c: Download and process attachments
@@ -576,6 +632,8 @@ export function registerGeminiRoutes(app: Express) {
           }),
         { cancellation: statusOn },
       );
+
+      await dropPrivateSuggestions(userId, geminiResults, savedEmails);
 
       report('analysis', 1, `Found ${geminiResults.subscriptions.length} possible subscriptions`, {
         suggestionsGenerated: geminiResults.subscriptions.length,
@@ -793,7 +851,17 @@ export function registerGeminiRoutes(app: Express) {
       }));
       if (bankMail.length > 0) console.log(`🔒 ${bankMail.length} bank/card emails kept out of the sync`);
 
-      const detectionResults = transactionDetector.filterCandidates(sendableMetadata);
+      // Privacy: insurance, health, loan and investment mail, and Verloq's own
+      // mail, goes no further than this list either (see privateMail.ts).
+      const { kept: shareableMetadata, dropped: privateMail } = splitPrivateMail(sendableMetadata, (m) => ({
+        sender: m.fromEmail,
+        fromName: m.fromName,
+        subject: m.subject,
+        snippet: m.snippet,
+      }));
+      if (privateMail.length > 0) console.log(`🔒 ${privateMail.length} private emails kept out of the sync`);
+
+      const detectionResults = transactionDetector.filterCandidates(shareableMetadata);
       
       console.log(`\n📊 Phase 1 Detection Results:`);
       console.log(`   ✅ High confidence: ${detectionResults.stats.high}`);
@@ -856,11 +924,17 @@ export function registerGeminiRoutes(app: Express) {
       );
       
       console.log(`✅ Fetched full content for ${fullEmails.length} emails`);
+
+      // A second look with the whole email in hand (see the Gmail path).
+      const shareableEmails = fullEmails.filter((e: any) => !isPrivateEmail(e.fromEmail, e.fromName, e.subject, e.body));
+      if (shareableEmails.length < fullEmails.length) {
+        console.log(`🔒 ${fullEmails.length - shareableEmails.length} private emails dropped after reading`);
+      }
       
       // Phase 2b: Save emails to database with provider tags
       const savedEmails: any[] = [];
       
-      for (const email of fullEmails) {
+      for (const email of shareableEmails) {
         try {
           const existingEmail = await storage.getEmailByGmailId(email.id, userId);
           
@@ -947,6 +1021,8 @@ export function registerGeminiRoutes(app: Express) {
           }),
         { cancellation: statusOn },
       );
+      await dropPrivateSuggestions(userId, geminiResults, savedEmails);
+
       report('analysis', 1, `Found ${geminiResults.subscriptions.length} possible subscriptions`, {
         suggestionsGenerated: geminiResults.subscriptions.length,
         foundSoFar: geminiResults.subscriptions.length,

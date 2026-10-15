@@ -2127,6 +2127,50 @@ export class DatabaseStorage implements IStorage {
       .where(eq(emails.userId, userId));
   }
 
+  /** What the private-mail clean-up needs to judge a person's stored emails (bodies cut short). */
+  async getEmailsForPrivateCheck(userId: string): Promise<{
+    id: string; gmailId: string; fromEmail: string; fromName: string | null; subject: string; content: string | null; subscriptionId: string | null;
+  }[]> {
+    return this.db
+      .select({
+        id: emails.id,
+        gmailId: emails.gmailId,
+        fromEmail: emails.fromEmail,
+        fromName: emails.fromName,
+        subject: emails.subject,
+        content: sql<string | null>`left(${emails.content}, 1500)`,
+        subscriptionId: emails.subscriptionId,
+      })
+      .from(emails)
+      .where(eq(emails.userId, userId));
+  }
+
+  /** A person's suggestions in any state, names only. */
+  async getSuggestionNamesForPrivateCheck(userId: string): Promise<{ id: string; serviceName: string; merchantName: string | null; category: string | null }[]> {
+    return this.db
+      .select({
+        id: subscriptionSuggestions.id,
+        serviceName: subscriptionSuggestions.serviceName,
+        merchantName: subscriptionSuggestions.merchantName,
+        category: subscriptionSuggestions.category,
+      })
+      .from(subscriptionSuggestions)
+      .where(eq(subscriptionSuggestions.userId, userId));
+  }
+
+  /** Deletes these suggestions of this person. */
+  async deleteSuggestionsByIds(userId: string, ids: string[]): Promise<number> {
+    let removed = 0;
+    for (let i = 0; i < ids.length; i += 500) {
+      const gone = await this.db
+        .delete(subscriptionSuggestions)
+        .where(and(eq(subscriptionSuggestions.userId, userId), inArray(subscriptionSuggestions.id, ids.slice(i, i + 500))))
+        .returning({ id: subscriptionSuggestions.id });
+      removed += gone.length;
+    }
+    return removed;
+  }
+
   /** This person's payments that point at any of these emails. */
   async getPaymentsForEmailIds(userId: string, emailIds: string[]): Promise<Payment[]> {
     const out: Payment[] = [];

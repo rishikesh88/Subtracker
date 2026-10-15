@@ -1,3 +1,4 @@
+import { gmailPrivateExclusions } from "../lib/privateMail";
 import { google } from 'googleapis';
 import { PDFParse } from 'pdf-parse';
 import { ObjectStorageService } from '../objectStorage';
@@ -130,7 +131,7 @@ export class GmailService {
     const emailSyncDays = Math.min(Math.max(days, 1), 180);
     
     // Fetch ALL emails from the time period - let AI do the filtering
-    const query = `newer_than:${emailSyncDays}d`;
+    const query = `newer_than:${emailSyncDays}d ${gmailPrivateExclusions()}`;
     
     console.log(`🔍 Gmail API: Fetching ALL emails from past ${emailSyncDays} days (no email cap)`);
     console.log(`📧 Query: ${query}`);
@@ -252,7 +253,7 @@ export class GmailService {
 
     const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
     const emailSyncDays = Math.min(Math.max(days, 1), 180);
-    const query = `newer_than:${emailSyncDays}d`;
+    const query = `newer_than:${emailSyncDays}d ${gmailPrivateExclusions()}`;
     
     console.log(`🔍 Phase 1: Fetching lightweight email metadata from past ${emailSyncDays} days (no email cap)`);
 

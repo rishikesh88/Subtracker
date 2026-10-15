@@ -36,6 +36,7 @@ import {
 import type { InsertPayment, Subscription, Payment } from "@shared/schema";
 import { historyDetails, historyLabel } from "../lib/historySearchRules";
 import { fingerprintSecret, planBankCleanup, storedFilePaths } from "../lib/bankAlert";
+import { planPrivateCleanup, type PrivateKind } from "../lib/privateMail";
 import { ObjectStorageService } from "../objectStorage";
 import { planDuplicateInvoiceRemoval } from "../lib/invoiceDuplicates";
 import { userPaymentView, historyState, reviewReason, type UserPayment } from "../lib/statusView";
@@ -384,6 +385,73 @@ export async function removeStoredBankEmails(userId: string): Promise<BankCleanu
   result.emails = removed.emails;
   result.payments = removed.payments;
   await recomputeForUser(userId);
+  return result;
+}
+
+export interface PrivateCleanupResult {
+  subscriptions: number;
+  suggestions: number;
+  emails: number;
+  payments: number;
+  files: number;
+  fileFailures: number;
+  byKind: Partial<Record<PrivateKind, number>>;
+}
+
+/**
+ * Admin-run clean-up of what a person's stored data holds that the sync no
+ * longer keeps: insurance, health, loan and investment subscriptions,
+ * suggestions and emails, and Verloq's own mail (see privateMail.ts).
+ * With apply false it only counts. Runs for anyone, whatever their switches.
+ *
+ *  a. private subscriptions are deleted with their invoices, files and payments;
+ *  b. private suggestions are deleted;
+ *  c. the files named in private emails are deleted, then the notes on any
+ *     suggestion that cited them, then the emails and their payments.
+ */
+export async function removePrivateMail(userId: string, apply: boolean): Promise<PrivateCleanupResult> {
+  const [subscriptions, suggestions, emails] = await Promise.all([
+    storage.getSubscriptions(userId),
+    storage.getSuggestionNamesForPrivateCheck(userId),
+    storage.getEmailsForPrivateCheck(userId),
+  ]);
+  const plan = planPrivateCleanup({ subscriptions, suggestions, emails });
+  const result: PrivateCleanupResult = {
+    subscriptions: plan.subscriptionIds.length,
+    suggestions: plan.suggestionIds.length,
+    emails: plan.emailIds.length,
+    payments: 0,
+    files: 0,
+    fileFailures: 0,
+    byKind: plan.byKind,
+  };
+  if (!apply) return result;
+
+  for (const id of plan.subscriptionIds) await storage.deleteSubscription(id);
+  result.suggestions = await storage.deleteSuggestionsByIds(userId, plan.suggestionIds);
+
+  const paths = new Set<string>();
+  await storage.forEachAttachmentData(userId, plan.emailIds, (data) => {
+    for (const path of storedFilePaths(data)) paths.add(path);
+  });
+  const objectStorage = new ObjectStorageService();
+  const deleted: string[] = [];
+  for (const path of Array.from(paths)) {
+    try {
+      await objectStorage.deleteObjectEntity(path);
+      deleted.push(path);
+    } catch (error) {
+      result.fileFailures++;
+      console.error("[Admin] Could not delete a stored file (non-fatal):", (error as Error).message);
+    }
+  }
+  result.files = deleted.length;
+  await storage.deleteInvoicesByFileUrls(userId, deleted);
+  await storage.clearSuggestionsCiting(userId, plan.messageIds);
+  const removed = await storage.deleteEmailsWithPayments(userId, plan.emailIds);
+  result.emails = removed.emails;
+  result.payments = removed.payments;
+  if (await statusEnabledFor(userId)) await recomputeForUser(userId);
   return result;
 }
 

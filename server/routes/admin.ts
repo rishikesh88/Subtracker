@@ -47,7 +47,7 @@ import {
   isValidFeatureKey,
   normaliseTags,
 } from "../lib/featureFlags";
-import { STATUS_FEATURE, statusRowsForAdmin, statusEnabledFor, rereadStoredPayments, removeStoredCreditCardEmails, removeStoredBankEmails, removeDuplicateInvoices, type DuplicateInvoiceResult } from "../services/subscriptionStatus";
+import { STATUS_FEATURE, statusRowsForAdmin, statusEnabledFor, rereadStoredPayments, removeStoredCreditCardEmails, removeStoredBankEmails, removeDuplicateInvoices, removePrivateMail, type DuplicateInvoiceResult } from "../services/subscriptionStatus";
 import { queueAllForUser, queueHistorySearch } from "../services/historySearch";
 import { renewalChecksEnabled } from "../lib/renewalChecks";
 
@@ -692,6 +692,52 @@ export function registerAdminRoutes(app: Express): void {
     } catch (error) {
       console.error("[Admin] Failed to remove bank emails:", error);
       res.status(500).json({ message: error instanceof Error && /fingerprint secret/.test(error.message) ? error.message : "Could not remove those emails." });
+    }
+  });
+
+  // Private mail (insurance, health, loans, investments, Verloq's own): what
+  // each person's stored data still holds. Counts only, nothing is changed.
+  app.get("/admin/api/private-mail", requireAdmin, async (_req, res) => {
+    try {
+      const users = await storage.listUsersForAdmin();
+      const people: any[] = [];
+      for (const u of users as any[]) {
+        const r = await removePrivateMail(u.id, false);
+        if (r.subscriptions + r.suggestions + r.emails > 0) people.push({ id: u.id, email: u.email, ...r });
+      }
+      res.json({ checked: users.length, people });
+    } catch (error) {
+      console.error("[Admin] Private mail check failed:", error);
+      res.status(500).json({ message: "Could not check stored mail." });
+    }
+  });
+
+  // Deletes it, for one person or everyone the check finds. Never runs by itself.
+  app.post("/admin/api/private-mail/remove", requireAdmin, requireAdminCsrf, async (req, res) => {
+    try {
+      const only = typeof req.body?.userId === "string" ? req.body.userId : null;
+      const users = only ? [await storage.getUser(only)].filter(Boolean) : await storage.listUsersForAdmin();
+      const total = { people: 0, subscriptions: 0, suggestions: 0, emails: 0, payments: 0, files: 0, fileFailures: 0 };
+      for (const u of users as any[]) {
+        const found = await removePrivateMail(u.id, false);
+        if (found.subscriptions + found.suggestions + found.emails === 0) continue;
+        const r = await removePrivateMail(u.id, true);
+        total.people++;
+        total.subscriptions += r.subscriptions; total.suggestions += r.suggestions; total.emails += r.emails;
+        total.payments += r.payments; total.files += r.files; total.fileFailures += r.fileFailures;
+      }
+      console.log(`[Admin] Private mail removed: ${JSON.stringify(total)}`);
+      const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+      res.json({
+        ...total,
+        message:
+          `Removed for ${plural(total.people, "person")}: ${plural(total.subscriptions, "subscription")}, ${plural(total.suggestions, "suggestion")}, ` +
+          `${plural(total.emails, "email")}, ${plural(total.payments, "payment")} and ${plural(total.files, "file")}` +
+          (total.fileFailures ? ` (${total.fileFailures} could not be deleted)` : "") + ".",
+      });
+    } catch (error) {
+      console.error("[Admin] Private mail removal failed:", error);
+      res.status(500).json({ message: "Could not remove the private mail." });
     }
   });
 
