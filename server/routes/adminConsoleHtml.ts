@@ -714,6 +714,7 @@ ${head("Verloq Admin")}
   var overview = null;
   // The daily renewal checks' last run (null until loaded, or if it could not be).
   var bgChecks = null;
+  var privateCheck = null;
   var detailCache = {};
   var filter = "";
   var pending = null;
@@ -1027,6 +1028,74 @@ ${head("Verloq Admin")}
     return card;
   }
 
+  var KIND_LABELS = { own: "Verloq's own", insurance: "insurance", health: "health", loans: "loans", investments: "investments" };
+
+  /** Stored insurance, health, loan and investment mail: check (counts only), then remove on confirm. */
+  function buildPrivateMail() {
+    var card = el("div", "card");
+    var header = el("div", "card-header");
+    header.appendChild(el("strong", "", "Private mail"));
+    card.appendChild(header);
+    var body = el("div", "stack");
+    body.style.padding = "1rem 1.25rem";
+    body.style.gap = "0.75rem";
+    body.appendChild(el("div", "cell-sub",
+      "Insurance, health, loan and investment mail, and Verloq's own, is no longer read by the sync. " +
+      "Check what is still stored from before: counts only, nothing is shown or changed."));
+    var bar = el("div", "person-actions");
+    var check = el("button", "btn btn-outline btn-sm", privateCheck ? "Check again" : "Check stored mail");
+    check.type = "button";
+    check.addEventListener("click", function () {
+      check.disabled = true;
+      apiGet("/admin/api/private-mail").then(function (data) { privateCheck = data; renderView(); })
+        .catch(function (e) { check.disabled = false; showStatus((e && e.message) || "Could not check.", true); });
+    });
+    bar.appendChild(check);
+    if (privateCheck && privateCheck.people.length > 0) {
+      var remove = el("button", "btn btn-destructive btn-sm", "Remove it for everyone listed");
+      remove.type = "button";
+      remove.addEventListener("click", function () {
+        askChoice({
+          title: "Remove stored private mail?",
+          message: "For the " + privateCheck.people.length + " people listed, deletes the insurance, health, loan and investment " +
+            "subscriptions and suggestions, the matching stored emails and their files, and Verloq's own emails. This cannot be undone.",
+          confirmLabel: "Remove",
+          destructive: true,
+          run: function () {
+            return apiPost("/admin/api/private-mail/remove", {}).then(function (result) {
+              showStatus(result.message || "Done.", false);
+              privateCheck = null;
+              return load(true);
+            });
+          }
+        });
+      });
+      bar.appendChild(remove);
+    }
+    body.appendChild(bar);
+    if (privateCheck) {
+      if (privateCheck.people.length === 0) {
+        body.appendChild(el("div", "cell-sub", "Nothing found across " + privateCheck.checked + " people."));
+      } else {
+        var table = el("table", "table");
+        var head = el("tr");
+        ["Person", "Subscriptions", "Suggestions", "Emails", "Kinds"].forEach(function (h) { head.appendChild(el("th", "", h)); });
+        var thead = el("thead"); thead.appendChild(head); table.appendChild(thead);
+        var tbody = el("tbody");
+        privateCheck.people.forEach(function (p) {
+          var tr = el("tr");
+          var kinds = Object.keys(p.byKind || {}).map(function (k) { return (KIND_LABELS[k] || k) + " " + p.byKind[k]; }).join(", ");
+          [p.email, String(p.subscriptions), String(p.suggestions), String(p.emails), kinds].forEach(function (v) { tr.appendChild(el("td", "", v)); });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        body.appendChild(table);
+      }
+    }
+    card.appendChild(body);
+    return card;
+  }
+
   function matches(user) {
     if (!filter) return true;
     var hay = [user.first_name, user.last_name, user.email, user.organization_name]
@@ -1093,6 +1162,7 @@ ${head("Verloq Admin")}
 
     root.appendChild(buildStats(overview.health));
     if (bgChecks) root.appendChild(buildBackgroundChecks(bgChecks));
+    root.appendChild(buildPrivateMail());
 
     var users = (overview.users || []).filter(matches);
 

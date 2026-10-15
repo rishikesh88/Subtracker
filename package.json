@@ -34,7 +34,8 @@
     "test:invoices": "tsx server/lib/invoiceDuplicates.test.ts",
     "test:documents": "tsx client/src/lib/documentKind.test.ts",
     "test:renewal": "tsx server/lib/renewalChecks.test.ts",
-    "test:shared-sender": "tsx server/lib/sharedSender.test.ts"
+    "test:shared-sender": "tsx server/lib/sharedSender.test.ts",
+    "test:private": "tsx server/lib/privateMail.test.ts"
   },
   "engines": {
     "node": "22.x"

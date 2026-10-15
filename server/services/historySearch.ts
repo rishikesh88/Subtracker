@@ -30,6 +30,7 @@
 import { storage, type PaymentSourceEmail } from "../storage";
 import { GmailService } from "./gmail";
 import { OutlookService } from "./outlook";
+import { privateSubscriptionKind } from "../lib/privateMail";
 import { EmailParser } from "./emailParser";
 import { storeInvoiceAttachment } from "../lib/invoiceAttachment";
 import { mapWithConcurrency } from "../lib/concurrency";
@@ -448,6 +449,11 @@ async function searchSubscription(
   now: Date,
   window?: WindowOptions,
 ): Promise<Outcome> {
+  // Insurance, health, loans, investments and Verloq itself are never searched.
+  if (privateSubscriptionKind(sub) !== null) {
+    console.log(`${LOG} "${sub.serviceName}": not searched (private)`);
+    return { searchedSince: null, note: "private", ...NOT_SEARCHED };
+  }
   const [linked, remembered] = await Promise.all([
     storage.getLinkedSenders(userId, sub.id),
     storage.getRememberedNames(userId, sub.id),
