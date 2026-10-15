@@ -28,7 +28,11 @@
  * Everything here is pure, so it is tested by server/lib/privateMail.test.ts.
  */
 
+import { isServiceWorkSubscription, serviceInvoiceKind } from "./serviceInvoice";
+
 export type PrivateKind = "own" | "insurance" | "health" | "loans" | "investments";
+/** In the clean-up only: invoices for people's work (see serviceInvoice.ts). */
+export type CleanupKind = PrivateKind | "services";
 
 export interface MailFacts {
   sender?: string | null;
@@ -245,7 +249,7 @@ export interface PrivateCleanupPlan {
   emailIds: string[];
   /** Their provider message ids (for clearing suggestions that cite them). */
   messageIds: string[];
-  byKind: Partial<Record<PrivateKind, number>>;
+  byKind: Partial<Record<CleanupKind, number>>;
 }
 
 /**
@@ -254,23 +258,25 @@ export interface PrivateCleanupPlan {
  * under a private subscription. Counts only; nothing is read out.
  */
 export function planPrivateCleanup(input: PrivateCleanupInput): PrivateCleanupPlan {
-  const byKind: Partial<Record<PrivateKind, number>> = {};
-  const note = (k: PrivateKind) => { byKind[k] = (byKind[k] ?? 0) + 1; };
+  const byKind: Partial<Record<CleanupKind, number>> = {};
+  const note = (k: CleanupKind) => { byKind[k] = (byKind[k] ?? 0) + 1; };
   const subscriptionIds: string[] = [];
   for (const s of input.subscriptions) {
-    const kind = privateSubscriptionKind(s);
+    const kind: CleanupKind | null = privateSubscriptionKind(s) ?? (isServiceWorkSubscription(s) ? "services" : null);
     if (kind) { subscriptionIds.push(s.id); note(kind); }
   }
   const suggestionIds: string[] = [];
   for (const s of input.suggestions) {
-    const kind = privateSubscriptionKind(s);
+    const kind: CleanupKind | null = privateSubscriptionKind(s) ?? (isServiceWorkSubscription(s) ? "services" : null);
     if (kind) { suggestionIds.push(s.id); note(kind); }
   }
   const privateSubs = new Set(subscriptionIds);
   const emailIds: string[] = [];
   const messageIds: string[] = [];
   for (const e of input.emails) {
-    const kind = privateKind({ sender: e.fromEmail, fromName: e.fromName, subject: e.subject, snippet: (e.content ?? "").slice(0, 1500) });
+    const kind: CleanupKind | null =
+      privateKind({ sender: e.fromEmail, fromName: e.fromName, subject: e.subject, snippet: (e.content ?? "").slice(0, 1500) }) ??
+      (serviceInvoiceKind({ sender: e.fromEmail, fromName: e.fromName, subject: e.subject, text: e.content }) ? "services" : null);
     const underPrivate = e.subscriptionId ? privateSubs.has(e.subscriptionId) : false;
     if (kind || underPrivate) {
       emailIds.push(e.id);

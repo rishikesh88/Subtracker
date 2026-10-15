@@ -117,6 +117,17 @@ check("private subscriptions (a city name alone is not)", cleanup.subscriptionId
 check("private suggestions", cleanup.suggestionIds, ["g1", "g3"]);
 check("private emails, and any filed under a private subscription", cleanup.emailIds, ["e2", "e3", "e4"]);
 check("their message ids", cleanup.messageIds, ["m2", "m3", "m4"]);
+const services = planPrivateCleanup({
+  subscriptions: [{ id: "s1", serviceName: "Acme Consulting", category: "Consulting" }, { id: "s2", serviceName: "Zoho One", category: "Productivity", merchantEmail: "billing@zoho.com" }],
+  suggestions: [{ id: "g1", serviceName: "Brightside Studio", category: "Professional Services" }],
+  emails: [
+    { id: "e1", gmailId: "m1", fromEmail: "noreply@zohoinvoice.com", subject: "Invoice INV-1 from Acme Consulting", content: "Amount due INR 85,000" },
+    { id: "e2", gmailId: "m2", fromEmail: "billing@zoho.com", subject: "Payment receipt", content: "Your Zoho One subscription renewed" },
+  ],
+});
+check("consultant subscriptions and suggestions, not Zoho's own", [services.subscriptionIds, services.suggestionIds], [["s1"], ["g1"]]);
+check("a consultant's invoice email, not Zoho's own receipt", services.emailIds, ["e1"]);
+check("counted as services", services.byKind, { services: 3 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

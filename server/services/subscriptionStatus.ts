@@ -36,7 +36,7 @@ import {
 import type { InsertPayment, Subscription, Payment } from "@shared/schema";
 import { historyDetails, historyLabel } from "../lib/historySearchRules";
 import { fingerprintSecret, planBankCleanup, storedFilePaths } from "../lib/bankAlert";
-import { planPrivateCleanup, type PrivateKind } from "../lib/privateMail";
+import { planPrivateCleanup, type CleanupKind } from "../lib/privateMail";
 import { ObjectStorageService } from "../objectStorage";
 import { planDuplicateInvoiceRemoval } from "../lib/invoiceDuplicates";
 import { userPaymentView, historyState, reviewReason, type UserPayment } from "../lib/statusView";
@@ -395,13 +395,14 @@ export interface PrivateCleanupResult {
   payments: number;
   files: number;
   fileFailures: number;
-  byKind: Partial<Record<PrivateKind, number>>;
+  byKind: Partial<Record<CleanupKind, number>>;
 }
 
 /**
  * Admin-run clean-up of what a person's stored data holds that the sync no
  * longer keeps: insurance, health, loan and investment subscriptions,
- * suggestions and emails, and Verloq's own mail (see privateMail.ts).
+ * suggestions and emails, Verloq's own mail (see privateMail.ts), and
+ * invoices for people's work such as consultants and agencies (serviceInvoice.ts).
  * With apply false it only counts. Runs for anyone, whatever their switches.
  *
  *  a. private subscriptions are deleted with their invoices, files and payments;
