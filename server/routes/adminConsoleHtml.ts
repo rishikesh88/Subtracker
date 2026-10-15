@@ -1028,7 +1028,7 @@ ${head("Verloq Admin")}
     return card;
   }
 
-  var KIND_LABELS = { own: "Verloq's own", insurance: "insurance", health: "health", loans: "loans", investments: "investments" };
+  var KIND_LABELS = { own: "Verloq's own", insurance: "insurance", health: "health", loans: "loans", investments: "investments", services: "consultant/agency invoices" };
 
   /** Stored insurance, health, loan and investment mail: check (counts only), then remove on confirm. */
   function buildPrivateMail() {
@@ -1040,7 +1040,7 @@ ${head("Verloq Admin")}
     body.style.padding = "1rem 1.25rem";
     body.style.gap = "0.75rem";
     body.appendChild(el("div", "cell-sub",
-      "Insurance, health, loan and investment mail, and Verloq's own, is no longer read by the sync. " +
+      "Insurance, health, loan and investment mail, Verloq's own, and consultant or agency invoices are no longer read by the sync. " +
       "Check what is still stored from before: counts only, nothing is shown or changed."));
     var bar = el("div", "person-actions");
     var check = el("button", "btn btn-outline btn-sm", privateCheck ? "Check again" : "Check stored mail");
@@ -1058,7 +1058,7 @@ ${head("Verloq Admin")}
         askChoice({
           title: "Remove stored private mail?",
           message: "For the " + privateCheck.people.length + " people listed, deletes the insurance, health, loan and investment " +
-            "subscriptions and suggestions, the matching stored emails and their files, and Verloq's own emails. This cannot be undone.",
+            "subscriptions and suggestions, consultant and agency invoices, the matching stored emails and their files, and Verloq's own emails. This cannot be undone.",
           confirmLabel: "Remove",
           destructive: true,
           run: function () {

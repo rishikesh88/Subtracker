@@ -570,6 +570,7 @@ const key = `${merchantName.toLowerCase()}_${currency}_${Math.round(amount)}`;
 
 | Version | Date | Changes | Approved By |
 |---------|------|---------|-------------|
+| 1.0.5 | 2026-10-15 | Scope: one `OUT OF SCOPE` paragraph added to the deep-analysis system prompt (always sent) and one line to the pre-filter prompt: recurring invoices for people's work (consultants, freelancers, agencies, contractors, retainers, salaries, rent) are not subscriptions, whoever sends them; software billed through an invoicing tool still is. No schema, model, chunk size or fallback change. | User |
 | 1.0.4 | 2026-10-02 | Type only: the return type of `convertSuggestionsToSubscriptions` is now a partial subscription (it never returned full rows, and nothing calls it). No runtime change. | User |
 | 1.0.3 | 2026-10-01 | Logging only: the AI's raw reply (and JSON parse error details) are no longer written to the server logs, only their length, so a reply that quotes a bank alert is never logged. No prompt, schema, chunk size or fallback behaviour changed. | User |
 | 1.0.2 | 2026-09-29 | Deep analysis: added optional `cancelledOn` / `accessEndsOn` to the response schema and one `CANCELLATION (optional)` paragraph to the system prompt, for the subscription status feature. Additive only. | User |

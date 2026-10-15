@@ -13,6 +13,7 @@
  *  - The merchant was simply the sender of the newest evidence email, which
  *    for Claude Pro was the card issuer's transaction alert.
  */
+import { INVOICING_SENDER_DOMAINS } from "./serviceInvoice";
 import { brandTokens } from "./brandTokens";
 import { looksLikeBill } from "./billingEmail";
 
@@ -119,6 +120,8 @@ export const PROCESSORS = [
   "braintreepayments.com", "paddle.com", "chargebee.com", "recurly.com", "fastspring.com",
   "2checkout.com", "squareup.com", "gocardless.com", "adyen.com", "instamojo.com",
   "cashfree.com", "phonepe.com", "paytm.com",
+  // Invoicing tools: they send other businesses' invoices.
+  ...INVOICING_SENDER_DOMAINS,
 ];
 
 /**

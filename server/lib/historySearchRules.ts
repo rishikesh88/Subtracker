@@ -20,6 +20,7 @@ import { isIntermediary } from "./evidence";
 import { brandTokens } from "./brandTokens";
 import { classifyPaymentEmail, isCreditCardBill, parseLooseDay } from "./statusRules";
 import { privateKind } from "./privateMail";
+import { serviceInvoiceKind, INVOICING_SENDER_DOMAINS } from "./serviceInvoice";
 
 /** How far back the search reaches. */
 export const HISTORY_DAYS = 365;
@@ -453,11 +454,14 @@ export function keepEmail(
   },
   plan: SenderPlan,
   serviceName: Clues,
-): { keep: true } | { keep: false; why: "other_sender" | "no_keyword" | "not_named" | "wrong_currency" | "credit_card" | "private" } {
+): { keep: true } | { keep: false; why: "other_sender" | "no_keyword" | "not_named" | "wrong_currency" | "credit_card" | "private" | "invoicing_tool" | "service_work" } {
   // Credit card bills are never read or stored: not the email, its PDFs or a payment.
   if (isCreditCardBill({ subject: email.subject, content: email.text })) return { keep: false, why: "credit_card" };
   // Insurance, health, loans and investments are never stored (see privateMail.ts).
   if (isPrivate(email)) return { keep: false, why: "private" };
+  // Invoices for people's work (consultants, agencies ...) are out of scope (see serviceInvoice.ts).
+  const service = serviceInvoiceKind({ sender: email.fromEmail, fromName: email.fromName, subject: email.subject, text: email.text });
+  if (service) return { keep: false, why: service };
   if (plan.byName) return keepEmailByName(email, plan.byName);
   const domain = registrableDomain(domainOf(email.fromEmail));
   const owned = plan.owned.includes(domain);
@@ -471,7 +475,8 @@ export function keepEmail(
 }
 
 /** Payment processors whose receipts carry the merchant's name rather than their own. */
-const PROCESSOR_SENDERS = ["stripe.com", "paddle.com", "chargebee.com", "recurly.com", "fastspring.com", "2checkout.com", "gocardless.com"];
+// Invoicing tools too: their mail carries the sender's name, never a brand of their own.
+const PROCESSOR_SENDERS = ["stripe.com", "paddle.com", "chargebee.com", "recurly.com", "fastspring.com", "2checkout.com", "gocardless.com", ...INVOICING_SENDER_DOMAINS];
 
 export function isProcessorSender(address: string | null | undefined): boolean {
   const domain = domainOf(address);
@@ -503,9 +508,11 @@ export function keepEmailByName(
     currency?: string | null;
   },
   byName: { clues: string[]; bodyClues: string[]; currency: string },
-): { keep: true } | { keep: false; why: "other_sender" | "no_keyword" | "not_named" | "wrong_currency" | "credit_card" | "private" } {
+): { keep: true } | { keep: false; why: "other_sender" | "no_keyword" | "not_named" | "wrong_currency" | "credit_card" | "private" | "invoicing_tool" | "service_work" } {
   if (isCreditCardBill({ subject: email.subject, content: email.text })) return { keep: false, why: "credit_card" };
   if (isPrivate(email)) return { keep: false, why: "private" };
+  const service = serviceInvoiceKind({ sender: email.fromEmail, fromName: email.fromName, subject: email.subject, text: email.text });
+  if (service) return { keep: false, why: service };
   if (!matchesKeywords(email.subject, email.text)) return { keep: false, why: "no_keyword" };
   const processor = isProcessorSender(email.fromEmail);
   if (isIntermediary(email.fromEmail) && !processor) return { keep: false, why: "other_sender" };

@@ -71,6 +71,15 @@ interface SubscriptionSuggestion {
 }
 
 /**
+ * Always sent. Approved 2026-10-15: recurring invoices for people's work are
+ * out of scope, whatever tool sends them; software billed through an
+ * invoicing tool is still a subscription.
+ */
+const SCOPE_INSTRUCTION = `OUT OF SCOPE: An invoice for people's work is NOT a subscription, even when it repeats every month for the same amount: consultants, freelancers, agencies, contractors, retainers, timesheets or hours billed, professional fees, salaries, rent. This holds whoever sends it, including invoicing tools such as Zoho Invoice, Zoho Books, QuickBooks, Xero or FreshBooks. Software billed through one of those tools (a plan, seats, licences, a subscription) IS still a subscription.
+
+`;
+
+/**
  * Sent only when the subscription status switch is on for the user (see
  * analyzeEmailsForSubscriptions' options). Approved 2026-09-29.
  */
@@ -141,6 +150,8 @@ Examples to INCLUDE:
 - "Your Netflix subscription has been renewed"
 
 Be CONSERVATIVE - only include emails with strong subscription indicators.
+
+Do NOT include invoices for people's work, even when they repeat every month: consultants, freelancers, agencies, contractors, retainers, timesheets or hours billed, professional fees, salaries, rent.
 
 CRITICAL OUTPUT FORMAT REQUIREMENT:
 You MUST respond with ONLY a valid JSON object in this exact format:
@@ -471,7 +482,7 @@ CRITICAL EXAMPLES TO DETECT:
 ✅ "Confirm your $23.60 payment to Anthropic, PBC" → DETECT as Claude, amount 23.60, currency USD
    (a "GST - India (18%)" line in that same invoice does NOT make it INR)
 
-${cancellation ? CANCELLATION_INSTRUCTION : ''}IMPORTANT: Include renewal reminders AND completed transactions. Amount can appear ANYWHERE in the email - extract carefully from subject, body, or snippet.`;
+${SCOPE_INSTRUCTION}${cancellation ? CANCELLATION_INSTRUCTION : ''}IMPORTANT: Include renewal reminders AND completed transactions. Amount can appear ANYWHERE in the email - extract carefully from subject, body, or snippet.`;
 
     const response = await withRetry(() => this.ai.models.generateContent({
       model: "gemini-2.5-flash",

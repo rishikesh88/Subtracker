@@ -15,6 +15,7 @@ import { refreshRates } from "../lib/exchangeRates";
 import { pickEvidence } from "../lib/evidence";
 import { splitBankMail } from "../lib/bankAlert";
 import { splitPrivateMail, privateKind, privateSubscriptionKind } from "../lib/privateMail";
+import { serviceInvoiceKind, isServiceWorkSubscription } from "../lib/serviceInvoice";
 import { sendSyncSummaryEmail } from "../services/syncSummaryEmail";
 import { APP_BASE_URL } from "../config";
 import {
@@ -220,7 +221,11 @@ type StageReporter = (
 /** The whole email, judged by privateMail.ts. Only the opening of the body is read. */
 function isPrivateEmail(fromEmail: any, fromName: any, subject: any, body: any): boolean {
   const text = typeof body === 'string' ? body.slice(0, 1500) : '';
-  return privateKind({ sender: fromEmail, fromName, subject, snippet: text }) !== null;
+  return (
+    privateKind({ sender: fromEmail, fromName, subject, snippet: text }) !== null ||
+    // Out of scope, judged with the whole email: invoices for people's work.
+    serviceInvoiceKind({ sender: fromEmail, fromName, subject, text: typeof body === 'string' ? body.slice(0, 4000) : '' }) !== null
+  );
 }
 
 /**
@@ -235,6 +240,7 @@ async function dropPrivateSuggestions(userId: string, geminiResults: { subscript
   };
   const isPrivate = (s: any) =>
     privateSubscriptionKind({ serviceName: s.serviceName, merchantName: s.merchantName, category: s.category }) !== null ||
+    isServiceWorkSubscription({ serviceName: s.serviceName, merchantName: s.merchantName, category: s.category }) ||
     bySender(s).some((e) => isPrivateEmail(e.fromEmail, e.fromName, e.subject, e.content));
   const dropped = geminiResults.subscriptions.filter(isPrivate);
   if (dropped.length === 0) return;
@@ -251,7 +257,7 @@ async function dropPrivateSuggestions(userId: string, geminiResults: { subscript
   }
   const gone = new Set(doomedIds);
   savedEmails.splice(0, savedEmails.length, ...savedEmails.filter((e) => !gone.has(e.id)));
-  console.log(`🔒 ${dropped.length} private suggestion(s) dropped, ${doomedIds.length} email(s) deleted`);
+  console.log(`🔒 ${dropped.length} private or out-of-scope suggestion(s) dropped, ${doomedIds.length} email(s) deleted`);
 }
 
 export function registerGeminiRoutes(app: Express) {
@@ -451,7 +457,16 @@ export function registerGeminiRoutes(app: Express) {
       }));
       if (privateMail.length > 0) console.log(`🔒 ${privateMail.length} private emails kept out of the sync`);
 
-      const detectionResults = transactionDetector.filterCandidates(shareableMetadata);
+      // Out of scope: invoices for people's work (consultants, agencies ...).
+      // From the preview only the clear cases go; an invoicing tool's email is
+      // read in full and judged again below, so software billed through one is kept.
+      const inScopeMetadata = shareableMetadata.filter((m) =>
+        serviceInvoiceKind({ sender: m.fromEmail, fromName: m.fromName, subject: m.subject, text: m.snippet }, { previewOnly: true }) === null);
+      if (inScopeMetadata.length < shareableMetadata.length) {
+        console.log(`🧾 ${shareableMetadata.length - inScopeMetadata.length} service invoices (consultants, agencies) left out`);
+      }
+
+      const detectionResults = transactionDetector.filterCandidates(inScopeMetadata);
       
       console.log(`\n📊 Phase 1 Detection Results:`);
       console.log(`   ✅ High confidence: ${detectionResults.stats.high}`);
@@ -527,7 +542,7 @@ export function registerGeminiRoutes(app: Express) {
       // not give away is still dropped before it is stored or sent to a model.
       const privateParsed = parsedEmails.filter((e: any) => isPrivateEmail(e.fromEmail, e.fromName, e.subject, e.content));
       if (privateParsed.length > 0) {
-        console.log(`🔒 ${privateParsed.length} private emails dropped after reading`);
+        console.log(`🔒 ${privateParsed.length} private or out-of-scope emails dropped after reading`);
         parsedEmails.splice(0, parsedEmails.length, ...parsedEmails.filter((e: any) => !privateParsed.includes(e)));
       }
 
@@ -861,7 +876,16 @@ export function registerGeminiRoutes(app: Express) {
       }));
       if (privateMail.length > 0) console.log(`🔒 ${privateMail.length} private emails kept out of the sync`);
 
-      const detectionResults = transactionDetector.filterCandidates(shareableMetadata);
+      // Out of scope: invoices for people's work (consultants, agencies ...).
+      // From the preview only the clear cases go; an invoicing tool's email is
+      // read in full and judged again below, so software billed through one is kept.
+      const inScopeMetadata = shareableMetadata.filter((m) =>
+        serviceInvoiceKind({ sender: m.fromEmail, fromName: m.fromName, subject: m.subject, text: m.snippet }, { previewOnly: true }) === null);
+      if (inScopeMetadata.length < shareableMetadata.length) {
+        console.log(`🧾 ${shareableMetadata.length - inScopeMetadata.length} service invoices (consultants, agencies) left out`);
+      }
+
+      const detectionResults = transactionDetector.filterCandidates(inScopeMetadata);
       
       console.log(`\n📊 Phase 1 Detection Results:`);
       console.log(`   ✅ High confidence: ${detectionResults.stats.high}`);
@@ -928,7 +952,7 @@ export function registerGeminiRoutes(app: Express) {
       // A second look with the whole email in hand (see the Gmail path).
       const shareableEmails = fullEmails.filter((e: any) => !isPrivateEmail(e.fromEmail, e.fromName, e.subject, e.body));
       if (shareableEmails.length < fullEmails.length) {
-        console.log(`🔒 ${fullEmails.length - shareableEmails.length} private emails dropped after reading`);
+        console.log(`🔒 ${fullEmails.length - shareableEmails.length} private or out-of-scope emails dropped after reading`);
       }
       
       // Phase 2b: Save emails to database with provider tags
